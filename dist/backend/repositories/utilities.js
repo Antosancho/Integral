@@ -1,0 +1,81 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.productInclude = void 0;
+exports.toDecimal = toDecimal;
+exports.normalizeRequiredString = normalizeRequiredString;
+exports.normalizeOptionalString = normalizeOptionalString;
+exports.ensureInteger = ensureInteger;
+exports.ensurePositiveInteger = ensurePositiveInteger;
+exports.ensureNonNegativeInteger = ensureNonNegativeInteger;
+exports.normalizeStockMovementType = normalizeStockMovementType;
+exports.normalizePagination = normalizePagination;
+const client_1 = require("@prisma/client");
+const stockMovementTypes = new Set(["IN", "SALE", "ADJUSTMENT"]);
+exports.productInclude = {
+    category: true,
+    supplier: true
+};
+// Normalizes price-like values so repositories can accept number/string/Decimal.
+function toDecimal(value) {
+    if (value instanceof client_1.Prisma.Decimal)
+        return value;
+    return new client_1.Prisma.Decimal(value);
+}
+// Trims and validates required text fields.
+function normalizeRequiredString(value, fieldName) {
+    const normalized = value.trim();
+    if (!normalized) {
+        throw new Error(`${fieldName} is required`);
+    }
+    return normalized;
+}
+// Converts empty strings to null while preserving undefined (no update semantics).
+function normalizeOptionalString(value) {
+    if (value === undefined)
+        return undefined;
+    if (value === null)
+        return null;
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : null;
+}
+function ensureInteger(value, fieldName) {
+    if (!Number.isInteger(value)) {
+        throw new Error(`${fieldName} must be an integer`);
+    }
+    return value;
+}
+function ensurePositiveInteger(value, fieldName) {
+    ensureInteger(value, fieldName);
+    if (value <= 0) {
+        throw new Error(`${fieldName} must be greater than 0`);
+    }
+    return value;
+}
+function ensureNonNegativeInteger(value, fieldName) {
+    ensureInteger(value, fieldName);
+    if (value < 0) {
+        throw new Error(`${fieldName} must be greater than or equal to 0`);
+    }
+    return value;
+}
+function normalizeStockMovementType(type) {
+    const normalized = type.toUpperCase();
+    if (!stockMovementTypes.has(normalized)) {
+        throw new Error(`Invalid stock movement type: ${type}`);
+    }
+    return normalized;
+}
+// Validates pagination inputs used by list endpoints.
+function normalizePagination(input) {
+    if (!input)
+        return {};
+    const output = {};
+    if (input.skip !== undefined) {
+        output.skip = ensureNonNegativeInteger(input.skip, "skip");
+    }
+    if (input.take !== undefined) {
+        output.take = ensurePositiveInteger(input.take, "take");
+    }
+    return output;
+}
+//# sourceMappingURL=utilities.js.map
