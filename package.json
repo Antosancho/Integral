@@ -1,0 +1,28 @@
+{
+  "name": "integral",
+  "version": "1.0.0",
+  "main": "dist/electron/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev:renderer": "cd renderer && npm run dev",
+    "dev:electron": "npm run build && electron .",
+    "prisma:generate": "npx prisma generate --schema backend/prisma/schema.prisma",
+    "prisma:migrate": "npx prisma migrate dev --schema backend/prisma/schema.prisma --name init_stock_schema",
+    "prisma:reset": "npx prisma migrate reset --force --schema backend/prisma/schema.prisma",
+    "prisma:studio": "npx prisma studio --schema backend/prisma/schema.prisma"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@types/node": "^25.2.2",
+    "electron": "^40.2.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "prisma": "^5.22.0"
+  }
+}

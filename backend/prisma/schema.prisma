@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Category {
+  id       Int       @id @default(autoincrement())
+  name     String    @unique
+  products Product[]
+}
+
+model Supplier {
+  id       Int       @id @default(autoincrement())
+  name     String
+  phone    String?
+  notes    String?
+  products Product[]
+}
+
+model Product {
+  id            Int              @id @default(autoincrement())
+  name          String
+  barcode       Int?             @unique
+  purchasePrice Decimal
+  salePrice     Decimal
+  stock         Int              @default(0)
+  minStock      Int              @default(0)
+  createdAt     DateTime         @default(now())
+  categoryId    Int
+  supplierId    Int
+
+  category      Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  supplier      Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  movements     StockMovement[]
+
+  @@index([categoryId])
+  @@index([supplierId])
+  @@index([barcode])
+}
+
+model StockMovement {
+  id        Int               @id @default(autoincrement())
+  productId Int
+  type      String            @default("IN")
+  quantity  Int
+  date      DateTime          @default(now())
+  notes     String?
+
+  product   Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([productId, date])
+}
