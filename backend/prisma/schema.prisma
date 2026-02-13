@@ -24,7 +24,7 @@ model Supplier {
 model Product {
   id            Int              @id @default(autoincrement())
   name          String
-  barcode       Int?             @unique
+  barcode       BigInt?          @unique
   purchasePrice Decimal
   salePrice     Decimal
   stock         Int              @default(0)

@@ -1,5 +1,6 @@
-import { app, BrowserWindow } from "electron"
+import { app, BrowserWindow, ipcMain } from "electron"
 import path from "path"
+import { registerIpcHandlers } from "./ipcHandlers"
 
 let mainWindow: BrowserWindow | null = null
 
@@ -17,8 +18,13 @@ function createWindow() {
 
   mainWindow.loadURL("http://localhost:5173")
 }
-
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  registerIpcHandlers(ipcMain)
+  createWindow()
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit()

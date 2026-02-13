@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.productInclude = void 0;
 exports.toDecimal = toDecimal;
+exports.toBigInt = toBigInt;
 exports.normalizeRequiredString = normalizeRequiredString;
 exports.normalizeOptionalString = normalizeOptionalString;
 exports.ensureInteger = ensureInteger;
@@ -20,6 +21,22 @@ function toDecimal(value) {
     if (value instanceof client_1.Prisma.Decimal)
         return value;
     return new client_1.Prisma.Decimal(value);
+}
+// Converts barcode input to bigint to match Prisma BigInt field.
+function toBigInt(value) {
+    if (typeof value === "bigint")
+        return value;
+    if (typeof value === "number") {
+        if (!Number.isInteger(value)) {
+            throw new Error("barcode must be an integer");
+        }
+        return BigInt(value);
+    }
+    const normalized = value.trim();
+    if (!/^-?\d+$/.test(normalized)) {
+        throw new Error("barcode must be a valid integer string");
+    }
+    return BigInt(normalized);
 }
 // Trims and validates required text fields.
 function normalizeRequiredString(value, fieldName) {

@@ -19,7 +19,7 @@ function buildProductWhere(filters) {
         return {};
     return {
         ...(filters.id !== undefined ? { id: filters.id } : {}),
-        ...(filters.barcode !== undefined ? { barcode: filters.barcode } : {}),
+        ...(filters.barcode !== undefined ? { barcode: (0, utilities_1.toBigInt)(filters.barcode) } : {}),
         ...(filters.categoryId !== undefined ? { categoryId: filters.categoryId } : {}),
         ...(filters.supplierId !== undefined ? { supplierId: filters.supplierId } : {}),
         ...(filters.nameContains
@@ -38,7 +38,7 @@ async function createProduct(data) {
             salePrice: (0, utilities_1.toDecimal)(data.salePrice),
             categoryId: data.categoryId,
             supplierId: data.supplierId,
-            barcode: data.barcode ?? null,
+            barcode: data.barcode !== undefined && data.barcode !== null ? (0, utilities_1.toBigInt)(data.barcode) : null,
             stock: (0, utilities_1.ensureNonNegativeInteger)(stock, "stock"),
             minStock: (0, utilities_1.ensureNonNegativeInteger)(minStock, "minStock")
         },
@@ -65,7 +65,7 @@ async function getProductById(id) {
 // Reads one product by unique barcode.
 async function getProductByBarcode(barcode) {
     return client_1.default.product.findUnique({
-        where: { barcode },
+        where: { barcode: (0, utilities_1.toBigInt)(barcode) },
         include: utilities_1.productInclude
     });
 }
@@ -77,7 +77,9 @@ async function updateProduct(id, data) {
         ...(data.salePrice !== undefined ? { salePrice: (0, utilities_1.toDecimal)(data.salePrice) } : {}),
         ...(data.categoryId !== undefined ? { category: { connect: { id: data.categoryId } } } : {}),
         ...(data.supplierId !== undefined ? { supplier: { connect: { id: data.supplierId } } } : {}),
-        ...(data.barcode !== undefined ? { barcode: data.barcode } : {}),
+        ...(data.barcode !== undefined
+            ? { barcode: data.barcode === null ? null : (0, utilities_1.toBigInt)(data.barcode) }
+            : {}),
         ...(data.stock !== undefined
             ? { stock: (0, utilities_1.ensureNonNegativeInteger)(data.stock, "stock") }
             : {}),

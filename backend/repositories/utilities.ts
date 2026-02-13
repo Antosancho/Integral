@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client"
 
 export type DecimalInput = Prisma.Decimal | number | string
+export type BarcodeInput = bigint | number | string
 export type StockMovementType = "IN" | "SALE" | "ADJUSTMENT"
 export type OptionalString = string | null | undefined
 
@@ -15,6 +16,23 @@ export const productInclude = {
 export function toDecimal(value: DecimalInput): Prisma.Decimal {
   if (value instanceof Prisma.Decimal) return value
   return new Prisma.Decimal(value)
+}
+
+// Converts barcode input to bigint to match Prisma BigInt field.
+export function toBigInt(value: BarcodeInput): bigint {
+  if (typeof value === "bigint") return value
+  if (typeof value === "number") {
+    if (!Number.isInteger(value)) {
+      throw new Error("barcode must be an integer")
+    }
+    return BigInt(value)
+  }
+
+  const normalized = value.trim()
+  if (!/^-?\d+$/.test(normalized)) {
+    throw new Error("barcode must be a valid integer string")
+  }
+  return BigInt(normalized)
 }
 
 // Trims and validates required text fields.
