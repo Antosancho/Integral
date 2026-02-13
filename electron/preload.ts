@@ -1,7 +1,9 @@
-import { contextBridge } from "electron"
+import { contextBridge, ipcRenderer } from "electron"
+import { buildElectronApi } from "./ipcContract"
 
-// Expose a minimal, safe API surface for the renderer.
-contextBridge.exposeInMainWorld("api", {
-  // add IPC methods here when needed
-})
+const api = Object.freeze(
+  buildElectronApi((channel, payload) => ipcRenderer.invoke(channel, payload))
+)
 
+// Expose only an immutable IPC API surface to the renderer.
+contextBridge.exposeInMainWorld("api", api)

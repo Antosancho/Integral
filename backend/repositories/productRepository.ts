@@ -1,12 +1,14 @@
 import { Prisma } from "@prisma/client"
 import prisma from "../db/client"
 import {
+  BarcodeInput,
   DecimalInput,
   PaginationInput,
   ensureNonNegativeInteger,
   normalizePagination,
   normalizeRequiredString,
   productInclude,
+  toBigInt,
   toDecimal
 } from "./utilities"
 
@@ -16,7 +18,7 @@ export interface CreateProductInput {
   salePrice: DecimalInput
   categoryId: number
   supplierId: number
-  barcode?: number | null
+  barcode?: BarcodeInput | null
   stock?: number
   minStock?: number
 }
@@ -27,14 +29,14 @@ export interface UpdateProductInput {
   salePrice?: DecimalInput
   categoryId?: number
   supplierId?: number
-  barcode?: number | null
+  barcode?: BarcodeInput | null
   stock?: number
   minStock?: number
 }
 
 export interface ProductFilters extends PaginationInput {
   id?: number
-  barcode?: number
+  barcode?: BarcodeInput
   categoryId?: number
   supplierId?: number
   nameContains?: string
@@ -46,7 +48,7 @@ function buildProductWhere(filters?: ProductFilters): Prisma.ProductWhereInput {
 
   return {
     ...(filters.id !== undefined ? { id: filters.id } : {}),
-    ...(filters.barcode !== undefined ? { barcode: filters.barcode } : {}),
+    ...(filters.barcode !== undefined ? { barcode: toBigInt(filters.barcode) } : {}),
     ...(filters.categoryId !== undefined ? { categoryId: filters.categoryId } : {}),
     ...(filters.supplierId !== undefined ? { supplierId: filters.supplierId } : {}),
     ...(filters.nameContains
@@ -67,7 +69,7 @@ export async function createProduct(data: CreateProductInput) {
       salePrice: toDecimal(data.salePrice),
       categoryId: data.categoryId,
       supplierId: data.supplierId,
-      barcode: data.barcode ?? null,
+      barcode: data.barcode !== undefined && data.barcode !== null ? toBigInt(data.barcode) : null,
       stock: ensureNonNegativeInteger(stock, "stock"),
       minStock: ensureNonNegativeInteger(minStock, "minStock")
     },
@@ -96,9 +98,9 @@ export async function getProductById(id: number) {
 }
 
 // Reads one product by unique barcode.
-export async function getProductByBarcode(barcode: number) {
+export async function getProductByBarcode(barcode: BarcodeInput) {
   return prisma.product.findUnique({
-    where: { barcode },
+    where: { barcode: toBigInt(barcode) },
     include: productInclude
   })
 }
@@ -111,7 +113,9 @@ export async function updateProduct(id: number, data: UpdateProductInput) {
     ...(data.salePrice !== undefined ? { salePrice: toDecimal(data.salePrice) } : {}),
     ...(data.categoryId !== undefined ? { category: { connect: { id: data.categoryId } } } : {}),
     ...(data.supplierId !== undefined ? { supplier: { connect: { id: data.supplierId } } } : {}),
-    ...(data.barcode !== undefined ? { barcode: data.barcode } : {}),
+    ...(data.barcode !== undefined
+      ? { barcode: data.barcode === null ? null : toBigInt(data.barcode) }
+      : {}),
     ...(data.stock !== undefined
       ? { stock: ensureNonNegativeInteger(data.stock, "stock") }
       : {}),

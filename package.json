@@ -9,7 +9,9 @@
     "prisma:generate": "npx prisma generate --schema backend/prisma/schema.prisma",
     "prisma:migrate": "npx prisma migrate dev --schema backend/prisma/schema.prisma --name init_stock_schema",
     "prisma:reset": "npx prisma migrate reset --force --schema backend/prisma/schema.prisma",
-    "prisma:studio": "npx prisma studio --schema backend/prisma/schema.prisma"
+    "prisma:studio": "npx prisma studio --schema backend/prisma/schema.prisma",
+    "test:backend-db": "npx ts-node backend/test.ts",
+    "test:ipc-bridge": "npx ts-node backend/testIpcBridge.ts"
   },
   "keywords": [],
   "author": "",
