@@ -32,6 +32,19 @@ function asArray(value) {
     }
     return value;
 }
+function assertCloneable(value, step) {
+    try {
+        structuredClone(value);
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`${step} returned non-cloneable payload: ${message}`);
+    }
+}
+function assertProductPriceStrings(value, step) {
+    assert(typeof value.purchasePrice === "string", `${step} purchasePrice should be string`);
+    assert(typeof value.salePrice === "string", `${step} salePrice should be string`);
+}
 async function main() {
     const handlers = (0, ipcHandlers_1.buildIpcHandlers)();
     const api = (0, ipcContract_1.buildElectronApi)((channel, payload) => (0, ipcHandlers_1.invokeIpcHandler)(handlers, channel, payload));
@@ -48,41 +61,57 @@ async function main() {
     let supplierId = null;
     let productId = null;
     try {
-        const category = asRecord(await api.createCategory({ name: categoryName }));
+        const categoryResult = await api.createCategory({ name: categoryName });
+        assertCloneable(categoryResult, "createCategory");
+        const category = asRecord(categoryResult);
         categoryId = asNumber(category.id, "id");
         assert(category.name === categoryName, "createCategory should persist name");
         logStep("IPC createCategory");
-        const supplier = asRecord(await api.createSupplier({
+        const supplierResult = await api.createSupplier({
             name: supplierName,
             phone: "123456",
             notes: "ipc test"
-        }));
+        });
+        assertCloneable(supplierResult, "createSupplier");
+        const supplier = asRecord(supplierResult);
         supplierId = asNumber(supplier.id, "id");
         assert(supplier.name === supplierName, "createSupplier should persist name");
         logStep("IPC createSupplier");
-        const categories = asArray(await api.listCategories());
+        const categoriesResult = await api.listCategories();
+        assertCloneable(categoriesResult, "listCategories");
+        const categories = asArray(categoriesResult);
         assert(categories.some((item) => asRecord(item).id === categoryId), "listCategories should include created category");
         logStep("IPC listCategories");
-        const suppliers = asArray(await api.listSuppliers());
+        const suppliersResult = await api.listSuppliers();
+        assertCloneable(suppliersResult, "listSuppliers");
+        const suppliers = asArray(suppliersResult);
         assert(suppliers.some((item) => asRecord(item).id === supplierId), "listSuppliers should include created supplier");
         logStep("IPC listSuppliers");
-        const categoryById = asRecord(await api.getCategoryById(categoryId));
+        const categoryByIdResult = await api.getCategoryById(categoryId);
+        assertCloneable(categoryByIdResult, "getCategoryById");
+        const categoryById = asRecord(categoryByIdResult);
         assert(categoryById.id === categoryId, "getCategoryById should return created category");
         logStep("IPC getCategoryById");
-        const supplierById = asRecord(await api.getSupplierById(supplierId));
+        const supplierByIdResult = await api.getSupplierById(supplierId);
+        assertCloneable(supplierByIdResult, "getSupplierById");
+        const supplierById = asRecord(supplierByIdResult);
         assert(supplierById.id === supplierId, "getSupplierById should return created supplier");
         logStep("IPC getSupplierById");
-        const updatedCategory = asRecord(await api.updateCategory(categoryId, { name: updatedCategoryName }));
+        const updatedCategoryResult = await api.updateCategory(categoryId, { name: updatedCategoryName });
+        assertCloneable(updatedCategoryResult, "updateCategory");
+        const updatedCategory = asRecord(updatedCategoryResult);
         assert(updatedCategory.name === updatedCategoryName, "updateCategory should update name");
         logStep("IPC updateCategory");
-        const updatedSupplier = asRecord(await api.updateSupplier(supplierId, {
+        const updatedSupplierResult = await api.updateSupplier(supplierId, {
             name: updatedSupplierName,
             phone: "999999",
             notes: "updated"
-        }));
+        });
+        assertCloneable(updatedSupplierResult, "updateSupplier");
+        const updatedSupplier = asRecord(updatedSupplierResult);
         assert(updatedSupplier.name === updatedSupplierName, "updateSupplier should update name");
         logStep("IPC updateSupplier");
-        const product = asRecord(await api.createProduct({
+        const productResult = await api.createProduct({
             name: productName,
             purchasePrice: 100,
             salePrice: 150,
@@ -91,83 +120,134 @@ async function main() {
             barcode: baseBarcode,
             stock: 10,
             minStock: 2
-        }));
+        });
+        assertCloneable(productResult, "createProduct");
+        const product = asRecord(productResult);
+        assertProductPriceStrings(product, "createProduct");
         productId = asNumber(product.id, "id");
         assert(product.name === productName, "createProduct should persist name");
         logStep("IPC createProduct");
-        const listedById = asArray(await api.listProducts({ id: productId }));
+        const listedByIdResult = await api.listProducts({ id: productId });
+        assertCloneable(listedByIdResult, "listProducts by id");
+        const listedById = asArray(listedByIdResult);
         assert(listedById.length === 1, "listProducts should filter by id");
+        assertProductPriceStrings(asRecord(listedById[0]), "listProducts by id");
         logStep("IPC listProducts by id");
-        const listedByBarcode = asArray(await api.listProducts({ barcode: baseBarcode }));
+        const listedByBarcodeResult = await api.listProducts({ barcode: baseBarcode });
+        assertCloneable(listedByBarcodeResult, "listProducts by barcode");
+        const listedByBarcode = asArray(listedByBarcodeResult);
         assert(listedByBarcode.length === 1, "listProducts should filter by barcode");
+        assertProductPriceStrings(asRecord(listedByBarcode[0]), "listProducts by barcode");
         logStep("IPC listProducts by barcode");
-        const productById = asRecord(await api.getProductById(productId));
+        const productByIdResult = await api.getProductById(productId);
+        assertCloneable(productByIdResult, "getProductById");
+        const productById = asRecord(productByIdResult);
+        assertProductPriceStrings(productById, "getProductById");
         assert(productById.id === productId, "getProductById should return created product");
         logStep("IPC getProductById");
-        const productByBarcode = asRecord(await api.getProductByBarcode(baseBarcode));
+        const productByBarcodeResult = await api.getProductByBarcode(baseBarcode);
+        assertCloneable(productByBarcodeResult, "getProductByBarcode");
+        const productByBarcode = asRecord(productByBarcodeResult);
+        assertProductPriceStrings(productByBarcode, "getProductByBarcode");
         assert(productByBarcode.id === productId, "getProductByBarcode should return created product");
         logStep("IPC getProductByBarcode");
-        const updatedProduct = asRecord(await api.updateProduct(productId, {
+        const updatedProductResult = await api.updateProduct(productId, {
             name: updatedProductName,
             salePrice: 170,
             barcode: updatedBarcode,
             stock: 12,
             minStock: 3
-        }));
+        });
+        assertCloneable(updatedProductResult, "updateProduct");
+        const updatedProduct = asRecord(updatedProductResult);
+        assertProductPriceStrings(updatedProduct, "updateProduct");
         assert(updatedProduct.name === updatedProductName, "updateProduct should update name");
         logStep("IPC updateProduct");
-        const absoluteStock = asRecord(await api.updateProductStock(productId, 30));
+        const absoluteStockResult = await api.updateProductStock(productId, 30);
+        assertCloneable(absoluteStockResult, "updateProductStock");
+        const absoluteStock = asRecord(absoluteStockResult);
+        assertProductPriceStrings(absoluteStock, "updateProductStock");
         assert(absoluteStock.stock === 30, "updateProductStock should set absolute stock");
         logStep("IPC updateProductStock");
-        const deltaUp = asRecord(await api.changeProductStock(productId, 5));
+        const deltaUpResult = await api.changeProductStock(productId, 5);
+        assertCloneable(deltaUpResult, "changeProductStock positive");
+        const deltaUp = asRecord(deltaUpResult);
+        assertProductPriceStrings(deltaUp, "changeProductStock positive");
         assert(deltaUp.stock === 35, "changeProductStock should apply positive delta");
-        const deltaDown = asRecord(await api.changeProductStock(productId, -10));
+        const deltaDownResult = await api.changeProductStock(productId, -10);
+        assertCloneable(deltaDownResult, "changeProductStock negative");
+        const deltaDown = asRecord(deltaDownResult);
+        assertProductPriceStrings(deltaDown, "changeProductStock negative");
         assert(deltaDown.stock === 25, "changeProductStock should apply negative delta");
         logStep("IPC changeProductStock");
-        const movementIn = asRecord(await api.createStockMovement({
+        const movementInResult = await api.createStockMovement({
             productId,
             type: "IN",
             quantity: 5,
             notes: "restock"
-        }));
+        });
+        assertCloneable(movementInResult, "createStockMovement IN");
+        const movementIn = asRecord(movementInResult);
+        assertProductPriceStrings(asRecord(movementIn.product), "createStockMovement IN nested product");
         const movementInId = asNumber(movementIn.id, "id");
         logStep("IPC createStockMovement IN");
-        const movementSale = asRecord(await api.createStockMovement({
+        const movementSaleResult = await api.createStockMovement({
             productId,
             type: "SALE",
             quantity: 4,
             notes: "sale"
-        }));
+        });
+        assertCloneable(movementSaleResult, "createStockMovement SALE");
+        const movementSale = asRecord(movementSaleResult);
+        assertProductPriceStrings(asRecord(movementSale.product), "createStockMovement SALE nested product");
         const movementSaleId = asNumber(movementSale.id, "id");
         logStep("IPC createStockMovement SALE");
-        const movementAdjustment = asRecord(await api.createStockMovement({
+        const movementAdjustmentResult = await api.createStockMovement({
             productId,
             type: "ADJUSTMENT",
             quantity: -3,
             notes: "inventory correction"
-        }));
+        });
+        assertCloneable(movementAdjustmentResult, "createStockMovement ADJUSTMENT");
+        const movementAdjustment = asRecord(movementAdjustmentResult);
+        assertProductPriceStrings(asRecord(movementAdjustment.product), "createStockMovement ADJUSTMENT nested product");
         const movementAdjustmentId = asNumber(movementAdjustment.id, "id");
         logStep("IPC createStockMovement ADJUSTMENT");
-        const movementHistory = asArray(await api.listStockMovements({ productId }));
+        const movementHistoryResult = await api.listStockMovements({ productId });
+        assertCloneable(movementHistoryResult, "listStockMovements");
+        const movementHistory = asArray(movementHistoryResult);
         assert(movementHistory.length >= 3, "listStockMovements should return created rows");
+        assertProductPriceStrings(asRecord(asRecord(movementHistory[0]).product), "listStockMovements nested product");
         logStep("IPC listStockMovements");
-        const movementById = asRecord(await api.getStockMovementById(movementInId));
+        const movementByIdResult = await api.getStockMovementById(movementInId);
+        assertCloneable(movementByIdResult, "getStockMovementById");
+        const movementById = asRecord(movementByIdResult);
+        assertProductPriceStrings(asRecord(movementById.product), "getStockMovementById nested product");
         assert(movementById.id === movementInId, "getStockMovementById should return movement");
         logStep("IPC getStockMovementById");
-        await api.deleteStockMovement(movementSaleId, true);
+        const deleteSaleResult = await api.deleteStockMovement(movementSaleId, true);
+        assertCloneable(deleteSaleResult, "deleteStockMovement with revert");
         logStep("IPC deleteStockMovement with revert");
-        await api.deleteStockMovement(movementInId);
-        await api.deleteStockMovement(movementAdjustmentId);
-        const remaining = asArray(await api.listStockMovements({ productId }));
+        const deleteInResult = await api.deleteStockMovement(movementInId);
+        assertCloneable(deleteInResult, "deleteStockMovement movementIn");
+        const deleteAdjustmentResult = await api.deleteStockMovement(movementAdjustmentId);
+        assertCloneable(deleteAdjustmentResult, "deleteStockMovement movementAdjustment");
+        const remainingResult = await api.listStockMovements({ productId });
+        assertCloneable(remainingResult, "listStockMovements after delete");
+        const remaining = asArray(remainingResult);
         assert(remaining.length === 0, "deleteStockMovement should remove rows");
         logStep("IPC deleteStockMovement without revert");
-        await api.deleteProduct(productId);
+        const deleteProductResult = await api.deleteProduct(productId);
+        assertCloneable(deleteProductResult, "deleteProduct");
+        assertProductPriceStrings(asRecord(deleteProductResult), "deleteProduct");
         productId = null;
         logStep("IPC deleteProduct");
-        await api.deleteCategory(categoryId);
+        const deleteCategoryResult = await api.deleteCategory(categoryId);
+        assertCloneable(deleteCategoryResult, "deleteCategory");
         categoryId = null;
         logStep("IPC deleteCategory");
-        await api.deleteSupplier(supplierId);
+        const deleteSupplierResult = await api.deleteSupplier(supplierId);
+        assertCloneable(deleteSupplierResult, "deleteSupplier");
         supplierId = null;
         logStep("IPC deleteSupplier");
         let errorCaught = false;

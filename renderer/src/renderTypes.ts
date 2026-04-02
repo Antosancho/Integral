@@ -1,0 +1,1 @@
+export type Cont = 'sells' | 'stock' | null

@@ -4,6 +4,7 @@ exports.buildIpcHandlers = buildIpcHandlers;
 exports.registerIpcHandlers = registerIpcHandlers;
 exports.invokeIpcHandler = invokeIpcHandler;
 const repositories_1 = require("../backend/repositories");
+const ipcSerialize_1 = require("./ipcSerialize");
 function toIpcError(channel, error) {
     if (error instanceof Error) {
         const maybeCode = error.code;
@@ -18,7 +19,8 @@ function toIpcError(channel, error) {
 function withChannelError(channel, handler) {
     return async (payload) => {
         try {
-            return await handler(payload);
+            const result = await handler(payload);
+            return (0, ipcSerialize_1.toIpcSafe)(result);
         }
         catch (error) {
             throw toIpcError(channel, error);

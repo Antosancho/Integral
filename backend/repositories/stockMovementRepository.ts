@@ -28,16 +28,16 @@ export interface ListStockMovementsFilters extends PaginationInput {
 }
 
 // Converts movement semantics into stock delta.
-function resolveStockDelta(type: StockMovementType, quantity: number): number {
+function resolveStockDelta(type: StockMovementType, quantity: number, currentStock: number): number {
   switch (type) {
     case "IN":
       return quantity
     case "SALE":
       return -quantity
     case "ADJUSTMENT":
-      return quantity
+      return quantity - currentStock
     default:
-      return quantity
+      throw new Error(`Unknown stock movement type: ${type}`)
   }
 }
 
@@ -71,15 +71,18 @@ export async function createStockMovement(data: CreateStockMovementInput) {
       : ensurePositiveInteger(data.quantity, "quantity")
 
   return prisma.$transaction(async (tx) => {
+    let appliedDelta: number | undefined
+
     if (applyToStock) {
       const product = await tx.product.findUnique({ where: { id: data.productId } })
       if (!product) {
         throw new Error(`Product ${data.productId} not found`)
       }
 
-      const delta = resolveStockDelta(type, quantity)
+      const delta = resolveStockDelta(type, quantity, product.stock)
+      appliedDelta = delta
       const nextStock = product.stock + delta
-      if (nextStock < 0) {
+      if (nextStock < 0 && type !== "ADJUSTMENT") {
         throw new Error("Stock cannot be negative")
       }
 
@@ -95,7 +98,8 @@ export async function createStockMovement(data: CreateStockMovementInput) {
         type,
         quantity,
         notes: normalizeOptionalString(data.notes),
-        ...(data.date ? { date: data.date } : {})
+        ...(data.date ? { date: data.date } : {}),
+        ...(appliedDelta !== undefined ? { appliedDelta } : {})
       },
       include: {
         product: true
@@ -141,7 +145,6 @@ export async function deleteStockMovement(id: number, revertStock = false) {
 
     if (revertStock) {
       const movementType = normalizeStockMovementType(movement.type)
-      const inverseDelta = -resolveStockDelta(movementType, movement.quantity)
 
       const product = await tx.product.findUnique({
         where: { id: movement.productId }
@@ -151,8 +154,20 @@ export async function deleteStockMovement(id: number, revertStock = false) {
         throw new Error(`Product ${movement.productId} not found`)
       }
 
+      let inverseDelta: number
+      if (movementType === "ADJUSTMENT") {
+        if (movement.appliedDelta === null) {
+          throw new Error(
+            "Cannot revert this ADJUSTMENT: missing appliedDelta (record created before bug fix)"
+          )
+        }
+        inverseDelta = -movement.appliedDelta
+      } else {
+        inverseDelta = -resolveStockDelta(movementType, movement.quantity, product.stock)
+      }
+
       const nextStock = product.stock + inverseDelta
-      if (nextStock < 0) {
+      if (nextStock < 0 && movementType !== "ADJUSTMENT") {
         throw new Error("Stock cannot be negative after reverting movement")
       }
 

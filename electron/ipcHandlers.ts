@@ -32,6 +32,7 @@ import {
   type UpdateProductInput,
   type UpdateSupplierInput
 } from "../backend/repositories"
+import { toIpcSafe } from "./ipcSerialize"
 
 export type IpcPayload = unknown
 export type IpcHandler = (payload: IpcPayload) => Promise<unknown>
@@ -57,7 +58,8 @@ function withChannelError<TPayload>(
 ): IpcHandler {
   return async (payload) => {
     try {
-      return await handler(payload as TPayload)
+      const result = await handler(payload as TPayload)
+      return toIpcSafe(result)
     } catch (error) {
       throw toIpcError(channel, error)
     }
