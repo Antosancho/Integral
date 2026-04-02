@@ -43,14 +43,15 @@ model Product {
 }
 
 model StockMovement {
-  id        Int               @id @default(autoincrement())
-  productId Int
-  type      String            @default("IN")
-  quantity  Int
-  date      DateTime          @default(now())
-  notes     String?
+  id           Int               @id @default(autoincrement())
+  productId    Int
+  type         String            @default("IN")
+  quantity     Int
+  appliedDelta Int?
+  date         DateTime          @default(now())
+  notes        String?
 
-  product   Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  product      Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   @@index([productId, date])
 }

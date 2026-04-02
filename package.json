@@ -2,8 +2,13 @@
   "name": "integral",
   "version": "1.0.0",
   "main": "dist/electron/main.js",
+  "workspaces": [
+    "renderer",
+    "backend"
+  ],
   "scripts": {
     "build": "tsc",
+    "dev": "node scripts/dev.js",
     "dev:renderer": "cd renderer && npm run dev",
     "dev:electron": "npm run build && electron .",
     "prisma:generate": "npx prisma generate --schema backend/prisma/schema.prisma",
