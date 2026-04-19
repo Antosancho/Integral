@@ -237,6 +237,33 @@ async function main() {
         const remaining = asArray(remainingResult);
         assert(remaining.length === 0, "deleteStockMovement should remove rows");
         logStep("IPC deleteStockMovement without revert");
+        // --- Paso 13: ADJUSTMENT fija stock correctamente ---
+        await api.updateProductStock(productId, 10);
+        const adj13Result = await api.createStockMovement({ productId, type: "ADJUSTMENT", quantity: 15 });
+        assertCloneable(adj13Result, "createStockMovement ADJUSTMENT fix");
+        const adj13 = asRecord(adj13Result);
+        const adj13Product = asRecord(adj13.product);
+        assert(adj13Product.stock === 15, `ADJUSTMENT should set stock to 15, got ${adj13Product.stock}`);
+        assert(adj13.quantity === 15, "ADJUSTMENT should store quantity=15");
+        assert(adj13.appliedDelta === 5, `ADJUSTMENT should store appliedDelta=5, got ${adj13.appliedDelta}`);
+        logStep("ADJUSTMENT fija stock correctamente");
+        // --- Paso 14: revert de ADJUSTMENT vuelve al stock anterior ---
+        const adj13Id = asNumber(adj13.id, "id");
+        await api.deleteStockMovement(adj13Id, true);
+        const afterRevertResult = await api.getProductById(productId);
+        const afterRevert = asRecord(afterRevertResult);
+        assert(afterRevert.stock === 10, `revert ADJUSTMENT should restore stock to 10, got ${afterRevert.stock}`);
+        logStep("revert de ADJUSTMENT restaura stock");
+        // --- Paso 15: ADJUSTMENT a valor negativo ---
+        await api.updateProductStock(productId, 3);
+        const adj15Result = await api.createStockMovement({ productId, type: "ADJUSTMENT", quantity: -2 });
+        assertCloneable(adj15Result, "createStockMovement ADJUSTMENT negative");
+        const adj15 = asRecord(adj15Result);
+        const adj15Product = asRecord(adj15.product);
+        assert(adj15Product.stock === -2, `ADJUSTMENT to negative should set stock to -2, got ${adj15Product.stock}`);
+        assert(adj15.appliedDelta === -5, `ADJUSTMENT negative should store appliedDelta=-5, got ${adj15.appliedDelta}`);
+        await api.deleteStockMovement(asNumber(adj15.id, "id"));
+        logStep("ADJUSTMENT a valor negativo");
         const deleteProductResult = await api.deleteProduct(productId);
         assertCloneable(deleteProductResult, "deleteProduct");
         assertProductPriceStrings(asRecord(deleteProductResult), "deleteProduct");
