@@ -10,16 +10,16 @@ exports.deleteStockMovement = deleteStockMovement;
 const client_1 = __importDefault(require("../db/client"));
 const utilities_1 = require("./utilities");
 // Converts movement semantics into stock delta.
-function resolveStockDelta(type, quantity) {
+function resolveStockDelta(type, quantity, currentStock) {
     switch (type) {
         case "IN":
             return quantity;
         case "SALE":
             return -quantity;
         case "ADJUSTMENT":
-            return quantity;
+            return quantity - currentStock;
         default:
-            return quantity;
+            throw new Error(`Unknown stock movement type: ${type}`);
     }
 }
 // Builds movement filters for reporting/history endpoints.
@@ -49,14 +49,16 @@ async function createStockMovement(data) {
         ? (0, utilities_1.ensureInteger)(data.quantity, "quantity")
         : (0, utilities_1.ensurePositiveInteger)(data.quantity, "quantity");
     return client_1.default.$transaction(async (tx) => {
+        let appliedDelta;
         if (applyToStock) {
             const product = await tx.product.findUnique({ where: { id: data.productId } });
             if (!product) {
                 throw new Error(`Product ${data.productId} not found`);
             }
-            const delta = resolveStockDelta(type, quantity);
+            const delta = resolveStockDelta(type, quantity, product.stock);
+            appliedDelta = delta;
             const nextStock = product.stock + delta;
-            if (nextStock < 0) {
+            if (nextStock < 0 && type !== "ADJUSTMENT") {
                 throw new Error("Stock cannot be negative");
             }
             await tx.product.update({
@@ -70,7 +72,8 @@ async function createStockMovement(data) {
                 type,
                 quantity,
                 notes: (0, utilities_1.normalizeOptionalString)(data.notes),
-                ...(data.date ? { date: data.date } : {})
+                ...(data.date ? { date: data.date } : {}),
+                ...(appliedDelta !== undefined ? { appliedDelta } : {})
             },
             include: {
                 product: true
@@ -110,15 +113,24 @@ async function deleteStockMovement(id, revertStock = false) {
         }
         if (revertStock) {
             const movementType = (0, utilities_1.normalizeStockMovementType)(movement.type);
-            const inverseDelta = -resolveStockDelta(movementType, movement.quantity);
             const product = await tx.product.findUnique({
                 where: { id: movement.productId }
             });
             if (!product) {
                 throw new Error(`Product ${movement.productId} not found`);
             }
+            let inverseDelta;
+            if (movementType === "ADJUSTMENT") {
+                if (movement.appliedDelta === null) {
+                    throw new Error("Cannot revert this ADJUSTMENT: missing appliedDelta (record created before bug fix)");
+                }
+                inverseDelta = -movement.appliedDelta;
+            }
+            else {
+                inverseDelta = -resolveStockDelta(movementType, movement.quantity, product.stock);
+            }
             const nextStock = product.stock + inverseDelta;
-            if (nextStock < 0) {
+            if (nextStock < 0 && movementType !== "ADJUSTMENT") {
                 throw new Error("Stock cannot be negative after reverting movement");
             }
             await tx.product.update({
