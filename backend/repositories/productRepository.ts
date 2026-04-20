@@ -153,9 +153,6 @@ export async function changeProductStock(id: number, delta: number) {
     }
 
     const nextStock = existing.stock + delta
-    if (nextStock < 0) {
-      throw new Error("Stock cannot be negative")
-    }
 
     return tx.product.update({
       where: { id },

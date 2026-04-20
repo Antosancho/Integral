@@ -66,7 +66,8 @@ Integral/
 - `createdAt`
 
 ### StockMovement
-- `id`, `productId`, `type` (string: "IN" | "SALE" | "ADJUSTMENT"), `quantity`, `date`, `notes?`
+- `id`, `productId`, `type` (string: "IN" | "SALE" | "ADJUSTMENT"), `quantity`, `date`, `notes?`, `saleId?`
+- `saleId?`: FK opcional a `Sale`. Los movimientos tipo `SALE` generados desde `SaleService.createSale` guardan acá el id de la venta origen para trazabilidad (historial de stock → venta). `onDelete: SetNull` (si se borra la venta, el movimiento queda con `saleId = null`).
 - Tipos de movimiento:
   - `IN`: suma stock (reposición)
   - `SALE`: resta stock (venta — se genera automáticamente al confirmar una venta)

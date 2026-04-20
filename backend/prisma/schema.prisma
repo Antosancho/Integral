@@ -36,6 +36,7 @@ model Product {
   category      Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   supplier      Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   movements     StockMovement[]
+  saleItems     SaleItem[]
 
   @@index([categoryId])
   @@index([supplierId])
@@ -48,10 +49,50 @@ model StockMovement {
   type         String            @default("IN")
   quantity     Int
   appliedDelta Int?
+  saleId       Int?
   date         DateTime          @default(now())
   notes        String?
 
   product      Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  sale         Sale?             @relation(fields: [saleId], references: [id], onDelete: SetNull)
 
   @@index([productId, date])
+  @@index([saleId])
+}
+
+model Sale {
+  id        Int             @id @default(autoincrement())
+  date      DateTime        @default(now())
+  total     Decimal
+
+  items     SaleItem[]
+  payments  SalePayment[]
+  movements StockMovement[]
+
+  @@index([date])
+}
+
+model SaleItem {
+  id        Int      @id @default(autoincrement())
+  saleId    Int
+  productId Int
+  quantity  Int
+  unitPrice Decimal
+
+  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([saleId])
+  @@index([productId])
+}
+
+model SalePayment {
+  id     Int     @id @default(autoincrement())
+  saleId Int
+  method String
+  amount Decimal
+
+  sale   Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
 }

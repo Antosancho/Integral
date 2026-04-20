@@ -10,8 +10,16 @@ exports.ensurePositiveInteger = ensurePositiveInteger;
 exports.ensureNonNegativeInteger = ensureNonNegativeInteger;
 exports.normalizeStockMovementType = normalizeStockMovementType;
 exports.normalizePagination = normalizePagination;
+exports.normalizeSalePaymentMethod = normalizeSalePaymentMethod;
 const client_1 = require("@prisma/client");
 const stockMovementTypes = new Set(["IN", "SALE", "ADJUSTMENT"]);
+const salePaymentMethods = new Set([
+    "CASH",
+    "TRANSFER",
+    "DEBIT",
+    "CREDIT",
+    "OTHER"
+]);
 exports.productInclude = {
     category: true,
     supplier: true
@@ -94,5 +102,12 @@ function normalizePagination(input) {
         output.take = ensurePositiveInteger(input.take, "take");
     }
     return output;
+}
+function normalizeSalePaymentMethod(method) {
+    const normalized = method.toUpperCase();
+    if (!salePaymentMethods.has(normalized)) {
+        throw new Error(`Invalid sale payment method: ${method}`);
+    }
+    return normalized;
 }
 //# sourceMappingURL=utilities.js.map

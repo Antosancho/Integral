@@ -112,9 +112,6 @@ async function changeProductStock(id, delta) {
             throw new Error(`Product ${id} not found`);
         }
         const nextStock = existing.stock + delta;
-        if (nextStock < 0) {
-            throw new Error("Stock cannot be negative");
-        }
         return tx.product.update({
             where: { id },
             data: { stock: nextStock },
