@@ -1,3 +1,14 @@
+// ---------------------------------------------------------------------------
+// ESPEJO del contrato IPC. Debe quedar SINCRONIZADO con electron/ipcContract.ts.
+// Si uno cambia, el otro tambien.
+// Reglas de serializacion:
+//   - Prisma.Decimal -> string
+//   - bigint         -> bigint  (pasa tal cual)
+//   - Date           -> Date    (pasa tal cual)
+// ---------------------------------------------------------------------------
+
+// ---------- Inputs ----------
+
 type DecimalInput = number | string
 type BarcodeInput = number | string | bigint
 type StockMovementType = "IN" | "SALE" | "ADJUSTMENT"
@@ -73,6 +84,8 @@ type ListStockMovementsFilters = PaginationInput & {
   toDate?: Date
 }
 
+// ---------- Outputs (serializados) ----------
+
 type CategoryFromApi = {
   id: number
   name: string
@@ -85,7 +98,7 @@ type SupplierFromApi = {
   notes: string | null
 }
 
-type ProductFromApi = {
+type BareProductFromApi = {
   id: number
   name: string
   barcode: bigint | null
@@ -93,22 +106,32 @@ type ProductFromApi = {
   salePrice: string
   stock: number
   minStock: number
-  createdAt: string | Date
+  createdAt: Date
   categoryId: number
   supplierId: number
+}
+
+type ProductFromApi = BareProductFromApi & {
   category: CategoryFromApi
   supplier: SupplierFromApi
 }
 
-type StockMovementFromApi = {
+type BareStockMovementFromApi = {
   id: number
   productId: number
-  type: StockMovementType | string
+  type: string
   quantity: number
-  date: string | Date
+  date: Date
   notes: string | null
-  product: ProductFromApi
+  appliedDelta: number | null
+  saleId: number | null
 }
+
+type StockMovementFromApi = BareStockMovementFromApi & {
+  product: BareProductFromApi
+}
+
+// ---------- ElectronApi ----------
 
 type ElectronApi = {
   createCategory: (data: CreateCategoryInput) => Promise<CategoryFromApi>
@@ -130,30 +153,12 @@ type ElectronApi = {
   updateProduct: (id: number, data: UpdateProductInput) => Promise<ProductFromApi>
   updateProductStock: (id: number, stock: number) => Promise<ProductFromApi>
   changeProductStock: (id: number, delta: number) => Promise<ProductFromApi>
-  deleteProduct: (id: number) => Promise<{
-    id: number
-    name: string
-    barcode: bigint | null
-    purchasePrice: string
-    salePrice: string
-    stock: number
-    minStock: number
-    createdAt: string | Date
-    categoryId: number
-    supplierId: number
-  }>
+  deleteProduct: (id: number) => Promise<BareProductFromApi>
 
   createStockMovement: (data: CreateStockMovementInput) => Promise<StockMovementFromApi>
   listStockMovements: (filters?: ListStockMovementsFilters) => Promise<StockMovementFromApi[]>
   getStockMovementById: (id: number) => Promise<StockMovementFromApi | null>
-  deleteStockMovement: (id: number, revertStock?: boolean) => Promise<{
-    id: number
-    productId: number
-    type: StockMovementType | string
-    quantity: number
-    date: string | Date
-    notes: string | null
-  }>
+  deleteStockMovement: (id: number, revertStock?: boolean) => Promise<BareStockMovementFromApi>
 }
 
 declare global {

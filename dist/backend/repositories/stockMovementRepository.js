@@ -58,9 +58,6 @@ async function createStockMovement(data) {
             const delta = resolveStockDelta(type, quantity, product.stock);
             appliedDelta = delta;
             const nextStock = product.stock + delta;
-            if (nextStock < 0 && type !== "ADJUSTMENT") {
-                throw new Error("Stock cannot be negative");
-            }
             await tx.product.update({
                 where: { id: data.productId },
                 data: { stock: nextStock }
@@ -130,9 +127,6 @@ async function deleteStockMovement(id, revertStock = false) {
                 inverseDelta = -resolveStockDelta(movementType, movement.quantity, product.stock);
             }
             const nextStock = product.stock + inverseDelta;
-            if (nextStock < 0 && movementType !== "ADJUSTMENT") {
-                throw new Error("Stock cannot be negative after reverting movement");
-            }
             await tx.product.update({
                 where: { id: movement.productId },
                 data: { stock: nextStock }

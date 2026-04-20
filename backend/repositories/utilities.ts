@@ -3,9 +3,18 @@ import { Prisma } from "@prisma/client"
 export type DecimalInput = Prisma.Decimal | number | string
 export type BarcodeInput = bigint | number | string
 export type StockMovementType = "IN" | "SALE" | "ADJUSTMENT"
+export type SalePaymentMethod = "CASH" | "TRANSFER" | "DEBIT" | "CREDIT" | "OTHER"
 export type OptionalString = string | null | undefined
 
 const stockMovementTypes = new Set<StockMovementType>(["IN", "SALE", "ADJUSTMENT"])
+
+const salePaymentMethods = new Set<SalePaymentMethod>([
+  "CASH",
+  "TRANSFER",
+  "DEBIT",
+  "CREDIT",
+  "OTHER"
+])
 
 export const productInclude = {
   category: true,
@@ -104,4 +113,12 @@ export function normalizePagination(input?: PaginationInput): PaginationInput {
   }
 
   return output
+}
+
+export function normalizeSalePaymentMethod(method: string): SalePaymentMethod {
+  const normalized = method.toUpperCase() as SalePaymentMethod
+  if (!salePaymentMethods.has(normalized)) {
+    throw new Error(`Invalid sale payment method: ${method}`)
+  }
+  return normalized
 }
