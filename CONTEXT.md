@@ -84,9 +84,10 @@ El módulo de ventas requiere tres tablas nuevas:
 - Relaciones: SaleItem[], SalePayment[]
 
 ### SaleItem (línea de venta)
-- `id`, `saleId`, `productId`
+- `id`, `saleId`, `productId?` (**opcional** — ver nota sobre ítems "general")
 - `quantity` (Int)
 - `unitPrice` (Decimal) — **precio snapshot al momento de la venta**, no el precio actual del producto
+- Nota: `productId` es opcional para permitir **ítems "general"** (monto libre sin producto asociado, ingresado por el cajero con F10). Cuando `productId` es `null`, la línea representa un cobro genérico sin impacto en stock ni trazabilidad a Product.
 
 ### SalePayment (pago/s asociados a la venta)
 - `id`, `saleId`
@@ -180,6 +181,15 @@ Primer paso del módulo Sells. Sólo la selección de productos; los pagos, conf
 10. **Escaneo dentro del popup de búsqueda:** si el usuario escanea un código de barras mientras el foco está dentro del popup, el producto **aparece listado** en la tabla de resultados pero **no se agrega automáticamente** al carrito. Regla concreta: dentro del popup, `Enter` sólo agrega al carrito si la query **no es puramente numérica** (`!/^\d+$/.test(query)`); cuando la query son sólo dígitos (caso típico del scanner) `Enter` no hace nada — el usuario debe hacer click en la fila para agregarla. Esto evita que el `Enter` que manda el scanner al final del barcode agregue al carrito algo que el usuario solamente estaba buscando.
 11. **Producto sin precio cargado:** si el `salePrice` del producto es `0`, vacío, o no representa un número válido, **no se agrega** al carrito y se muestra una alerta visible ("El producto no tiene un precio cargado"). Esto vale tanto para el flujo de scanner como para el de selección desde el popup.
 12. **Persistencia del carrito:** el carrito vive sólo mientras la pantalla Sells está montada. Si el usuario navega a Home/Stock y vuelve, el carrito se pierde. Aceptado como limitación explícita para esta iteración; si se vuelve un problema de UX real (cajero pierde una venta por un click accidental), se resuelve en una iteración futura moviendo el estado a un store por encima de `App.tsx`.
+13. **Ítem "general" (F10):** `F10` abre un popup con un único input de monto. Al confirmar, se agrega al carrito una **fila "general"** sin producto asociado: nombre literal `"General"`, cantidad inicial `1`, monto = lo ingresado. Reglas:
+    - Cada `F10` confirmado genera una fila **independiente** (no se mergea con otras "general" aunque tengan igual monto).
+    - La fila "general" es editable inline en cantidad y monto, igual que una fila de producto, y puede eliminarse con `✕` / `Delete`.
+    - **No** dispara alertas de stock ni se valida contra stock alguno.
+    - Validación del monto: positivo (`> 0`), finito, admite decimales. **Acepta tanto punto como coma decimal** (es-AR); la coma se normaliza a punto antes de parsear y el valor se guarda internamente con punto.
+    - `F10` es **toggle**: abre/cierra el popup. Mutuamente excluyente con el popup de búsqueda (`F2`): abrir uno cierra el otro. `Enter` confirma, `Escape` cancela, click fuera cierra. Al cerrar por cualquier motivo, el foco vuelve al input de código de barras.
+    - F10 en Windows activa por default el menú nativo de Electron. Para evitarlo, el main process deshabilita el menú de la ventana (`Menu.setApplicationMenu(null)`) — ver decisión en la sección de `electron/`.
+
+**Modelo interno del carrito (renderer):** `CartLine` es una **unión discriminada** por `kind: 'product' | 'general'`. Cada fila tiene un `lineId: string` único (generado con `crypto.randomUUID()` con fallback) que es el identificador usado por las acciones `REMOVE`/`SET_QUANTITY`/`SET_UNIT_PRICE`. Para filas `'product'` se sigue haciendo merge por `productId` en `ADD` (la identidad `lineId` se preserva entre sumas). Las filas `'general'` nunca se mergean.
 
 **Estructura de datos del carrito (renderer, no persiste aún):**
 ```ts
