@@ -1,665 +1,665 @@
-# Plan: Tipado del contrato IPC entre Electron main y renderer
+# Plan: Buscador de productos + carrito para la pantalla de Ventas (MVP iter. 1)
 
-## Contexto del problema
-
-- `electron/ipcContract.ts` declara todos los métodos de `ElectronApi` con retorno `Promise<unknown>`. El renderer pierde toda la información de tipos.
-- `renderer/src/electron-api.d.ts` es el espejo de esa interfaz y tiene tipos parcialmente inventados / desactualizados (por ejemplo, tipa `StockMovement.product` como `ProductFromApi` cuando en realidad viene sin `category` ni `supplier`).
-- Los valores que cruzan el IPC pasan por `electron/ipcSerialize.ts`, que transforma los `Decimal` de Prisma a `string`. Los `BigInt` pasan tal cual (no se convierten a string). Las `Date` pasan tal cual.
-- Las queries de productos incluyen siempre `{ category, supplier }`. Las queries de stockMovements incluyen siempre `{ product }` **desnudo** (sin `category`/`supplier`). Los `delete*` NO incluyen relaciones.
-- Ambos archivos (`ipcContract.ts` y `electron-api.d.ts`) deben quedar con tipos idénticos entre sí.
-- **Restricción dura:** no modificar ningún archivo de lógica (repositorios, handlers, serializer). Solo se editan los dos archivos de contrato/tipos y se crean archivos de test de tipos.
+> Plan diseñado para que lo ejecute un modelo de AI de menor potencia. Cada paso es pequeño, concreto y verificable. No se toca el backend.
 
 ---
 
-## Decisiones de diseño (NO cambiar)
+## 0. Resumen del objetivo
 
-1. **`barcode` se tipa como `bigint | null`** en los tipos de salida. Reflejamos lo que el serializer hace hoy: los bigint pasan tal cual.
-2. **`purchasePrice` y `salePrice` se tipan como `string`** en los tipos de salida (el serializer convierte `Decimal` de Prisma a `string`).
-3. **`createdAt` y `date` se tipan como `Date`** en los tipos de salida (el serializer y `structured clone` de Electron preservan `Date`).
-4. **`StockMovement.product` se tipa como `BareProductFromApi`** (sin `category` ni `supplier`) porque el repositorio incluye `{ product: true }` sin relaciones anidadas.
-5. **`deleteProduct` devuelve `BareProductFromApi`** (sin relaciones) porque `prisma.product.delete` no hace include.
-6. **`deleteStockMovement` devuelve `BareStockMovementFromApi`** (sin `product`) porque `prisma.stockMovement.delete` no hace include.
+Implementar la primera iteración de la pantalla `Sells`: un buscador de productos (por código de barras + por nombre) y un carrito editable con cantidad y precio unitario. No incluye pagos ni confirmación/creación de `Sale` — esos pasos son de iteraciones futuras.
+
+Referencia de decisiones de comportamiento: ver sección **"Iteración actual (en curso): buscador + carrito de productos"** en [context.md](context.md).
 
 ---
 
-## Orden de ejecución
+## 1. Arquitectura propuesta
 
-Cada paso es pequeño, independiente de los siguientes hasta donde se pueda, y termina con una verificación. Si una verificación falla, parar, revisar qué salió distinto, y corregir antes de continuar.
+Crear un módulo nuevo en el renderer bajo [renderer/src/Pages/Sells/](renderer/src/Pages/Sells/):
+
+```
+renderer/src/Pages/Sells/
+├── Sells.tsx              # Contenedor: layout + orquestación
+├── Sells.css              # Estilos
+├── BarcodeInput.tsx       # Input superior, maneja Enter (scan) y F2
+├── SearchPopup.tsx        # Ventana emergente con buscador y tabla
+├── CartList.tsx           # Lista (grid) del carrito
+├── searchProducts.ts      # Función que combina getByBarcode + listProducts
+├── cartReducer.ts         # Lógica pura del estado del carrito
+├── types.ts               # CartLine y tipos auxiliares
+└── __tests__/
+    ├── cartReducer.test.ts
+    └── searchProducts.test.ts
+```
+
+Además:
+- Modificar [renderer/src/App.tsx](renderer/src/App.tsx) para renderizar `<Sells />` cuando `content === "sells"`.
+- Agregar Vitest al proyecto (si todavía no está).
 
 ---
 
-### Paso 1 — Snapshot del estado actual (baseline)
+## 2. Pasos
 
-**Objetivo:** saber cuántos errores de tipo hay HOY para poder comparar al final.
+### Paso 2.0 — Exportar los tipos del API en `electron-api.d.ts`
 
-1. Abrir una terminal en `h:\anton\Integral`.
-2. Ejecutar:
-   ```bash
-   npx tsc --noEmit -p electron/tsconfig.json
+**Objetivo:** que `ProductFromApi`, `CategoryFromApi`, `SupplierFromApi`, `BareProductFromApi` y `BareStockMovementFromApi` se puedan importar desde otros archivos del renderer. Hoy están declarados sin `export`, y como el archivo tiene `export {}` al final, no son ni globales ni importables.
+
+**Archivo:** [renderer/src/electron-api.d.ts](renderer/src/electron-api.d.ts)
+
+**Acción concreta:** agregar `export` delante de la declaración `type` de cada uno de estos tipos:
+- `CategoryFromApi`
+- `SupplierFromApi`
+- `BareProductFromApi`
+- `ProductFromApi`
+- `BareStockMovementFromApi`
+- `StockMovementFromApi`
+
+Ejemplo:
+```ts
+export type ProductFromApi = BareProductFromApi & {
+  category: CategoryFromApi
+  supplier: SupplierFromApi
+}
+```
+
+**Verificación:** `tsc --noEmit` dentro de `renderer/` debe seguir pasando y un archivo cualquiera del renderer debe poder hacer `import type { ProductFromApi } from './electron-api'` sin error.
+
+> Nota: hay que importar desde `'./electron-api'` (sin la extensión `.d.ts`). Los archivos `.d.ts` son resueltos automáticamente por TypeScript.
+
+---
+
+### Paso 2.1 — Configurar Vitest en el renderer
+
+**Objetivo:** poder correr tests unitarios con `npm test`.
+
+**Archivos que se tocan:**
+- [renderer/package.json](renderer/package.json)
+- [renderer/vite.config.ts](renderer/vite.config.ts) (o crear `vitest.config.ts` si preferís aislarlo)
+- Nuevo: `renderer/src/setupTests.ts`
+
+**Acciones concretas:**
+1. En la carpeta `renderer/`, instalar las dependencias de desarrollo:
    ```
-   Si no existe ese tsconfig, usar el de la raíz:
-   ```bash
-   npx tsc --noEmit
+   npm install -D vitest @testing-library/react @testing-library/jest-dom @testing-library/user-event happy-dom
    ```
-3. Ejecutar también:
-   ```bash
-   cd renderer && npx tsc --noEmit
+2. En `renderer/package.json`, agregar en `"scripts"`:
+   ```json
+   "test": "vitest run",
+   "test:watch": "vitest"
    ```
-4. Guardar mentalmente (o en un scratchpad) cuántos errores salen en cada uno. Al final del plan no deben ser MÁS que ahora. Idealmente quedan en 0.
-
----
-
-### Paso 2 — Leer los tipos de input en los repositorios
-
-**Objetivo:** confirmar los nombres exactos de las interfaces de input que vamos a importar en `ipcContract.ts` y duplicar en `electron-api.d.ts`.
-
-1. Abrir [backend/repositories/categoryRepository.ts](backend/repositories/categoryRepository.ts). Anotar: `CreateCategoryInput`, `UpdateCategoryInput`.
-2. Abrir [backend/repositories/supplierRepository.ts](backend/repositories/supplierRepository.ts). Anotar: `CreateSupplierInput`, `UpdateSupplierInput`.
-3. Abrir [backend/repositories/productRepository.ts](backend/repositories/productRepository.ts). Anotar: `CreateProductInput`, `UpdateProductInput`, `ProductFilters`.
-4. Abrir [backend/repositories/stockMovementRepository.ts](backend/repositories/stockMovementRepository.ts). Anotar: `CreateStockMovementInput`, `ListStockMovementsFilters`.
-5. Abrir [backend/repositories/utilities.ts](backend/repositories/utilities.ts). Anotar: `BarcodeInput` (`bigint | number | string`), `DecimalInput`, `StockMovementType` (`"IN" | "SALE" | "ADJUSTMENT"`).
-
-No modificar nada en este paso. Es solo lectura.
-
----
-
-### Paso 3 — Redactar los tipos de salida serializados en `ipcContract.ts`
-
-**Objetivo:** agregar las interfaces de lo que efectivamente llega al renderer (tipos "FromApi").
-
-1. Abrir [electron/ipcContract.ts](electron/ipcContract.ts).
-2. Dejar el bloque de `import type { ... } from "../backend/repositories"` como está (al final del paso 4 vamos a usarlo para los inputs).
-3. Debajo del `import` y antes de `export type IpcInvoke`, pegar EXACTAMENTE este bloque de tipos:
-
+3. En `renderer/vite.config.ts`:
+   - Cambiar el import `import { defineConfig } from 'vite'` por `import { defineConfig } from 'vitest/config'` (así el tipo de config incluye `test` y TypeScript no se queja).
+   - Agregar el bloque `test` dentro de la llamada a `defineConfig`:
    ```ts
-   // -----------------------------------------------------------------------------
-   // Tipos de salida (lo que realmente llega al renderer después del IPC).
-   // Reflejan la serialización de `electron/ipcSerialize.ts`:
-   //   - Prisma.Decimal  -> string
-   //   - bigint          -> bigint (pasa tal cual)
-   //   - Date            -> Date   (pasa tal cual)
-   // -----------------------------------------------------------------------------
-
-   export interface CategoryFromApi {
-     id: number
-     name: string
-   }
-
-   export interface SupplierFromApi {
-     id: number
-     name: string
-     phone: string | null
-     notes: string | null
-   }
-
-   export interface BareProductFromApi {
-     id: number
-     name: string
-     barcode: bigint | null
-     purchasePrice: string
-     salePrice: string
-     stock: number
-     minStock: number
-     createdAt: Date
-     categoryId: number
-     supplierId: number
-   }
-
-   export interface ProductFromApi extends BareProductFromApi {
-     category: CategoryFromApi
-     supplier: SupplierFromApi
-   }
-
-   export interface BareStockMovementFromApi {
-     id: number
-     productId: number
-     type: string
-     quantity: number
-     date: Date
-     notes: string | null
-     appliedDelta: number | null
-     saleId: number | null
-   }
-
-   export interface StockMovementFromApi extends BareStockMovementFromApi {
-     product: BareProductFromApi
+   test: {
+     environment: 'happy-dom',
+     globals: true,
+     setupFiles: ['./src/setupTests.ts'],
+     include: ['src/**/*.test.{ts,tsx}']
    }
    ```
-
-4. Guardar el archivo.
-5. Ejecutar `npx tsc --noEmit` desde la raíz y confirmar que no hay errores nuevos (solo los del baseline).
-
-**Notas de decisión:**
-- `BareStockMovementFromApi` incluye `appliedDelta` y `saleId` porque están en el modelo Prisma (ver [backend/prisma/schema.prisma](backend/prisma/schema.prisma)) y `findMany` los devuelve.
-- `type` se deja como `string` (no `StockMovementType`) porque el campo en la DB es `String` y teóricamente puede contener valores inválidos heredados. Si se quiere más estricto, se podría usar `"IN" | "SALE" | "ADJUSTMENT"`, pero por ahora mantenemos compatibilidad con el shape crudo de Prisma.
-
----
-
-### Paso 4 — Tipar los retornos de `ElectronApi` en `ipcContract.ts`
-
-**Objetivo:** reemplazar los `Promise<unknown>` por los tipos reales.
-
-1. En el mismo archivo [electron/ipcContract.ts](electron/ipcContract.ts), reemplazar la interfaz `ElectronApi` completa por esta versión:
-
+4. Crear [renderer/src/setupTests.ts](renderer/src/setupTests.ts) con:
    ```ts
-   export interface ElectronApi {
-     createCategory: (data: CreateCategoryInput) => Promise<CategoryFromApi>
-     listCategories: () => Promise<CategoryFromApi[]>
-     getCategoryById: (id: number) => Promise<CategoryFromApi | null>
-     updateCategory: (id: number, data: UpdateCategoryInput) => Promise<CategoryFromApi>
-     deleteCategory: (id: number) => Promise<CategoryFromApi>
-
-     createSupplier: (data: CreateSupplierInput) => Promise<SupplierFromApi>
-     listSuppliers: () => Promise<SupplierFromApi[]>
-     getSupplierById: (id: number) => Promise<SupplierFromApi | null>
-     updateSupplier: (id: number, data: UpdateSupplierInput) => Promise<SupplierFromApi>
-     deleteSupplier: (id: number) => Promise<SupplierFromApi>
-
-     createProduct: (data: CreateProductInput) => Promise<ProductFromApi>
-     listProducts: (filters?: ProductFilters) => Promise<ProductFromApi[]>
-     getProductById: (id: number) => Promise<ProductFromApi | null>
-     getProductByBarcode: (barcode: bigint | number | string) => Promise<ProductFromApi | null>
-     updateProduct: (id: number, data: UpdateProductInput) => Promise<ProductFromApi>
-     updateProductStock: (id: number, stock: number) => Promise<ProductFromApi>
-     changeProductStock: (id: number, delta: number) => Promise<ProductFromApi>
-     deleteProduct: (id: number) => Promise<BareProductFromApi>
-
-     createStockMovement: (data: CreateStockMovementInput) => Promise<StockMovementFromApi>
-     listStockMovements: (filters?: ListStockMovementsFilters) => Promise<StockMovementFromApi[]>
-     getStockMovementById: (id: number) => Promise<StockMovementFromApi | null>
-     deleteStockMovement: (id: number, revertStock?: boolean) => Promise<BareStockMovementFromApi>
-   }
+   import '@testing-library/jest-dom/vitest'
    ```
+5. En [renderer/tsconfig.app.json](renderer/tsconfig.app.json), agregar `"vitest/globals"` al array `types` de `compilerOptions`. Hoy el array es `["vite/client"]`; debe quedar `["vite/client", "vitest/globals"]`.
 
-2. NO tocar la función `buildElectronApi(invoke)` que viene abajo. Como sus retornos ahora son específicos en vez de `unknown`, TS va a inferir que `invoke(...)` devuelve `Promise<unknown>` y no va a matchear. Arreglar eso en el paso 5 con un cast controlado.
+> Nota: no tocar el `tsconfig.json` raíz — es sólo un orquestador con `references` y no tiene `compilerOptions`.
 
-3. Guardar.
-
----
-
-### Paso 5 — Ajustar `buildElectronApi` para no romper por los retornos más estrictos
-
-**Objetivo:** que `buildElectronApi` compile con los nuevos tipos sin cambiar su lógica.
-
-1. En [electron/ipcContract.ts](electron/ipcContract.ts), reemplazar el cuerpo de `buildElectronApi` por esta versión (solo cambia la firma del helper interno y el uso de un cast al final; la lógica de los canales es idéntica):
-
-   ```ts
-   export function buildElectronApi(invoke: IpcInvoke): ElectronApi {
-     const call = <T>(channel: string, payload: unknown) => invoke(channel, payload) as Promise<T>
-
-     return {
-       createCategory: (data) => call<CategoryFromApi>("category:create", { data }),
-       listCategories: () => call<CategoryFromApi[]>("category:list", {}),
-       getCategoryById: (id) => call<CategoryFromApi | null>("category:getById", { id }),
-       updateCategory: (id, data) => call<CategoryFromApi>("category:update", { id, data }),
-       deleteCategory: (id) => call<CategoryFromApi>("category:delete", { id }),
-
-       createSupplier: (data) => call<SupplierFromApi>("supplier:create", { data }),
-       listSuppliers: () => call<SupplierFromApi[]>("supplier:list", {}),
-       getSupplierById: (id) => call<SupplierFromApi | null>("supplier:getById", { id }),
-       updateSupplier: (id, data) => call<SupplierFromApi>("supplier:update", { id, data }),
-       deleteSupplier: (id) => call<SupplierFromApi>("supplier:delete", { id }),
-
-       createProduct: (data) => call<ProductFromApi>("product:create", { data }),
-       listProducts: (filters) => call<ProductFromApi[]>("product:list", { filters }),
-       getProductById: (id) => call<ProductFromApi | null>("product:getById", { id }),
-       getProductByBarcode: (barcode) => call<ProductFromApi | null>("product:getByBarcode", { barcode }),
-       updateProduct: (id, data) => call<ProductFromApi>("product:update", { id, data }),
-       updateProductStock: (id, stock) => call<ProductFromApi>("product:updateStock", { id, stock }),
-       changeProductStock: (id, delta) => call<ProductFromApi>("product:changeStock", { id, delta }),
-       deleteProduct: (id) => call<BareProductFromApi>("product:delete", { id }),
-
-       createStockMovement: (data) => call<StockMovementFromApi>("stockMovement:create", { data }),
-       listStockMovements: (filters) => call<StockMovementFromApi[]>("stockMovement:list", { filters }),
-       getStockMovementById: (id) => call<StockMovementFromApi | null>("stockMovement:getById", { id }),
-       deleteStockMovement: (id, revertStock) =>
-         call<BareStockMovementFromApi>("stockMovement:delete", { id, revertStock })
-     }
-   }
-   ```
-
-2. **Importante:** NO cambiar `IpcInvoke`. El cast se hace por canal, lo que es equivalente a lo que había antes (el runtime no se modifica).
-3. Guardar.
-4. Ejecutar `npx tsc --noEmit` desde la raíz. No deben aparecer errores nuevos en `electron/ipcContract.ts`.
+**Verificación:** correr `npm test` en `renderer/`. Debe imprimir "No test files found" sin error de configuración.
 
 ---
 
-### Paso 6 — Sincronizar `renderer/src/electron-api.d.ts`
+### Paso 2.2 — Definir tipos del carrito
 
-**Objetivo:** que el archivo del renderer declare EXACTAMENTE los mismos tipos, duplicados a mano (el renderer no puede importar desde `backend/` ni desde `electron/`).
+**Archivo:** crear [renderer/src/Pages/Sells/types.ts](renderer/src/Pages/Sells/types.ts).
 
-1. Abrir [renderer/src/electron-api.d.ts](renderer/src/electron-api.d.ts).
-2. Reemplazar TODO el contenido del archivo por lo siguiente:
+**Contenido:**
+```ts
+import type { ProductFromApi } from '../../electron-api'
 
-   ```ts
-   // ---------------------------------------------------------------------------
-   // ESPEJO del contrato IPC. Debe quedar SINCRONIZADO con electron/ipcContract.ts.
-   // Si uno cambia, el otro también.
-   // Reglas de serialización:
-   //   - Prisma.Decimal -> string
-   //   - bigint         -> bigint  (pasa tal cual)
-   //   - Date           -> Date    (pasa tal cual)
-   // ---------------------------------------------------------------------------
+export type CartLine = {
+  productId: number
+  product: ProductFromApi
+  quantity: number
+  unitPrice: string   // string para respetar la serialización Decimal -> string
+}
 
-   // ---------- Inputs ----------
+export type CartState = {
+  lines: CartLine[]
+}
+```
 
-   type DecimalInput = number | string
-   type BarcodeInput = number | string | bigint
-   type StockMovementType = "IN" | "SALE" | "ADJUSTMENT"
-
-   type PaginationInput = {
-     skip?: number
-     take?: number
-   }
-
-   type CreateCategoryInput = {
-     name: string
-   }
-
-   type UpdateCategoryInput = {
-     name?: string
-   }
-
-   type CreateSupplierInput = {
-     name: string
-     phone?: string | null
-     notes?: string | null
-   }
-
-   type UpdateSupplierInput = {
-     name?: string
-     phone?: string | null
-     notes?: string | null
-   }
-
-   type CreateProductInput = {
-     name: string
-     purchasePrice: DecimalInput
-     salePrice: DecimalInput
-     categoryId: number
-     supplierId: number
-     barcode?: BarcodeInput | null
-     stock?: number
-     minStock?: number
-   }
-
-   type UpdateProductInput = {
-     name?: string
-     purchasePrice?: DecimalInput
-     salePrice?: DecimalInput
-     categoryId?: number
-     supplierId?: number
-     barcode?: BarcodeInput | null
-     stock?: number
-     minStock?: number
-   }
-
-   type ProductFilters = PaginationInput & {
-     id?: number
-     barcode?: BarcodeInput
-     categoryId?: number
-     supplierId?: number
-     nameContains?: string
-   }
-
-   type CreateStockMovementInput = {
-     productId: number
-     type: StockMovementType | string
-     quantity: number
-     notes?: string | null
-     date?: Date
-     applyToStock?: boolean
-   }
-
-   type ListStockMovementsFilters = PaginationInput & {
-     productId?: number
-     type?: StockMovementType | string
-     fromDate?: Date
-     toDate?: Date
-   }
-
-   // ---------- Outputs (serializados) ----------
-
-   type CategoryFromApi = {
-     id: number
-     name: string
-   }
-
-   type SupplierFromApi = {
-     id: number
-     name: string
-     phone: string | null
-     notes: string | null
-   }
-
-   type BareProductFromApi = {
-     id: number
-     name: string
-     barcode: bigint | null
-     purchasePrice: string
-     salePrice: string
-     stock: number
-     minStock: number
-     createdAt: Date
-     categoryId: number
-     supplierId: number
-   }
-
-   type ProductFromApi = BareProductFromApi & {
-     category: CategoryFromApi
-     supplier: SupplierFromApi
-   }
-
-   type BareStockMovementFromApi = {
-     id: number
-     productId: number
-     type: string
-     quantity: number
-     date: Date
-     notes: string | null
-     appliedDelta: number | null
-     saleId: number | null
-   }
-
-   type StockMovementFromApi = BareStockMovementFromApi & {
-     product: BareProductFromApi
-   }
-
-   // ---------- ElectronApi ----------
-
-   type ElectronApi = {
-     createCategory: (data: CreateCategoryInput) => Promise<CategoryFromApi>
-     listCategories: () => Promise<CategoryFromApi[]>
-     getCategoryById: (id: number) => Promise<CategoryFromApi | null>
-     updateCategory: (id: number, data: UpdateCategoryInput) => Promise<CategoryFromApi>
-     deleteCategory: (id: number) => Promise<CategoryFromApi>
-
-     createSupplier: (data: CreateSupplierInput) => Promise<SupplierFromApi>
-     listSuppliers: () => Promise<SupplierFromApi[]>
-     getSupplierById: (id: number) => Promise<SupplierFromApi | null>
-     updateSupplier: (id: number, data: UpdateSupplierInput) => Promise<SupplierFromApi>
-     deleteSupplier: (id: number) => Promise<SupplierFromApi>
-
-     createProduct: (data: CreateProductInput) => Promise<ProductFromApi>
-     listProducts: (filters?: ProductFilters) => Promise<ProductFromApi[]>
-     getProductById: (id: number) => Promise<ProductFromApi | null>
-     getProductByBarcode: (barcode: BarcodeInput) => Promise<ProductFromApi | null>
-     updateProduct: (id: number, data: UpdateProductInput) => Promise<ProductFromApi>
-     updateProductStock: (id: number, stock: number) => Promise<ProductFromApi>
-     changeProductStock: (id: number, delta: number) => Promise<ProductFromApi>
-     deleteProduct: (id: number) => Promise<BareProductFromApi>
-
-     createStockMovement: (data: CreateStockMovementInput) => Promise<StockMovementFromApi>
-     listStockMovements: (filters?: ListStockMovementsFilters) => Promise<StockMovementFromApi[]>
-     getStockMovementById: (id: number) => Promise<StockMovementFromApi | null>
-     deleteStockMovement: (id: number, revertStock?: boolean) => Promise<BareStockMovementFromApi>
-   }
-
-   declare global {
-     interface Window {
-       api: ElectronApi
-     }
-   }
-
-   export {}
-   ```
-
-3. Guardar.
-
-**Criterio de consistencia (importante):** los shapes (nombres de propiedades + tipos de propiedades + retornos de métodos) en este archivo deben coincidir uno a uno con los de `electron/ipcContract.ts`. La única diferencia admitida es:
-- En `electron/ipcContract.ts` los tipos son `export interface ...`.
-- En `electron-api.d.ts` son `type ... = { ... }` (porque el archivo es un `.d.ts` ambiente y no exporta nada al módulo). Eso es estructuralmente equivalente para TS.
+> **Prerrequisito:** este import requiere que el Paso 2.0 ya haya agregado `export` a `ProductFromApi` en [renderer/src/electron-api.d.ts](renderer/src/electron-api.d.ts).
 
 ---
 
-### Paso 7 — Test de tipos del lado del main (electron)
+### Paso 2.3 — Implementar `cartReducer` (lógica pura del carrito)
 
-**Objetivo:** detectar en tiempo de compilación si alguien rompe la consistencia entre los tipos declarados y el shape real que devuelven las queries.
+**Archivo:** crear [renderer/src/Pages/Sells/cartReducer.ts](renderer/src/Pages/Sells/cartReducer.ts).
 
-1. Crear un archivo nuevo `electron/ipcContract.types-test.ts` con este contenido:
+**Contrato:**
+```ts
+export type CartAction =
+  | { type: 'ADD'; product: ProductFromApi }
+  | { type: 'REMOVE'; productId: number }
+  | { type: 'SET_QUANTITY'; productId: number; quantity: number }
+  | { type: 'SET_UNIT_PRICE'; productId: number; unitPrice: string }
 
-   ```ts
-   // Archivo de test de tipos. NO tiene runtime útil; TS lo valida en compilación.
-   // Si rompe, significa que el contrato IPC dejó de coincidir con la realidad.
+export const initialCart: CartState = { lines: [] }
 
-   import type {
-     BareProductFromApi,
-     BareStockMovementFromApi,
-     CategoryFromApi,
-     ElectronApi,
-     ProductFromApi,
-     StockMovementFromApi,
-     SupplierFromApi
-   } from "./ipcContract"
+export function cartReducer(state: CartState, action: CartAction): CartState
+```
 
-   // --- Fixtures que simulan lo que sale del serializer ---
+**Reglas de implementación (muy explícitas):**
 
-   const category: CategoryFromApi = { id: 1, name: "Bebidas" }
+- `ADD`:
+  - Si existe una `line` con `productId === action.product.id` → devolver nuevo estado con esa `line` con `quantity + 1` (no mutar).
+  - Si no existe → agregar nueva `line` con:
+    - `productId: action.product.id`
+    - `product: action.product`
+    - `quantity: 1`
+    - `unitPrice: action.product.salePrice` (tal cual llega, string)
 
-   const supplier: SupplierFromApi = {
-     id: 1,
-     name: "Proveedor X",
-     phone: null,
-     notes: null
-   }
+- `REMOVE`:
+  - Devolver estado con `lines` filtradas sacando la de `productId`.
 
-   const bareProduct: BareProductFromApi = {
-     id: 1,
-     name: "Coca 500ml",
-     barcode: 7790895000000n,
-     purchasePrice: "100.00",
-     salePrice: "150.00",
-     stock: 10,
-     minStock: 2,
-     createdAt: new Date(),
-     categoryId: 1,
-     supplierId: 1
-   }
+- `SET_QUANTITY` (el orden de estas reglas importa — aplicarlas en este orden):
+  1. **Validar primero:** si `Number.isFinite(quantity) === false` (cubre `NaN` e `Infinity`) → devolver el state sin cambios.
+  2. **Después normalizar `REMOVE`:** si `quantity < 1` → tratar como `REMOVE` (no permitir 0 ni negativos).
+  3. Si pasó ambas validaciones: redondear con `Math.floor(quantity)` (cantidades enteras) y actualizar solo la línea correspondiente.
 
-   const product: ProductFromApi = {
-     ...bareProduct,
-     category,
-     supplier
-   }
+  > No invertir el orden: si se chequea `quantity < 1` antes de `Number.isFinite`, `NaN < 1` es `false` y el caso NaN se cuela al resto de la lógica.
 
-   const bareMovement: BareStockMovementFromApi = {
-     id: 1,
-     productId: 1,
-     type: "IN",
-     quantity: 5,
-     date: new Date(),
-     notes: null,
-     appliedDelta: null,
-     saleId: null
-   }
+- `SET_UNIT_PRICE`:
+  - Si `unitPrice` es `''` → aceptar string vacío (el input puede estar vacío mientras el usuario edita).
+  - Si `unitPrice` no es vacío y `Number(unitPrice)` no es finito o es negativo → devolver state sin cambios.
+  - Actualizar solo la línea correspondiente.
 
-   const movement: StockMovementFromApi = {
-     ...bareMovement,
-     product: bareProduct
-   }
-
-   // --- Comprobaciones estructurales ---
-
-   // barcode DEBE ser bigint | null (no string, no number).
-   const _bc: bigint | null = product.barcode
-   // precios DEBEN ser string.
-   const _pp: string = product.purchasePrice
-   const _sp: string = product.salePrice
-   // createdAt DEBE ser Date.
-   const _ca: Date = product.createdAt
-   // category y supplier DEBEN estar presentes.
-   const _catName: string = product.category.name
-   const _supName: string = product.supplier.name
-
-   // StockMovement.product NO debe tener category/supplier (es BareProductFromApi).
-   // @ts-expect-error — product dentro de un movimiento viene desnudo.
-   const _shouldFail = movement.product.category
-
-   // --- Mock de ElectronApi para validar firmas ---
-
-   const api: ElectronApi = {
-     createCategory: async (_d) => category,
-     listCategories: async () => [category],
-     getCategoryById: async (_id) => category,
-     updateCategory: async (_id, _d) => category,
-     deleteCategory: async (_id) => category,
-
-     createSupplier: async (_d) => supplier,
-     listSuppliers: async () => [supplier],
-     getSupplierById: async (_id) => supplier,
-     updateSupplier: async (_id, _d) => supplier,
-     deleteSupplier: async (_id) => supplier,
-
-     createProduct: async (_d) => product,
-     listProducts: async (_f) => [product],
-     getProductById: async (_id) => product,
-     getProductByBarcode: async (_b) => product,
-     updateProduct: async (_id, _d) => product,
-     updateProductStock: async (_id, _s) => product,
-     changeProductStock: async (_id, _d) => product,
-     deleteProduct: async (_id) => bareProduct,
-
-     createStockMovement: async (_d) => movement,
-     listStockMovements: async (_f) => [movement],
-     getStockMovementById: async (_id) => movement,
-     deleteStockMovement: async (_id, _r) => bareMovement
-   }
-
-   void api
-   ```
-
-2. Guardar.
-3. Ejecutar `npx tsc --noEmit` desde la raíz.
-4. **Criterio de éxito:** cero errores en este archivo. El `@ts-expect-error` DEBE triggerear correctamente (si TS se queja de que "esta directiva no aplica", quiere decir que el bug NO fue cazado y hay que revisar por qué `movement.product` acepta `.category`).
+**Helper adicional** (exportar desde el mismo archivo):
+```ts
+export function lineTotal(line: CartLine): number {
+  const price = Number(line.unitPrice)
+  if (!Number.isFinite(price)) return 0
+  return price * line.quantity
+}
+```
 
 ---
 
-### Paso 8 — Test de tipos del lado del renderer
+### Paso 2.4 — Tests de `cartReducer`
 
-**Objetivo:** el mismo test, pero del lado del renderer, contra `window.api`.
+**Archivo:** crear [renderer/src/Pages/Sells/__tests__/cartReducer.test.ts](renderer/src/Pages/Sells/__tests__/cartReducer.test.ts).
 
-1. Crear un archivo nuevo `renderer/src/electron-api.types-test.ts` con este contenido:
+**Casos de prueba obligatorios** (uno `it` por caso):
 
-   ```ts
-   // Archivo de test de tipos para el renderer. NO se usa en runtime.
+1. `ADD` agrega una nueva línea con `quantity = 1` cuando el carrito está vacío.
+2. `ADD` incrementa `quantity` en +1 cuando el producto ya existe (no crea fila nueva).
+3. `ADD` al agregar un producto distinto, lo agrega como fila nueva y mantiene la anterior.
+4. `REMOVE` elimina la línea correspondiente y deja intactas las demás.
+5. `REMOVE` con un `productId` inexistente no cambia el estado.
+6. `SET_QUANTITY` con valor positivo actualiza la cantidad.
+7. `SET_QUANTITY` con `0` elimina la línea.
+8. `SET_QUANTITY` con `-3` elimina la línea.
+9. `SET_QUANTITY` con `NaN` no modifica el estado.
+10. `SET_QUANTITY` con `2.7` guarda `2` (Math.floor).
+11. `SET_UNIT_PRICE` con string vacío deja `unitPrice: ''` en la línea.
+12. `SET_UNIT_PRICE` con `"150.50"` actualiza el precio.
+13. `SET_UNIT_PRICE` con `"-1"` no cambia el estado.
+14. `SET_UNIT_PRICE` con `"abc"` no cambia el estado.
+15. `lineTotal` devuelve `quantity * Number(unitPrice)` con precio válido.
+16. `lineTotal` devuelve `0` cuando `unitPrice === ''`.
+17. **Inmutabilidad:** verificar con `toBe` / `not.toBe` que el estado devuelto es un objeto distinto al de entrada (en los casos que sí cambian).
 
-   async function _checkWindowApi() {
-     const products = await window.api.listProducts({ take: 10 })
-     const first = products[0]
+**Fixture helper sugerido** (dentro del test):
+```ts
+const mockProduct = (id: number, overrides: Partial<ProductFromApi> = {}): ProductFromApi => ({
+  id,
+  name: `Producto ${id}`,
+  barcode: BigInt(1000 + id),
+  purchasePrice: '50.00',
+  salePrice: '100.00',
+  stock: 10,
+  minStock: 0,
+  createdAt: new Date(),
+  categoryId: 1,
+  supplierId: 1,
+  category: { id: 1, name: 'Cat' },
+  supplier: { id: 1, name: 'Prov', phone: null, notes: null },
+  ...overrides
+})
+```
 
-     // Shape esperado
-     const _id: number = first.id
-     const _name: string = first.name
-     const _barcode: bigint | null = first.barcode
-     const _purchase: string = first.purchasePrice
-     const _sale: string = first.salePrice
-     const _created: Date = first.createdAt
-     const _catName: string = first.category.name
-     const _supName: string = first.supplier.name
-
-     const maybe = await window.api.getProductById(1)
-     // Puede ser null
-     const _n: ProductFromApi | null = maybe
-
-     const deleted = await window.api.deleteProduct(1)
-     // deleteProduct NO trae category/supplier.
-     // @ts-expect-error — deleteProduct devuelve BareProductFromApi.
-     const _shouldFail1 = deleted.category
-
-     const movements = await window.api.listStockMovements()
-     const m = movements[0]
-     const _mDate: Date = m.date
-     // product dentro del movimiento viene desnudo.
-     // @ts-expect-error — StockMovement.product es BareProductFromApi.
-     const _shouldFail2 = m.product.category
-
-     const delMov = await window.api.deleteStockMovement(1, false)
-     // @ts-expect-error — deleteStockMovement no incluye product.
-     const _shouldFail3 = delMov.product
-   }
-
-   void _checkWindowApi
-   ```
-
-2. Guardar.
-3. Ejecutar `cd renderer && npx tsc --noEmit`.
-4. **Criterio de éxito:** cero errores, y los tres `@ts-expect-error` son aceptados (si TS se queja de alguno, es porque el tipo NO está protegiendo bien y hay que revisar).
+**Verificación:** `npm test` debe pasar todos los casos antes de seguir.
 
 ---
 
-### Paso 9 — Verificar que el renderer real no se rompió
+### Paso 2.5 — Implementar `searchProducts` (combina barcode + nombre)
 
-**Objetivo:** [renderer/src/Pages/Stock.tsx](renderer/src/Pages/Stock.tsx) consume `listProducts` usando `Awaited<ReturnType<...>>[number]`. Ese patrón debe seguir funcionando con los nuevos tipos.
+**Archivo:** crear [renderer/src/Pages/Sells/searchProducts.ts](renderer/src/Pages/Sells/searchProducts.ts).
 
-1. Ejecutar `cd renderer && npx tsc --noEmit`.
-2. Confirmar que `Stock.tsx` NO tiene errores nuevos.
-3. Abrir `Stock.tsx` y verificar visualmente que los accesos `p.name`, `p.salePrice` (string), `p.stock`, `p.category.name`, `p.barcode` (bigint | null), `p.minStock`, `p.supplier.name` siguen siendo válidos con el tipo `ProductFromApi`. Todos deberían pasar porque:
-   - `p.salePrice` es `string` → `formatMoney(p.salePrice)` recibe `string`. ✅
-   - `p.barcode` es `bigint | null` → se compara con `null` y se llama `.toString()`. ✅
-   - `p.category.name` y `p.supplier.name` están presentes. ✅
+**Firma:**
+```ts
+export async function searchProducts(query: string): Promise<ProductFromApi[]>
+```
 
-4. Si hay algún error de tipo en `Stock.tsx`, parar y revisar que los tipos definidos en el paso 6 coincidan con los del paso 3.
+**Lógica exacta:**
+1. Si `query.trim() === ''` → devolver `[]`.
+2. Ejecutar siempre `const byName = await window.api.listProducts({ nameContains: query.trim(), take: 50 })`.
+3. Si `/^\d+$/.test(query.trim())` (sólo dígitos) → ejecutar además `await window.api.getProductByBarcode(query.trim())` dentro de un `try/catch` (si falla, ignorar).
+4. Si `getProductByBarcode` devolvió un producto y su `id` **no** está ya en `byName`, anteponerlo: `return [byBarcode, ...byName]`.
+5. Si no, devolver `byName` tal cual.
 
----
-
-### Paso 10 — Smoke test en runtime
-
-**Objetivo:** confirmar que nada en runtime se rompió (los cambios son solo de tipos, así que no debería romperse nada, pero verificamos).
-
-1. Desde la raíz, arrancar la app en modo dev:
-   ```bash
-   node scripts/dev.js
-   ```
-2. Esperar a que abra la ventana de Electron.
-3. Ir a la pestaña **Stock**. Debe cargar la lista de productos igual que antes (nombre, precio formateado en ARS, stock, categoría, código de barras, min stock, proveedor).
-4. Si la tabla carga correctamente y no hay errores en la consola (DevTools), el cambio está OK.
-5. Cerrar la app.
+> **Por qué el `try/catch`:** `getProductByBarcode` puede tirar si el barcode excede el rango de `BigInt` esperado; silenciamos y caemos al resultado por nombre.
 
 ---
 
-### Paso 11 — Revisión final de consistencia
+### Paso 2.6 — Tests de `searchProducts`
 
-**Objetivo:** dejar explícito que los dos archivos dicen lo mismo.
+**Archivo:** crear [renderer/src/Pages/Sells/__tests__/searchProducts.test.ts](renderer/src/Pages/Sells/__tests__/searchProducts.test.ts).
 
-1. Abrir [electron/ipcContract.ts](electron/ipcContract.ts) y [renderer/src/electron-api.d.ts](renderer/src/electron-api.d.ts) en paralelo.
-2. Ir método por método de `ElectronApi` y verificar que:
-   - El nombre del método es idéntico.
-   - La cantidad y orden de parámetros es idéntica.
-   - Los tipos de parámetros son equivalentes (un input con el mismo shape).
-   - El retorno (`Promise<X>`) es equivalente (mismo shape para `X`).
-3. Ir tipo por tipo de salida (`CategoryFromApi`, `SupplierFromApi`, `BareProductFromApi`, `ProductFromApi`, `BareStockMovementFromApi`, `StockMovementFromApi`) y verificar que las propiedades coinciden una a una.
-4. Si hay cualquier desalineación, corregirla en ambos archivos.
+**Setup:** `happy-dom` ya provee un `window` funcional; hay que **adjuntar** `api` como propiedad sin reemplazar el objeto entero. En `beforeEach`:
 
----
+```ts
+import { beforeEach, vi } from 'vitest'
 
-### Paso 12 — Checklist final
+beforeEach(() => {
+  (window as any).api = {
+    listProducts: vi.fn(),
+    getProductByBarcode: vi.fn()
+  }
+})
+```
 
-- [ ] `npx tsc --noEmit` en la raíz: 0 errores nuevos (idealmente 0 totales).
-- [ ] `cd renderer && npx tsc --noEmit`: 0 errores nuevos.
-- [ ] `electron/ipcContract.types-test.ts` existe y compila (incluyendo los `@ts-expect-error`).
-- [ ] `renderer/src/electron-api.types-test.ts` existe y compila (incluyendo los `@ts-expect-error`).
-- [ ] `electron/ipcContract.ts` y `renderer/src/electron-api.d.ts` declaran los mismos shapes.
-- [ ] La pestaña Stock de la app sigue funcionando en runtime.
-- [ ] No se modificó ningún archivo de lógica (repositorios, handlers, serializer, servicios).
+> **No usar** `vi.stubGlobal('window', { api: ... })`: eso sustituye el objeto `window` completo y rompe el DOM provisto por happy-dom (se pierden `document`, `addEventListener`, etc.). Mutar la propiedad `window.api` es suficiente y seguro.
 
----
+Dentro de cada test, castear para leer los mocks: `(window.api.listProducts as ReturnType<typeof vi.fn>).mockResolvedValue([...])`.
 
-## Qué hacer si algo falla
+**Casos obligatorios:**
+1. Query vacía → devuelve `[]` sin llamar a la API.
+2. Query con sólo letras (`"leche"`) → llama sólo a `listProducts` con `{ nameContains: 'leche', take: 50 }`, **no** llama a `getProductByBarcode`.
+3. Query numérica (`"1234"`) → llama a ambos. Si `getProductByBarcode` devuelve un producto nuevo, queda **primero** en el array.
+4. Query numérica → si el producto devuelto por barcode también aparece en `byName`, no se duplica.
+5. `getProductByBarcode` tira error → no rompe, devuelve `byName`.
+6. Query con espacios (`"  leche  "`) → se trimmean antes de consultar.
+7. Query mixta (`"leche 1L"`) → tratada como nombre (no se llama a barcode).
 
-- **Si `tsc` se queja de que `BigInt` no es asignable a `string` o viceversa en algún lado:** revisar que el tipo en ambos archivos diga `bigint | null` para `barcode` (no `string`).
-- **Si un `@ts-expect-error` se queja de que "la directiva no aplica":** significa que el tipo NO está restringiendo lo que debería. Revisar que `StockMovementFromApi.product` sea `BareProductFromApi` y no `ProductFromApi`.
-- **Si `Stock.tsx` rompe:** lo más probable es que el tipo `salePrice` haya quedado mal. Debe ser `string`.
-- **Si la app crashea en runtime al cargar productos:** los cambios son solo de tipos, NO debería pasar. Si pasa, revertir con `git checkout` y reportar.
+**Verificación:** `npm test` pasa todos.
 
 ---
 
-## Archivos tocados por este plan
+### Paso 2.7 — Implementar `BarcodeInput`
 
-| Archivo | Acción |
-|---|---|
-| `electron/ipcContract.ts` | **Editar** (agregar tipos de salida, tipar retornos) |
-| `renderer/src/electron-api.d.ts` | **Reescribir** (mirror del contrato) |
-| `electron/ipcContract.types-test.ts` | **Crear** (test de tipos) |
-| `renderer/src/electron-api.types-test.ts` | **Crear** (test de tipos) |
+**Archivo:** crear [renderer/src/Pages/Sells/BarcodeInput.tsx](renderer/src/Pages/Sells/BarcodeInput.tsx).
 
-Nada más. No se tocan repositorios, handlers, servicios, ni el serializer.
+**Props:**
+```ts
+type Props = {
+  onScan: (barcode: string) => void       // disparado al apretar Enter
+  onRequestSearch: () => void             // disparado al apretar F2 o el botón
+}
+```
+
+**Comportamiento:**
+- Un `<input type="text">` con `autoFocus` y `placeholder="Código de barras"`.
+- Estado interno controlado `value`.
+- `onKeyDown`:
+  - `Enter`: si `value.trim()` no vacío → llamar `onScan(value.trim())` y limpiar el input (`setValue('')`).
+  - **No** manejar `F2` acá. El toggle del popup lo maneja únicamente el listener global de `Sells` (ver Paso 2.10). Si acá también llamáramos `onRequestSearch()` + el listener global toggleara, los dos updates se batchean y el popup termina cerrado.
+- `<button type="button">F2</button>` al lado que llama `onRequestSearch()` (el padre lo tiene definido como toggle, así que el botón abre y cierra).
+- Exponer un método para que el padre pueda re-enfocar el input tras cerrar el popup. **Implementación:** usar `forwardRef` + `useImperativeHandle` para exponer `{ focus(): void }`.
+
+---
+
+### Paso 2.8 — Implementar `SearchPopup`
+
+**Archivo:** crear [renderer/src/Pages/Sells/SearchPopup.tsx](renderer/src/Pages/Sells/SearchPopup.tsx).
+
+**Props:**
+```ts
+type Props = {
+  open: boolean
+  onClose: () => void
+  onSelect: (product: ProductFromApi) => void
+}
+```
+
+**Estructura visual** (coincide con el sketch):
+- Overlay fijo a pantalla completa, fondo semi-transparente.
+- Contenedor centrado con:
+  - Título "Buscador".
+  - Input de búsqueda (`autoFocus` cuando `open` pasa de `false` a `true`).
+  - Tabla con encabezados `Código de barras | Nombre | Stock`.
+  - Filas de resultados. La fila seleccionada (índice `selectedIndex`) tiene clase `search-popup__row--selected`.
+
+**Estado interno:**
+- `query: string`
+- `results: ProductFromApi[]`
+- `selectedIndex: number` (empieza en `0`; resetear a `0` cada vez que cambia `results`)
+- `loading: boolean`
+- `error: string | null`
+
+**Búsqueda con debounce:**
+- `useEffect` con dependencia `[query]`.
+- Dentro: `setTimeout(async () => { ... }, 250)`. Cancelar con `clearTimeout` en la cleanup function.
+- Dentro del timeout: `setLoading(true)`, llamar `searchProducts(query)`, setear resultados, `setLoading(false)`. Capturar errores en `error`.
+- Usar flag `cancelled` para evitar setear estado tras unmount.
+
+**Teclado (handler `onKeyDown` en el input):**
+- `ArrowDown`: `setSelectedIndex(i => Math.min(i + 1, results.length - 1))`; `preventDefault`.
+- `ArrowUp`: `setSelectedIndex(i => Math.max(i - 1, 0))`; `preventDefault`.
+- `Enter`:
+  - Si `/^\d+$/.test(query.trim())` (query puramente numérica — caso típico del scanner dentro del popup) → **no hacer nada**. El producto queda listado en los resultados; si el usuario lo quiere en el carrito debe hacer click sobre la fila.
+  - En caso contrario, si `results[selectedIndex]` existe → `onSelect(results[selectedIndex])` y `onClose()`.
+- `Escape`: `onClose()`.
+- `Tab`: dejar comportamiento default (permite mover foco fuera si el usuario quiere).
+
+> **Por qué:** el scanner emite `Enter` al final del barcode. Si ese `Enter` auto-seleccionara, escanear algo "sólo para buscarlo" siempre lo sumaría al carrito. Con esta regla, la query numérica queda listada pero no se agrega automáticamente; el usuario decide con click si finalmente lo carga.
+
+**Mouse:**
+- Click en una fila → `onSelect(row)` + `onClose()`.
+- Hover (opcional): actualiza `selectedIndex` para que el resaltado siga al mouse.
+- Click fuera del contenedor (sobre el overlay) → `onClose()`.
+
+**Limpieza al cerrar:**
+- Cuando `open` pasa a `false`, limpiar `query` y `results` en un `useEffect`.
+
+**Render cuando `!open`:** retornar `null`.
+
+---
+
+### Paso 2.8b — Extraer `formatMoney` a un util compartido
+
+**Objetivo:** evitar duplicar el formateador de moneda entre Stock y Sells.
+
+**Archivo nuevo:** crear [renderer/src/utils/format.ts](renderer/src/utils/format.ts) con:
+```ts
+export function formatMoney(value: string | number): string {
+  const asNumber = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(asNumber)) return String(value)
+
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 2
+  }).format(asNumber)
+}
+```
+
+**Modificar** [renderer/src/Pages/Stock.tsx](renderer/src/Pages/Stock.tsx):
+- Borrar la función local `formatMoney` (líneas ~12-21).
+- Agregar `import { formatMoney } from '../utils/format'`.
+- El resto de Stock queda igual (ya usaba `formatMoney(p.salePrice)` — string).
+
+**Verificación:** `npm run dev` debe mostrar la pantalla Stock con los precios formateados igual que antes.
+
+---
+
+### Paso 2.9 — Implementar `CartList`
+
+**Archivo:** crear [renderer/src/Pages/Sells/CartList.tsx](renderer/src/Pages/Sells/CartList.tsx).
+
+**Props:**
+```ts
+type Props = {
+  lines: CartLine[]
+  onQuantityChange: (productId: number, quantity: number) => void
+  onUnitPriceChange: (productId: number, unitPrice: string) => void
+  onRemove: (productId: number) => void
+}
+```
+
+**Helper compartido:** importar `formatMoney` desde `'../../utils/format'` (ya extraído en el Paso 2.8b).
+
+**Layout:** grid CSS de 4 columnas: `Nombre | Cantidad | Precio unitario | Total del producto`.
+
+**Cada fila:**
+- `<div tabIndex={0}>` que contiene los 4 campos.
+- Columna **Nombre:** texto; si `line.quantity > line.product.stock` → agregar un ícono/etiqueta roja con texto "⚠ Sin stock suficiente" (clase `cart-row__warn`).
+- Columna **Cantidad:** `<input type="number" min="1" step="1">` con `value={line.quantity}`; `onChange` → `onQuantityChange(productId, Number(e.target.value))`.
+- Columna **Precio unitario:** `<input type="number" min="0" step="0.01">` con `value={line.unitPrice}`; `onChange` → `onUnitPriceChange(productId, e.target.value)`.
+- Columna **Total:** texto calculado con `formatMoney(lineTotal(line))`.
+
+**Tecla Delete para eliminar la línea completa:**
+
+> **Semántica:** `Delete` elimina la fila entera (con toda su cantidad), no decrementa. Para bajar cantidades se usa el input numérico de la columna Cantidad (valor inicial siempre `1` al agregar).
+
+- `onKeyDown` en el `<div>` de la fila:
+  - Si `e.key === 'Delete'` → llamar `onRemove(productId)`, **salvo** que el foco esté dentro de un input editable (cantidad o precio), donde Delete tiene su significado natural. La condición exacta:
+    ```ts
+    if (e.key !== 'Delete') return
+    if (document.activeElement instanceof HTMLInputElement) return
+    e.preventDefault()
+    onRemove(productId)
+    ```
+- Adicionalmente agregar un botón visible `<button aria-label="Eliminar">✕</button>` al final de la fila que llama a `onRemove(productId)`. Cubre el caso mouse y sirve también como target alcanzable por `Tab`: una vez que el foco llega al `✕`, apretar `Enter` o `Space` elimina la fila.
+
+**Lista vacía:** si `lines.length === 0` mostrar un mensaje placeholder ("Agregá productos con el lector o F2").
+
+---
+
+### Paso 2.10 — Implementar `Sells` (contenedor)
+
+**Archivo:** crear [renderer/src/Pages/Sells/Sells.tsx](renderer/src/Pages/Sells/Sells.tsx).
+
+**Estado:**
+- `const [cart, dispatch] = useReducer(cartReducer, initialCart)`
+- `const [popupOpen, setPopupOpen] = useState(false)`
+- `const [alert, setAlert] = useState<{ kind: 'not-found' | 'no-stock' | 'no-price'; text: string } | null>(null)`
+- `const barcodeInputRef = useRef<{ focus: () => void } | null>(null)`
+- `const cartRef = useRef(cart)` — siempre refleja el último estado del carrito, incluso entre renders.
+- `const prevOpenRef = useRef(false)` — recuerda el valor previo de `popupOpen` para que el efecto de "devolver foco al cerrar" sólo dispare en la transición `true → false`.
+
+**Sincronizar el ref con el estado:**
+```ts
+useEffect(() => { cartRef.current = cart }, [cart])
+```
+
+**Handlers:**
+
+```ts
+async function handleScan(barcode: string) {
+  setAlert(null)
+  try {
+    const product = await window.api.getProductByBarcode(barcode)
+    if (!product) {
+      setAlert({ kind: 'not-found', text: `Producto con código ${barcode} no encontrado` })
+      return
+    }
+    addProduct(product)
+  } catch {
+    setAlert({ kind: 'not-found', text: `Código inválido: ${barcode}` })
+  }
+}
+
+// Decisión 11 del context.md: si el producto no tiene precio válido, no lo agregamos.
+// Aceptamos vacío, NaN, <= 0. Devolvemos true si se agregó, false si se rechazó.
+function hasValidPrice(product: ProductFromApi): boolean {
+  const raw = product.salePrice
+  if (raw === '' || raw == null) return false
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0
+}
+
+// Calcula el próximo estado ANTES de dispatch, usando el reducer como función pura.
+// Esto evita la race condition ante scans rápidos: cartRef.current siempre tiene
+// el último estado aplicado, aunque React no haya re-renderizado todavía.
+function addProduct(product: ProductFromApi) {
+  if (!hasValidPrice(product)) {
+    setAlert({
+      kind: 'no-price',
+      text: `"${product.name}" no tiene un precio cargado`
+    })
+    return
+  }
+
+  const action = { type: 'ADD', product } as const
+  const nextState = cartReducer(cartRef.current, action)
+  const newLine = nextState.lines.find(l => l.productId === product.id)
+  cartRef.current = nextState     // avanza el ref sincrónicamente
+  dispatch(action)                 // programa el re-render
+
+  if (newLine && newLine.quantity > product.stock) {
+    setAlert({
+      kind: 'no-stock',
+      text: `Sin stock suficiente de "${product.name}" (stock: ${product.stock})`
+    })
+  }
+}
+
+function handleSelectFromPopup(product: ProductFromApi) {
+  // Cerramos primero: el useEffect de transición true → false devuelve el foco al
+  // input de barcode. addProduct se ejecuta a continuación (sincrónico) y puede
+  // levantar la alerta de precio o stock sin sacarle el foco al barcode.
+  setPopupOpen(false)
+  addProduct(product)
+}
+```
+
+> **Por qué el ref:** `dispatch` no actualiza `cart` sincrónicamente. Si el scanner dispara dos Enter seguidos en el mismo tick, leer `cart.lines` entre ambas llamadas devuelve el estado viejo dos veces. Usando `cartRef` + avanzando con el reducer pura, la segunda llamada ya ve la primera suma.
+
+**Alerta visible:**
+- Si `alert` no es `null`, renderizar un banner arriba del carrito con clase según `alert.kind`. El banner tiene un botón "✕" para cerrarlo. Auto-cerrar con `setTimeout` de 4 segundos usando un `useEffect` dependiente de `alert`.
+
+**Atajo F2 global (único source of truth del toggle):**
+- `useEffect` que agrega listener `keydown` en `window`. F2 alterna el popup: abre si está cerrado, cierra si está abierto.
+  ```ts
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'F2') {
+      e.preventDefault()
+      setPopupOpen(prev => !prev)
+    }
+  }
+  window.addEventListener('keydown', onKey)
+  return () => window.removeEventListener('keydown', onKey)
+  ```
+- Este listener es el **único** que maneja F2. `BarcodeInput` ya no lo toca (ver Paso 2.7). El botón "F2" del `BarcodeInput` llama a `onRequestSearch`, que el padre define también como toggle (`setPopupOpen(prev => !prev)`), para que el botón también pueda cerrar el popup.
+- **Devolver foco al cerrar** (por F2, Escape, click fuera o selección desde el popup): `useEffect` que escucha cambios de `popupOpen` y sólo dispara el focus en la transición `true → false`. Usar `prevOpenRef` para no ejecutar el `focus()` en el mount inicial (donde `popupOpen === false` desde el principio):
+  ```ts
+  useEffect(() => {
+    if (prevOpenRef.current && !popupOpen) {
+      setTimeout(() => barcodeInputRef.current?.focus(), 0)
+    }
+    prevOpenRef.current = popupOpen
+  }, [popupOpen])
+  ```
+- Con esto, `handleSelectFromPopup` ya **no necesita** llamar `focus()` manualmente: al hacer `setPopupOpen(false)`, el efecto se encarga.
+
+**Render:**
+```
+<section className="sells">
+  <BarcodeInput
+    ref={barcodeInputRef}
+    onScan={handleScan}
+    onRequestSearch={() => setPopupOpen(prev => !prev)}   // toggle: el botón F2 abre y cierra
+  />
+  {alert && <AlertBanner ... />}
+  <CartList lines={cart.lines}
+            onQuantityChange={(id, q) => dispatch({ type: 'SET_QUANTITY', productId: id, quantity: q })}
+            onUnitPriceChange={(id, p) => dispatch({ type: 'SET_UNIT_PRICE', productId: id, unitPrice: p })}
+            onRemove={(id) => dispatch({ type: 'REMOVE', productId: id })} />
+  <SearchPopup open={popupOpen} onClose={() => setPopupOpen(false)} onSelect={handleSelectFromPopup} />
+</section>
+```
+
+> Cierre del popup: el `onClose` sólo hace `setPopupOpen(false)`; el efecto de transición `true → false` devuelve el foco al barcode automáticamente.
+
+---
+
+### Paso 2.11 — Estilos
+
+**Archivo:** crear [renderer/src/Pages/Sells/Sells.css](renderer/src/Pages/Sells/Sells.css).
+
+Reglas mínimas esperadas:
+- `.sells` — padding + display flex column con gap.
+- `.barcode-input` — fila con input grande + botón F2.
+- `.cart-list` — grid de 4 columnas (o 5 si contás el botón eliminar).
+- `.cart-row__warn` — color rojo.
+- `.search-popup__overlay` — `position: fixed; inset: 0; background: rgba(0,0,0,0.5)`.
+- `.search-popup__container` — centrado, fondo claro, padding, max-width.
+- `.search-popup__row--selected` — fondo resaltado.
+- `.alert-banner`, `.alert-banner--not-found`, `.alert-banner--no-stock`, `.alert-banner--no-price` — colores diferentes (los tres tipos de alerta del contenedor `Sells`).
+
+Basarse en los estilos ya existentes de [Stock.css](renderer/src/Pages/Stock.css) para mantener coherencia visual (colores `#dde5ee`, `#f5f7fa`, `#fee2e2`).
+
+---
+
+### Paso 2.12 — Integrar en `App.tsx`
+
+**Archivo:** modificar [renderer/src/App.tsx](renderer/src/App.tsx).
+
+**Cambios exactos:**
+1. Agregar `import Sells from './Pages/Sells/Sells'` junto a los otros imports.
+2. Reemplazar `{content === "sells" && <div>Sells</div>}` por `{content === "sells" && <Sells />}`.
+
+---
+
+### Paso 2.13 — Pruebas manuales de humo (checklist)
+
+Correr `npm run dev` (o el script equivalente del proyecto) y verificar:
+
+**Flujo scanner (golden path):**
+- [ ] Input superior está enfocado al abrir la pantalla Sells.
+- [ ] Escribir un código de barras existente y apretar Enter agrega el producto al carrito con `quantity = 1`.
+- [ ] Escanear el mismo código otra vez incrementa la cantidad a 2 (no crea fila nueva).
+- [ ] Tras cada scan, el input de barcode queda vacío y enfocado.
+
+**Flujo buscador (F2):**
+- [ ] Apretar `F2` desde cualquier parte de la pantalla abre el popup y el foco cae en su input.
+- [ ] Apretar `F2` con el popup abierto lo cierra (toggle). Esto vale tanto con el foco dentro del input de barcode como fuera.
+- [ ] El botón "F2" del `BarcodeInput` también abre y cierra (toggle).
+- [ ] Escribir texto parcial devuelve productos cuyo nombre contiene el texto (case-insensitive).
+- [ ] Escribir dígitos devuelve también el producto con ese barcode (si existe), apareciendo primero.
+- [ ] `ArrowDown`/`ArrowUp` cambian la fila seleccionada visualmente.
+- [ ] `Enter` con query **alfabética** agrega el producto seleccionado, cierra el popup y devuelve el foco al input de barcode.
+- [ ] `Enter` con query **puramente numérica** (simula el `Enter` del scanner) **no** agrega nada: el producto queda listado, el popup sigue abierto. Sólo el click lo agrega.
+- [ ] `Escape` cierra el popup sin agregar nada y devuelve el foco al input de barcode.
+- [ ] Click sobre una fila agrega el producto, cierra el popup y devuelve el foco al input de barcode.
+- [ ] Click fuera del contenedor cierra el popup.
+
+**Carrito:**
+- [ ] Editar cantidad con el teclado se refleja en el total de esa fila.
+- [ ] Editar precio unitario con el teclado se refleja en el total.
+- [ ] Poner cantidad en `0` elimina la fila.
+- [ ] Con el foco sobre la fila (no en un input interno) y apretando `Delete`, la fila se elimina.
+- [ ] El botón `✕` elimina la fila.
+- [ ] `Tab` permite navegar entre campos de la misma fila y entre filas.
+
+**Alertas:**
+- [ ] Escanear un código que no existe muestra el banner "Producto no encontrado".
+- [ ] Agregar un producto cuya suma de cantidades supere el `stock` muestra el banner "Sin stock suficiente" y **sí** lo agrega al carrito.
+- [ ] Intentar agregar un producto cuyo `salePrice` sea `0`, vacío o inválido **no** lo carga y muestra el banner "No tiene un precio cargado". Vale para scanner y para selección desde el popup.
+- [ ] Los banners se pueden cerrar manualmente con `✕` y también desaparecen solos tras ~4 s.
+
+**Visual:**
+- [ ] La fila del carrito con `quantity > stock` muestra el warning "⚠ Sin stock suficiente" al lado del nombre.
+
+---
+
+## 3. Resumen de tests automáticos incluidos
+
+- [cartReducer.test.ts](renderer/src/Pages/Sells/__tests__/cartReducer.test.ts): 17 casos cubren add/remove/set-quantity/set-unit-price/lineTotal/inmutabilidad.
+- [searchProducts.test.ts](renderer/src/Pages/Sells/__tests__/searchProducts.test.ts): 7 casos cubren query vacía, sólo-letras, numérica con y sin duplicado, error en barcode, trim y mixta.
+
+Tests de componente (React Testing Library) quedan opcionales para esta iteración; la lógica crítica vive en funciones puras ya cubiertas. Si más adelante aparece un bug en la UI, sumamos tests de componente en la iteración siguiente.
+
+---
+
+## 4. Criterios de aceptación
+
+1. `npm test` dentro de `renderer/` pasa sin errores.
+2. `npm run dev` levanta la app y la checklist manual del Paso 2.13 queda completa.
+3. El backend no fue tocado (sólo se consumen APIs existentes de `window.api`).
+4. [context.md](context.md) refleja las decisiones de esta iteración (ya actualizado).
+
+---
+
+## 5. Fuera de alcance (explícitamente)
+
+- Formulario de pagos (efectivo/transferencia/débito/crédito).
+- Cálculo de vuelto.
+- Creación de `Sale` / `SaleItem` / `SalePayment` en la DB (backend aún sin endpoint).
+- Historial de ventas.
+- Confirmación / impresión del ticket.
+- Persistencia del carrito entre sesiones.
+
+Todos estos entran en iteraciones siguientes del módulo Sells.

@@ -159,6 +159,44 @@ El módulo de ventas requiere tres tablas nuevas:
 - **Historial de ventas**: lista filtrable con detalle de ítems y pagos
 - **Crear venta**: flujo tipo carrito → productos via scanner/buscador → form de pagos con cálculo de vuelto → confirmar
 
+#### Iteración actual (en curso): buscador + carrito de productos
+Primer paso del módulo Sells. Sólo la selección de productos; los pagos, confirmación y creación de `Sale`/`SaleItem` quedan para iteraciones siguientes.
+
+**Layout:**
+- Input superior de código de barras (el scanner actúa como teclado y dispara Enter al final).
+- Botón/tecla `F2` abre una ventana emergente de búsqueda con input propio y una tabla de resultados con columnas `Código de barras | Nombre | Stock`.
+- Debajo del input de barcode se lista el carrito con columnas `Nombre | Cantidad | Precio unitario | Total del producto`.
+
+**Decisiones de comportamiento:**
+1. **Producto repetido:** al agregar un producto que ya está en el carrito, se **suma 1 a la cantidad** de la fila existente (no se crea fila nueva). La cantidad inicial al agregar un producto nuevo es `1`.
+2. **Tecla `Delete` sobre una fila:** elimina la **línea completa** (con toda su cantidad), no decrementa. Para bajar cantidades se usa el input numérico de la columna Cantidad. Adicionalmente cada fila tiene un botón `✕` que cumple la misma función. Si el foco está dentro de un input editable, `Delete` conserva su significado de edición de texto.
+3. **Edición inline:** tanto `cantidad` como `precio unitario` se editan en el lugar, en la propia fila del carrito.
+4. **Buscador emergente (`F2`):** el mismo input busca **por nombre y por código de barras a la vez**. Match case-insensitive y parcial para nombre; exacto para barcode. La búsqueda por barcode sólo se activa si la query es **exclusivamente dígitos** (`/^\d+$/`); queries mixtas (ej. `"coca 2l"`) se tratan como búsqueda por nombre.
+5. **`F2` toggle:** si el popup está cerrado, F2 lo abre; si está abierto, lo cierra. Cerrar (por F2, Escape o click fuera) siempre devuelve el foco al input de código de barras.
+6. **Código escaneado inexistente:** mostrar alerta visible al usuario ("Producto no encontrado") — no silencioso.
+7. **Precio unitario en el carrito:** es **editable** (permite aplicar descuentos manuales). Valor inicial = `salePrice` del producto.
+8. **Stock insuficiente al agregar:** mostrar alerta visible ("Sin stock suficiente") pero **permitir sumar** el producto. Coherente con el comportamiento general definido para stock.
+9. **Navegación por teclado:** todo debe ser operable con flechas ↑/↓, `Tab`, `Enter`, `Esc`, `Delete`, además del mouse. El flujo natural es: scanner dispara Enter → producto se agrega → foco vuelve al input de barcode.
+10. **Escaneo dentro del popup de búsqueda:** si el usuario escanea un código de barras mientras el foco está dentro del popup, el producto **aparece listado** en la tabla de resultados pero **no se agrega automáticamente** al carrito. Regla concreta: dentro del popup, `Enter` sólo agrega al carrito si la query **no es puramente numérica** (`!/^\d+$/.test(query)`); cuando la query son sólo dígitos (caso típico del scanner) `Enter` no hace nada — el usuario debe hacer click en la fila para agregarla. Esto evita que el `Enter` que manda el scanner al final del barcode agregue al carrito algo que el usuario solamente estaba buscando.
+11. **Producto sin precio cargado:** si el `salePrice` del producto es `0`, vacío, o no representa un número válido, **no se agrega** al carrito y se muestra una alerta visible ("El producto no tiene un precio cargado"). Esto vale tanto para el flujo de scanner como para el de selección desde el popup.
+12. **Persistencia del carrito:** el carrito vive sólo mientras la pantalla Sells está montada. Si el usuario navega a Home/Stock y vuelve, el carrito se pierde. Aceptado como limitación explícita para esta iteración; si se vuelve un problema de UX real (cajero pierde una venta por un click accidental), se resuelve en una iteración futura moviendo el estado a un store por encima de `App.tsx`.
+
+**Estructura de datos del carrito (renderer, no persiste aún):**
+```ts
+type CartLine = {
+  productId: number
+  product: ProductFromApi   // snapshot para mostrar nombre/stock/barcode
+  quantity: number
+  unitPrice: string         // string por coherencia con el Decimal del IPC; editable
+}
+```
+
+**No requiere cambios de backend.** Se usan los endpoints existentes `window.api.getProductByBarcode(...)` y `window.api.listProducts({ nameContains, take })`. La búsqueda combinada barcode+nombre se hace en el renderer, mergeando resultados y deduplicando por `id`.
+
+**Cambio transversal al renderer incluido en esta iteración:**
+- Los tipos `ProductFromApi`, `CategoryFromApi`, `SupplierFromApi`, etc. de [electron-api.d.ts](renderer/src/electron-api.d.ts) pasan a ser **exportados explícitamente** (antes estaban declarados sin `export` y el archivo es un módulo por `export {}`, por lo que no eran ni globales ni importables).
+- `formatMoney` se extrae de [Stock.tsx](renderer/src/Pages/Stock.tsx) a un util compartido en `renderer/src/utils/format.ts` para reutilizar en Sells.
+
 ### Próximo trabajo: Stock CRUD
 - Crear / editar / eliminar productos desde la UI
 - Al crear/editar, si la categoría o el proveedor no existen, el usuario puede **crearlos en el momento** via un modal/selector emergente (patrón tipo explorador de archivos de Windows: ventana que lista los existentes y permite crear uno nuevo sin salir del formulario principal)
