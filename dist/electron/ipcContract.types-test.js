@@ -1,6 +1,6 @@
 "use strict";
-// Archivo de test de tipos. NO tiene runtime útil; TS lo valida en compilación.
-// Si rompe, significa que el contrato IPC dejó de coincidir con la realidad.
+// Archivo de test de tipos. NO tiene runtime util; TS lo valida en compilacion.
+// Si rompe, significa que el contrato IPC dejo de coincidir con la realidad.
 Object.defineProperty(exports, "__esModule", { value: true });
 // --- Fixtures que simulan lo que sale del serializer ---
 const category = { id: 1, name: "Bebidas" };
@@ -53,7 +53,7 @@ const _ca = product.createdAt;
 const _catName = product.category.name;
 const _supName = product.supplier.name;
 // StockMovement.product NO debe tener category/supplier (es BareProductFromApi).
-// @ts-expect-error — product dentro de un movimiento viene desnudo.
+// @ts-expect-error - product dentro de un movimiento viene desnudo.
 const _shouldFail = movement.product.category;
 // --- Mock de ElectronApi para validar firmas ---
 const api = {

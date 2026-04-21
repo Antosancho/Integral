@@ -3,6 +3,7 @@ import "./App.css"
 import Header from "./Pages/Header"
 import type { Cont } from "./renderTypes"
 import Stock from "./Pages/Stock"
+import Sells from "./Pages/Sells/Sells"
 
 function App() {
   const [content, setContent] = useState<Cont>(null)
@@ -10,7 +11,7 @@ function App() {
   return (
     <>
       <Header content={content} setContent={setContent} />
-      {content === "sells" && <div>Sells</div>}
+      {content === "sells" && <Sells />}
       {content === "stock" && <Stock />}
       {content === null && <div>Home</div>}
     </>

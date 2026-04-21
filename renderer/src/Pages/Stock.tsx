@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import "./Stock.css"
+import { formatMoney } from "../utils/format"
 
 type Product = Awaited<ReturnType<Window["api"]["listProducts"]>>[number]
 
@@ -7,17 +8,6 @@ type Column = {
   key: string
   label: string
   render: (product: Product) => string
-}
-
-function formatMoney(value: string) {
-  const asNumber = Number(value)
-  if (!Number.isFinite(asNumber)) return value
-
-  return new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency: "ARS",
-    maximumFractionDigits: 2
-  }).format(asNumber)
 }
 
 export default function Stock() {

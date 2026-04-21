@@ -1,0 +1,196 @@
+.sells {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+
+/* Barcode input */
+.barcode-input {
+  display: flex;
+  gap: 8px;
+}
+
+.barcode-input input {
+  flex: 1;
+  padding: 10px;
+  font-size: 1rem;
+  border: 1px solid #c0ccda;
+  border-radius: 6px;
+}
+
+.barcode-input button {
+  padding: 10px 18px;
+  background: #dde5ee;
+  border: 1px solid #c0ccda;
+  border-radius: 6px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* Cart list */
+.cart-list {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.cart-list__header {
+  font-weight: 700;
+  background: #dde5ee;
+  padding: 8px 10px;
+  border-radius: 6px;
+  text-align: center;
+}
+
+.cart-list__row {
+  display: contents;
+}
+
+.cart-list__row:focus-within .cart-list__cell {
+  background: #eef2f7;
+}
+
+.cart-list__cell {
+  background: #f5f7fa;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.cart-list__cell input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid #c0ccda;
+  border-radius: 4px;
+  font-size: 0.95rem;
+}
+
+.cart-list__cell button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #991b1b;
+  font-size: 1rem;
+  padding: 4px 8px;
+}
+
+.cart-row__warn {
+  color: #dc2626;
+  font-size: 0.85rem;
+  margin-left: 4px;
+}
+
+.cart-list__empty {
+  color: #6b7280;
+  text-align: center;
+  padding: 20px;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+
+/* Alert banner */
+.alert-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.alert-banner button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  margin-left: 12px;
+}
+
+.alert-banner--not-found {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.alert-banner--no-stock {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.alert-banner--no-price {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+/* Search popup */
+.search-popup__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.search-popup__container {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 24px;
+  max-width: 640px;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.search-popup__container h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #1e293b;
+}
+
+.search-popup__container input {
+  padding: 10px;
+  font-size: 1rem;
+  border: 1px solid #c0ccda;
+  border-radius: 6px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.search-popup__container table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.search-popup__container th {
+  background: #dde5ee;
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 700;
+}
+
+.search-popup__container td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.search-popup__container tr {
+  cursor: pointer;
+}
+
+.search-popup__container tr:hover td {
+  background: #f1f5f9;
+}
+
+.search-popup__row--selected td {
+  background: #dde5ee;
+}
+
+.search-popup__error {
+  color: #991b1b;
+  font-size: 0.9rem;
+}

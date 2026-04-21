@@ -86,19 +86,19 @@ type ListStockMovementsFilters = PaginationInput & {
 
 // ---------- Outputs (serializados) ----------
 
-type CategoryFromApi = {
+export type CategoryFromApi = {
   id: number
   name: string
 }
 
-type SupplierFromApi = {
+export type SupplierFromApi = {
   id: number
   name: string
   phone: string | null
   notes: string | null
 }
 
-type BareProductFromApi = {
+export type BareProductFromApi = {
   id: number
   name: string
   barcode: bigint | null
@@ -111,12 +111,12 @@ type BareProductFromApi = {
   supplierId: number
 }
 
-type ProductFromApi = BareProductFromApi & {
+export type ProductFromApi = BareProductFromApi & {
   category: CategoryFromApi
   supplier: SupplierFromApi
 }
 
-type BareStockMovementFromApi = {
+export type BareStockMovementFromApi = {
   id: number
   productId: number
   type: string
@@ -127,7 +127,7 @@ type BareStockMovementFromApi = {
   saleId: number | null
 }
 
-type StockMovementFromApi = BareStockMovementFromApi & {
+export type StockMovementFromApi = BareStockMovementFromApi & {
   product: BareProductFromApi
 }
 
