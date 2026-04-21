@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron"
+import { app, BrowserWindow, ipcMain, Menu } from "electron"
 import path from "path"
 import { registerIpcHandlers } from "./ipcHandlers"
 
@@ -18,7 +18,9 @@ function createWindow() {
 
   mainWindow.loadURL("http://localhost:5173")
 }
+
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null)
   registerIpcHandlers(ipcMain)
   createWindow()
   app.on("activate", () => {

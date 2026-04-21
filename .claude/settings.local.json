@@ -5,7 +5,8 @@
       "PowerShell(Get-ChildItem \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" -ErrorAction SilentlyContinue; Get-ChildItem \"$env:LOCALAPPDATA\\\\Programs\\\\GitHub CLI\\\\gh.exe\" -ErrorAction SilentlyContinue; Get-ChildItem \"C:\\\\Users\\\\asant\\\\AppData\\\\Local\\\\Programs\\\\GitHub CLI\\\\gh.exe\" -ErrorAction SilentlyContinue)",
       "PowerShell(Get-ChildItem \"$env:APPDATA\\\\GitHub\" -ErrorAction SilentlyContinue; [System.Environment]::GetEnvironmentVariable\\(\"GITHUB_TOKEN\", \"User\"\\); [System.Environment]::GetEnvironmentVariable\\(\"GH_TOKEN\", \"User\"\\))",
       "PowerShell(cmdkey /list)",
-      "PowerShell($cred = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto\\([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR\\(\\(Get-StoredCredential -Target \"git:https://github.com\"\\).Password\\)\\) 2>$null; if \\($cred\\) { \"found\" } else { \"not found\" })"
+      "PowerShell($cred = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto\\([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR\\(\\(Get-StoredCredential -Target \"git:https://github.com\"\\).Password\\)\\) 2>$null; if \\($cred\\) { \"found\" } else { \"not found\" })",
+      "Bash(curl -s -X POST -H 'Authorization: token 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' -H 'Accept: application/vnd.github+json' https://api.github.com/repos/Antosancho/Integral/issues -d '{ *)"
     ]
   }
 }
