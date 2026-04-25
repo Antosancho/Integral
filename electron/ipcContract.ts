@@ -83,6 +83,7 @@ export interface SaleFromApi {
   id: number
   date: Date
   total: string
+  discountPct: string
   items: SaleItemFromApi[]
   payments: SalePaymentFromApi[]
 }
@@ -102,6 +103,7 @@ export interface CreateSalePayload {
   items: CreateSaleItemPayload[]
   payments: CreateSalePaymentPayload[]
   total: number | string
+  discountPct?: number | string
   date?: Date
 }
 
@@ -112,6 +114,8 @@ export interface ListSalesFiltersPayload {
   toDate?: Date
   method?: string
   productId?: number
+  minTotal?: number | string
+  maxTotal?: number | string
 }
 
 export type IpcInvoke = (channel: string, payload: unknown) => Promise<unknown>

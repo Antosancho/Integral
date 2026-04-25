@@ -26,6 +26,7 @@ export interface CreateSaleInput {
   payments: CreateSalePaymentInput[]
   total: DecimalInput
   date?: Date
+  discountPct?: number | string
 }
 
 export interface ListSalesFilters extends PaginationInput {
@@ -33,6 +34,8 @@ export interface ListSalesFilters extends PaginationInput {
   toDate?: Date
   method?: SalePaymentMethod | string
   productId?: number
+  minTotal?: DecimalInput
+  maxTotal?: DecimalInput
 }
 
 const saleInclude = {
@@ -62,7 +65,13 @@ function buildSaleWhere(filters?: ListSalesFilters): Prisma.SaleWhereInput {
       : {}),
     ...(filters.productId !== undefined
       ? { items: { some: { productId: filters.productId } } }
-      : {})
+      : {}),
+    ...((filters.minTotal !== undefined || filters.maxTotal !== undefined) ? {
+      total: {
+        ...(filters.minTotal !== undefined ? { gte: toDecimal(filters.minTotal) } : {}),
+        ...(filters.maxTotal !== undefined ? { lte: toDecimal(filters.maxTotal) } : {})
+      }
+    } : {})
   }
 }
 
@@ -99,31 +108,44 @@ export async function createSale(data: CreateSaleInput) {
     }
   })
 
-  const calculatedTotal = normalizedItems.reduce(
-    (acc, item) => acc.add(item.unitPrice.mul(item.quantity)),
-    new Prisma.Decimal(0)
-  )
+   const calculatedSubtotal = normalizedItems.reduce(
+     (acc, item) => acc.add(item.unitPrice.mul(item.quantity)),
+     new Prisma.Decimal(0)
+   )
 
-  const clientTotal = toDecimal(data.total)
-  if (clientTotal.sub(calculatedTotal).abs().gt(MONEY_EPSILON)) {
-    throw new Error(
-      `Client-provided total (${clientTotal.toString()}) does not match calculated total (${calculatedTotal.toString()})`
-    )
-  }
+   // Parse discountPct
+   const discountPct = data.discountPct !== undefined 
+     ? toDecimal(data.discountPct) 
+     : new Prisma.Decimal(0)
+   if (discountPct.abs().gt(new Prisma.Decimal(200))) {
+     throw new Error("discountPct must be in [-200, 200]")
+   }
 
-  // Canonical value: persist the server's recalculation, not the client's input.
-  const total = calculatedTotal
+   // Calculate expected total with discount
+   const factor = new Prisma.Decimal(1).sub(discountPct.div(new Prisma.Decimal(100)))
+   const raw = calculatedSubtotal.mul(factor)
+   const expectedTotal = raw.lt(0) ? new Prisma.Decimal(0) : raw
 
-  const paymentsSum = normalizedPayments.reduce(
-    (acc, payment) => acc.add(payment.amount),
-    new Prisma.Decimal(0)
-  )
+   const clientTotal = toDecimal(data.total)
+   if (clientTotal.sub(expectedTotal).abs().gt(MONEY_EPSILON)) {
+     throw new Error(
+       `Client-provided total (${clientTotal.toString()}) does not match expected total (${expectedTotal.toString()})`
+     )
+   }
 
-  if (paymentsSum.sub(total).abs().gt(MONEY_EPSILON)) {
-    throw new Error(
-      `Payments sum (${paymentsSum.toString()}) must equal sale total (${total.toString()})`
-    )
-  }
+   // Canonical value: persist the server's recalculation, not the client's input.
+   const total = expectedTotal
+
+   const paymentsSum = normalizedPayments.reduce(
+     (acc, payment) => acc.add(payment.amount),
+     new Prisma.Decimal(0)
+   )
+
+   if (total.sub(paymentsSum).gt(MONEY_EPSILON)) {
+     throw new Error(
+       `Payments sum (${paymentsSum.toString()}) is less than sale total (${total.toString()})`
+     )
+   }
 
   return prisma.$transaction(async (tx) => {
     const productIds = Array.from(new Set(normalizedItems.map((item) => item.productId)))
@@ -140,6 +162,7 @@ export async function createSale(data: CreateSaleInput) {
     const sale = await tx.sale.create({
       data: {
         total,
+        discountPct,
         ...(data.date ? { date: data.date } : {}),
         items: {
           create: normalizedItems.map((item) => ({
