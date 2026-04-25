@@ -6,7 +6,15 @@
       "PowerShell(Get-ChildItem \"$env:APPDATA\\\\GitHub\" -ErrorAction SilentlyContinue; [System.Environment]::GetEnvironmentVariable\\(\"GITHUB_TOKEN\", \"User\"\\); [System.Environment]::GetEnvironmentVariable\\(\"GH_TOKEN\", \"User\"\\))",
       "PowerShell(cmdkey /list)",
       "PowerShell($cred = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto\\([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR\\(\\(Get-StoredCredential -Target \"git:https://github.com\"\\).Password\\)\\) 2>$null; if \\($cred\\) { \"found\" } else { \"not found\" })",
-      "Bash(curl -s -X POST -H 'Authorization: token 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' -H 'Accept: application/vnd.github+json' https://api.github.com/repos/Antosancho/Integral/issues -d '{ *)"
+      "Bash(curl -s -X POST -H 'Authorization: token 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' -H 'Accept: application/vnd.github+json' https://api.github.com/repos/Antosancho/Integral/issues -d '{ *)",
+      "Bash(curl -s -H \"Authorization: token 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\" https://api.github.com/user)",
+      "Bash(curl -s -H \"Authorization: token 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\" https://api.github.com/users/Antosancho/repos)",
+      "Bash(curl -s -H \"Authorization: token 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\" \"https://api.github.com/users/Antosancho/repos?type=all&per_page=100\")",
+      "Bash(curl -s -H \"Authorization: token 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\" https://api.github.com/repos/Antosancho/Integral)",
+      "Bash(GH_TOKEN=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 gh issue list --state open --limit 30)",
+      "Bash(curl -s -H \"Authorization: token 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\" \"https://api.github.com/repos/Antosancho/Integral/issues?state=open\")",
+      "Bash(curl -s -H \"Authorization: token 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\" \"https://api.github.com/search/issues?q=repo:Antosancho/Integral+Limpiar+Cantidad+elimina+fila\")",
+      "Bash(npm test *)"
     ]
   }
 }

@@ -80,7 +80,8 @@ Integral/
 El módulo de ventas requiere tres tablas nuevas:
 
 ### Sale (cabecera de venta)
-- `id`, `date`, `total` (Decimal — suma de items)
+- `id`, `date`, `total` (Decimal — total **final** después de aplicar descuento/recargo)
+- `discountPct` (Decimal) — porcentaje aplicado sobre el subtotal. Positivo = descuento, negativo = recargo. Rango permitido `[-200, 200]`. Se guarda para trazabilidad (saber que la venta tuvo descuento/recargo y de cuánto).
 - Relaciones: SaleItem[], SalePayment[]
 
 ### SaleItem (línea de venta)
@@ -160,7 +161,23 @@ El módulo de ventas requiere tres tablas nuevas:
 - **Historial de ventas**: lista filtrable con detalle de ítems y pagos
 - **Crear venta**: flujo tipo carrito → productos via scanner/buscador → form de pagos con cálculo de vuelto → confirmar
 
-#### Iteración actual (en curso): buscador + carrito de productos
+#### Iteración actual (en curso): pie de carrito con subtotal, total y descuento/recargo
+Se agrega al pie del `CartList` un bloque con: **Subtotal** (suma de `lineTotal` de todas las filas), **input de Descuento %** (positivo = descuento, negativo = recargo), **Total final** (subtotal aplicando el %).
+
+**Decisiones de comportamiento del descuento:**
+1. **Signo**: positivo = descuento, negativo = recargo. Confirmado con el usuario a pesar de ser un UX poco convencional en cajas.
+2. **Rango permitido**: `[-200, 200]`. Valores fuera de rango se descartan al confirmar (patrón draft — el input vuelve al último valor válido), no se clamp-ean silenciosamente.
+3. **Aplica a todo el subtotal**: incluye tanto filas `'product'` como `'general'` (F10). No se discrimina por tipo de línea.
+4. **Fórmula**: `total = Math.max(0, subtotal * (1 - discountPct / 100))`. El `max(0, ...)` cubre el caso `discountPct = 200` (total = 0).
+5. **Persistencia**: el descuento vive en `Sells.tsx` junto al carrito. Se resetea a `0` en tres casos:
+   - Al navegar fuera de Sells (unmount del componente — heredado del mismo comportamiento que el carrito).
+   - Al confirmar una venta (cuando se implemente el flujo de confirmar, pendiente de iteraciones siguientes).
+   - Al vaciar el carrito **no** se resetea: si el cajero quita todos los productos, el input queda con el último valor. Si el carrito está vacío no se muestra el pie, así que tampoco es visible.
+6. **Trazabilidad**: al confirmar una venta (iteración futura), el `discountPct` se guardará como campo en `Sale` — ver modelo actualizado más arriba.
+7. **Input UX**: usa draft local como string (mismo patrón que los inputs de cantidad y precio unitario de las filas del carrito), con commit en blur/Enter y descarte en Escape. No se usa `value={number}` directo porque rompe la edición de decimales y del signo negativo.
+8. **Ubicación**: el pie se ubica alineado a la derecha, debajo de las filas del carrito. El input de descuento está en el bloque derecho junto a las casillas de Subtotal y Total.
+
+#### Iteración anterior (completa): buscador + carrito de productos
 Primer paso del módulo Sells. Sólo la selección de productos; los pagos, confirmación y creación de `Sale`/`SaleItem` quedan para iteraciones siguientes.
 
 **Layout:**
@@ -172,6 +189,11 @@ Primer paso del módulo Sells. Sólo la selección de productos; los pagos, conf
 1. **Producto repetido:** al agregar un producto que ya está en el carrito, se **suma 1 a la cantidad** de la fila existente (no se crea fila nueva). La cantidad inicial al agregar un producto nuevo es `1`.
 2. **Tecla `Delete` sobre una fila:** elimina la **línea completa** (con toda su cantidad), no decrementa. Para bajar cantidades se usa el input numérico de la columna Cantidad. Adicionalmente cada fila tiene un botón `✕` que cumple la misma función. Si el foco está dentro de un input editable, `Delete` conserva su significado de edición de texto.
 3. **Edición inline:** tanto `cantidad` como `precio unitario` se editan en el lugar, en la propia fila del carrito.
+    - Mientras el usuario está tipeando, el input usa un **draft local como string** (admite temporalmente vacío o parcialmente inválido) y **no** despacha al estado del carrito.
+    - El cambio se **confirma** al hacer **blur** o presionar **Enter**. Si al confirmar el draft es vacío, no numérico, o fuera de rango (`quantity < 1`, `unitPrice < 0`), se **descarta** silenciosamente y el input vuelve al valor previo del estado — la fila nunca se elimina por un valor intermedio de edición.
+    - **Escape** descarta el draft y restaura el valor previo.
+    - Las flechas ↑/↓ del spinner respetan `min` (no bajan de 1 en cantidad, no bajan de 0 en precio).
+    - Para eliminar una fila se usa `✕` o `Delete` sobre la fila (no el input en `0`).
 4. **Buscador emergente (`F2`):** el mismo input busca **por nombre y por código de barras a la vez**. Match case-insensitive y parcial para nombre; exacto para barcode. La búsqueda por barcode sólo se activa si la query es **exclusivamente dígitos** (`/^\d+$/`); queries mixtas (ej. `"coca 2l"`) se tratan como búsqueda por nombre.
 5. **`F2` toggle:** si el popup está cerrado, F2 lo abre; si está abierto, lo cierra. Cerrar (por F2, Escape o click fuera) siempre devuelve el foco al input de código de barras.
 6. **Código escaneado inexistente:** mostrar alerta visible al usuario ("Producto no encontrado") — no silencioso.

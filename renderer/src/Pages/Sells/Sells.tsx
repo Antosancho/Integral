@@ -14,6 +14,7 @@ export default function Sells() {
   const [popupOpen, setPopupOpen] = useState(false)
   const [generalPopupOpen, setGeneralPopupOpen] = useState(false)
   const [alert, setAlert] = useState<{ kind: AlertKind; text: string } | null>(null)
+  const [discountPct, setDiscountPct] = useState(0)
   const barcodeInputRef = useRef<BarcodeInputHandle | null>(null)
   const cartRef = useRef(cart)
   const prevOpenRef = useRef(false)
@@ -135,6 +136,8 @@ export default function Sells() {
         onQuantityChange={(id, q) => dispatch({ type: 'SET_QUANTITY', lineId: id, quantity: q })}
         onUnitPriceChange={(id, p) => dispatch({ type: 'SET_UNIT_PRICE', lineId: id, unitPrice: p })}
         onRemove={(id) => dispatch({ type: 'REMOVE', lineId: id })}
+        discountPct={discountPct}
+        onDiscountChange={setDiscountPct}
       />
 
       <SearchPopup
