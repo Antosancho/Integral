@@ -78,7 +78,10 @@ const api = {
     createStockMovement: async (_d) => movement,
     listStockMovements: async (_f) => [movement],
     getStockMovementById: async (_id) => movement,
-    deleteStockMovement: async (_id, _r) => bareMovement
+    deleteStockMovement: async (_id, _r) => bareMovement,
+    createSale: async (_d) => ({}),
+    listSales: async (_f) => [],
+    getSaleById: async (_id) => null
 };
 void api;
 //# sourceMappingURL=ipcContract.types-test.js.map

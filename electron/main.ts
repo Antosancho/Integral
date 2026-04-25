@@ -1,3 +1,4 @@
+import "./setupEnv"
 import { app, BrowserWindow, ipcMain, Menu } from "electron"
 import path from "path"
 import { registerIpcHandlers } from "./ipcHandlers"

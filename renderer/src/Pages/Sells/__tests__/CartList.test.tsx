@@ -34,23 +34,19 @@ const renderCart = (lines: CartLine[], handlers: Partial<{
   onQuantityChange: (lineId: string, quantity: number) => void
   onUnitPriceChange: (lineId: string, unitPrice: string) => void
   onRemove: (lineId: string) => void
-  onDiscountChange: (pct: number) => void
-}> = {}, discountPct = 0) => {
+}> = {}) => {
   const onQuantityChange = handlers.onQuantityChange ?? vi.fn()
   const onUnitPriceChange = handlers.onUnitPriceChange ?? vi.fn()
   const onRemove = handlers.onRemove ?? vi.fn()
-  const onDiscountChange = handlers.onDiscountChange ?? vi.fn()
   const utils = render(
     <CartList
       lines={lines}
       onQuantityChange={onQuantityChange}
       onUnitPriceChange={onUnitPriceChange}
       onRemove={onRemove}
-      discountPct={discountPct}
-      onDiscountChange={onDiscountChange}
     />
   )
-  return { ...utils, onQuantityChange, onUnitPriceChange, onRemove, onDiscountChange }
+  return { ...utils, onQuantityChange, onUnitPriceChange, onRemove }
 }
 
 describe('CartList — input Cantidad', () => {
@@ -175,88 +171,5 @@ describe('CartList — eliminación explícita sigue funcionando', () => {
     qtyInput.focus()
     fireEvent.keyDown(qtyInput, { key: 'Delete' })
     expect(onRemove).not.toHaveBeenCalled()
-  })
-})
-
-describe('CartList — pie de carrito: subtotal y total', () => {
-  it('muestra el subtotal correcto con una línea', () => {
-    // 2 unidades * $150 = $300
-    renderCart([productLine(1, 2, '150')])
-    expect(screen.getByText('Subtotal')).toBeInTheDocument()
-    // lineTotal = 2 * 150 = 300; aparece en línea, subtotal y total
-    expect(screen.getAllByText(/300/).length).toBeGreaterThanOrEqual(1)
-  })
-
-  it('muestra el subtotal correcto con múltiples líneas', () => {
-    // línea 1: 1 * 100 = 100; línea 2: 3 * 50 = 150; total = 250
-    renderCart([productLine(1, 1, '100'), productLine(2, 3, '50')])
-    expect(screen.getAllByText(/250/).length).toBeGreaterThanOrEqual(1)
-  })
-
-  it('sin descuento (0%), Total == Subtotal', () => {
-    renderCart([productLine(1, 1, '200')], {}, 0)
-    const values = screen.getAllByText(/200/)
-    // tanto subtotal como total muestran 200
-    expect(values.length).toBeGreaterThanOrEqual(2)
-  })
-
-  it('con 10% de descuento, Total = Subtotal * 0.9', () => {
-    // subtotal = 1 * 400 = 400; total = 400 * 0.9 = 360 (valores bajo 1000 evitan separador de miles)
-    renderCart([productLine(1, 1, '400')], {}, 10)
-    expect(screen.getAllByText(/360/).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText(/400/).length).toBeGreaterThanOrEqual(1)
-  })
-
-  it('con recargo negativo (-20%), Total = Subtotal * 1.2', () => {
-    // subtotal = 1 * 500 = 500; total = 500 * 1.2 = 600
-    renderCart([productLine(1, 1, '500')], {}, -20)
-    expect(screen.getAllByText(/600/).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText(/500/).length).toBeGreaterThanOrEqual(1)
-  })
-
-  it('el total nunca baja de 0 aunque el descuento supere el 100%', () => {
-    // subtotal = 100; descuento = 200% → total = max(0, 100 * (1-2)) = 0
-    renderCart([productLine(1, 1, '100')], {}, 200)
-    // "Total" aparece en el header de columna y en el footer label
-    expect(screen.getAllByText('Total').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText(/\$\s*0/)).toBeInTheDocument()
-  })
-
-  it('el pie no se muestra cuando el carrito está vacío', () => {
-    renderCart([])
-    expect(screen.queryByText('Subtotal')).not.toBeInTheDocument()
-    expect(screen.queryByText('Total')).not.toBeInTheDocument()
-  })
-})
-
-describe('CartList — input de descuento', () => {
-  it('el input muestra el valor de discountPct recibido por prop', () => {
-    renderCart([productLine(1, 1, '100')], {}, 15)
-    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
-    expect(input.value).toBe('15')
-  })
-
-  it('cambiar el input a un número válido llama onDiscountChange con ese número', () => {
-    const onDiscountChange = vi.fn()
-    renderCart([productLine(1, 1, '100')], { onDiscountChange }, 0)
-    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
-    fireEvent.change(input, { target: { value: '25' } })
-    expect(onDiscountChange).toHaveBeenCalledWith(25)
-  })
-
-  it('cambiar el input a un número negativo llama onDiscountChange con ese número negativo', () => {
-    const onDiscountChange = vi.fn()
-    renderCart([productLine(1, 1, '100')], { onDiscountChange }, 0)
-    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
-    fireEvent.change(input, { target: { value: '-10' } })
-    expect(onDiscountChange).toHaveBeenCalledWith(-10)
-  })
-
-  it('cambiar el input a NaN (texto inválido) NO llama onDiscountChange', () => {
-    const onDiscountChange = vi.fn()
-    renderCart([productLine(1, 1, '100')], { onDiscountChange }, 0)
-    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'abc' } })
-    expect(onDiscountChange).not.toHaveBeenCalled()
   })
 })

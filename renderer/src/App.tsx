@@ -11,9 +11,11 @@ function App() {
   return (
     <>
       <Header content={content} setContent={setContent} />
-      {content === "sells" && <Sells />}
-      {content === "stock" && <Stock />}
-      {content === null && <div>Home</div>}
+      <main className="app-content">
+        {content === "sells" && <Sells />}
+        {content === "stock" && <Stock />}
+        {content === null && <div>Home</div>}
+      </main>
     </>
   )
 }

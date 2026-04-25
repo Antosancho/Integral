@@ -3,8 +3,18 @@ import type { ProductFromApi } from '../../electron-api'
 import BarcodeInput, { type BarcodeInputHandle } from './BarcodeInput'
 import CartList from './CartList'
 import GeneralAmountPopup from './GeneralAmountPopup'
+import PaymentPanel from './PaymentPanel'
 import SearchPopup from './SearchPopup'
-import { cartReducer, initialCart } from './cartReducer'
+import { cartReducer, initialCart, lineTotal } from './cartReducer'
+import {
+  PAYMENT_METHODS,
+  initialPayments,
+  autoFillFor,
+  formatPaymentAmount,
+  parsePaymentAmount,
+  type PaymentMethod,
+  type PaymentsDraft
+} from './payments'
 import './Sells.css'
 
 type AlertKind = 'not-found' | 'no-stock' | 'no-price'
@@ -15,6 +25,7 @@ export default function Sells() {
   const [generalPopupOpen, setGeneralPopupOpen] = useState(false)
   const [alert, setAlert] = useState<{ kind: AlertKind; text: string } | null>(null)
   const [discountPct, setDiscountPct] = useState(0)
+  const [payments, setPayments] = useState<PaymentsDraft>(initialPayments)
   const barcodeInputRef = useRef<BarcodeInputHandle | null>(null)
   const cartRef = useRef(cart)
   const prevOpenRef = useRef(false)
@@ -116,6 +127,46 @@ export default function Sells() {
     addProduct(product)
   }
 
+  function handlePaymentChange(method: PaymentMethod, value: string) {
+    setPayments(prev => ({ ...prev, [method]: value }))
+  }
+
+  function handleAutoFillPayment(method: PaymentMethod) {
+    const amount = autoFillFor(payments, method, total)
+    setPayments(prev => ({ ...prev, [method]: formatPaymentAmount(amount) }))
+  }
+
+  async function handleConfirmSale() {
+    const productLines = cart.lines.filter(l => l.kind === 'product')
+    if (productLines.length === 0) return
+    if (cart.lines.some(l => l.kind === 'general')) return
+
+    const items = productLines.map(l => ({
+      productId: (l as Extract<typeof l, { kind: 'product' }>).productId,
+      quantity: l.quantity,
+      unitPrice: l.unitPrice
+    }))
+
+    const paymentsPayload = PAYMENT_METHODS
+      .map(m => ({ method: m, amount: parsePaymentAmount(payments[m]) }))
+      .filter(p => p.amount > 0)
+
+    try {
+      await window.api.createSale({ items, payments: paymentsPayload, total })
+      dispatch({ type: 'RESET' })
+      setDiscountPct(0)
+      setPayments(initialPayments)
+      setTimeout(() => barcodeInputRef.current?.focus(), 0)
+    } catch (e) {
+      setAlert({ kind: 'not-found', text: e instanceof Error ? e.message : 'Error al guardar la venta' })
+    }
+  }
+
+  const subtotal = cart.lines.reduce((acc, l) => acc + lineTotal(l), 0)
+  const total = Math.max(0, subtotal * (1 - discountPct / 100))
+  const hasItems = cart.lines.length > 0
+  const hasGeneralLines = cart.lines.some(l => l.kind === 'general')
+
   return (
     <section className="sells">
       <BarcodeInput
@@ -136,8 +187,19 @@ export default function Sells() {
         onQuantityChange={(id, q) => dispatch({ type: 'SET_QUANTITY', lineId: id, quantity: q })}
         onUnitPriceChange={(id, p) => dispatch({ type: 'SET_UNIT_PRICE', lineId: id, unitPrice: p })}
         onRemove={(id) => dispatch({ type: 'REMOVE', lineId: id })}
+      />
+
+      <PaymentPanel
+        subtotal={subtotal}
+        total={total}
         discountPct={discountPct}
         onDiscountChange={setDiscountPct}
+        payments={payments}
+        onPaymentChange={handlePaymentChange}
+        onAutoFill={handleAutoFillPayment}
+        hasItems={hasItems}
+        hasGeneralLines={hasGeneralLines}
+        onConfirm={handleConfirmSale}
       />
 
       <SearchPopup

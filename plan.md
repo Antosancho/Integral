@@ -1,575 +1,1180 @@
-# Plan: Total del carrito + input de descuento/recargo
+# Plan — Historial de Ventas (nueva pestaña)
 
-## Objetivo
+## Objetivos
 
-Agregar al pie del carrito:
-1. **Subtotal**: suma de todos los `lineTotal` de las filas.
-2. **Input de descuento/recargo**: campo numérico (%) en la esquina derecha. Positivo = descuento. Negativo = recargo.
-3. **Total final**: subtotal aplicando el porcentaje.
+Implementar la pantalla de historial de ventas con:
+- Lista de ventas con información básica (ID, fecha/hora, total, medios de pago)
+- Filtros: rango de fechas, franja horaria del día, rango de precio, método de pago
+- Modal de detalle al hacer click en una venta (ítems, precios, descuento, pagos)
 
----
+## Problemas previos que se resuelven en este plan
 
-## Análisis del estado actual
-
-- [renderer/src/Pages/Sells/CartList.tsx](renderer/src/Pages/Sells/CartList.tsx) — renderiza las filas del carrito. El total por fila ya existe con `lineTotal(line)`. El componente recibe `lines`, no conoce descuentos.
-- [renderer/src/Pages/Sells/cartReducer.ts](renderer/src/Pages/Sells/cartReducer.ts) — `lineTotal(line)` ya existe y es la función que suma `unitPrice * quantity`.
-- [renderer/src/Pages/Sells/Sells.tsx](renderer/src/Pages/Sells/Sells.tsx) — monta `CartList`, maneja el estado del carrito. Es el lugar correcto para mantener el estado del descuento (es un estado de la sesión de venta, no del carrito en sí).
-- [renderer/src/Pages/Sells/Sells.css](renderer/src/Pages/Sells/Sells.css) — estilos actuales. El grid del carrito es `2fr 1fr 1fr 1fr auto`.
-- [renderer/src/utils/format.ts](renderer/src/utils/format.ts) — ya existe `formatMoney`.
-
-## Decisiones de diseño
-
-1. El **estado del descuento** vive en `Sells.tsx` como `discountPct: number` (float, ej: `10` = 10%, `-5` = recargo 5%). Se inicializa en `0`.
-2. El **subtotal** y el **total** se calculan en `Sells.tsx` (o pueden pasarse como props a `CartList`) — se opta por calcular en `Sells.tsx` y pasar como props a `CartList` para mantener `CartList` sin lógica de negocio extra.
-3. El **input de descuento** vive dentro de `CartList` como control local (draft igual que los demás inputs) pero el valor confirmado se propaga al padre via una nueva prop `onDiscountChange`.
-4. El pie del carrito (subtotal, descuento, total) se agrega como un bloque separado **debajo** del grid de filas, fuera del grid, para no romper el layout de columnas.
-5. Si el carrito está vacío (`lines.length === 0`), el pie **no se muestra** (no tiene sentido mostrar $0 con descuento cuando no hay productos).
-6. El `discountPct` admite decimales (ej: `2.5%`). Validación: debe ser un número finito. No tiene límite de rango (se puede aplicar 100% de descuento o 200% de recargo — es decisión del cajero).
-7. El total final nunca puede ser negativo: `Math.max(0, subtotal * (1 - discountPct / 100))`.
-
-## Archivos impactados
-
-- [renderer/src/Pages/Sells/CartList.tsx](renderer/src/Pages/Sells/CartList.tsx) — agregar pie con subtotal/total y el input de descuento.
-- [renderer/src/Pages/Sells/Sells.tsx](renderer/src/Pages/Sells/Sells.tsx) — agregar estado `discountPct`, pasar props nuevas a `CartList`.
-- [renderer/src/Pages/Sells/Sells.css](renderer/src/Pages/Sells/Sells.css) — estilos del pie del carrito.
-- [renderer/src/Pages/Sells/__tests__/CartList.test.tsx](renderer/src/Pages/Sells/__tests__/CartList.test.tsx) — agregar tests del pie (subtotal, total con descuento, input de descuento).
-
-## Archivos que NO se tocan
-
-- `cartReducer.ts` — `lineTotal` ya existe, no necesita cambios.
-- `types.ts` — no cambia la estructura del carrito.
-- `amount.ts`, `lineId.ts`, `BarcodeInput.tsx`, `SearchPopup.tsx`, `GeneralAmountPopup.tsx`.
+1. **discountPct no persistido**: el schema no tiene `discountPct` en `Sale`. La pantalla de confirmación tampoco lo envía al backend. Sin este dato, el historial no puede mostrar el descuento aplicado.
+2. **Validación de pagos rechaza overpayment**: el backend exige `paymentsSum == total`, pero la UI permite que el cliente pague de más y reciba vuelto. Esto causa error al confirmar ventas con pagos en exceso.
+3. **Total no puede tener descuento**: la validación del backend compara `clientTotal` con `sum(items)` directamente. Si hay descuento, el total enviado nunca coincidirá con la suma de ítems → error en toda venta con descuento.
 
 ---
 
-## Principios para el modelo ejecutor
+## Convenciones
 
-- Cambios **mínimos y acotados**: no refactorizar lo que ya funciona.
-- Seguir el estilo ya presente: sin comentarios innecesarios, sin emojis, comillas simples, sin punto y coma.
-- Correr `npm test` después de cada paso con cambios de lógica.
-- No usar `any` en TypeScript.
-- No hacer commit ni push.
+- Ejecutar **`npm test --prefix renderer`** después de cada paso que modifique código del renderer.
+- Si un test falla, arreglarlo **antes de avanzar al siguiente paso**.
+- No modificar archivos que no estén listados en el paso.
+- No agregar comentarios al código.
+- Los strings de UI mantienen tildes, mayúsculas y formato ARS.
 
 ---
 
-## Pasos
+# FASE 0 — Backend: schema + validaciones en saleService
 
-### Paso 0 — Verificar estado inicial
+## Paso 0.1 — Agregar `discountPct` al modelo `Sale` en `backend/prisma/schema.prisma`
 
-0.1. Ejecutar desde `h:/anton/Integral/renderer`:
+**Archivo:** `backend/prisma/schema.prisma`
+
+En el modelo `Sale`, agregar el campo `discountPct` después de `total` y antes de `items`:
+
 ```
-npm test
+discountPct Decimal @default(0)
 ```
-0.2. Confirmar que **todos los tests pasan** antes de empezar. Si algún test falla, reportar y detenerse.
 
----
-
-### Paso 1 — Agregar prop `discountPct` y `onDiscountChange` a `CartList`
-
-Archivo: [renderer/src/Pages/Sells/CartList.tsx](renderer/src/Pages/Sells/CartList.tsx)
-
-**1.1.** Localizar el bloque `type Props` (líneas 3–11):
-```tsx
-type Props = {
-  lines: CartLine[]
-  onQuantityChange: (lineId: string, quantity: number) => void
-  onUnitPriceChange: (lineId: string, unitPrice: string) => void
-  onRemove: (lineId: string) => void
+El modelo queda:
+```
+model Sale {
+  id          Int             @id @default(autoincrement())
+  date        DateTime        @default(now())
+  total       Decimal
+  discountPct Decimal         @default(0)
+  items       SaleItem[]
+  payments    SalePayment[]
+  movements   StockMovement[]
+  @@index([date])
 }
 ```
 
-Reemplazarlo por:
-```tsx
-type Props = {
-  lines: CartLine[]
-  onQuantityChange: (lineId: string, quantity: number) => void
-  onUnitPriceChange: (lineId: string, unitPrice: string) => void
-  onRemove: (lineId: string) => void
-  discountPct: number
-  onDiscountChange: (pct: number) => void
+**Verificación:** el archivo compila visualmente correcto (sintaxis Prisma).
+
+---
+
+## Paso 0.2 — Correr la migración de Prisma
+
+Ejecutar desde la raíz del proyecto:
+```
+npx prisma migrate dev --name add_sale_discount_pct --schema backend/prisma/schema.prisma
+```
+
+Si el comando pide nombre interactivo, escribir `add_sale_discount_pct`.
+
+**Verificación:** el comando termina sin errores. El directorio `backend/prisma/migrations/` tiene una nueva carpeta con el SQL de `ALTER TABLE Sale ADD COLUMN discountPct`.
+
+---
+
+## Paso 0.3 — Actualizar `CreateSaleInput` en `backend/services/saleService.ts`
+
+**Archivo:** `backend/services/saleService.ts`
+
+Agregar `discountPct?: number | string` al final de `CreateSaleInput`:
+
+```ts
+export interface CreateSaleInput {
+  items: CreateSaleItemInput[]
+  payments: CreateSalePaymentInput[]
+  total: DecimalInput
+  date?: Date
+  discountPct?: number | string
 }
 ```
 
-**1.2.** Localizar la firma del componente (línea 13):
-```tsx
-export default function CartList({ lines, onQuantityChange, onUnitPriceChange, onRemove }: Props) {
-```
-
-Reemplazarla por:
-```tsx
-export default function CartList({ lines, onQuantityChange, onUnitPriceChange, onRemove, discountPct, onDiscountChange }: Props) {
-```
-
-**1.3.** Guardar. No correr tests todavía (el tipo en `Sells.tsx` todavía no pasa las props nuevas, el build va a fallar — se arregla en el paso 2).
+**Verificación:** `tsc --noEmit` sin errores de tipo en este archivo.
 
 ---
 
-### Paso 2 — Agregar estado `discountPct` en `Sells.tsx` y pasarlo a `CartList`
+## Paso 0.4 — Actualizar la validación de total en `createSale` para soportar `discountPct`
 
-Archivo: [renderer/src/Pages/Sells/Sells.tsx](renderer/src/Pages/Sells/Sells.tsx)
+**Archivo:** `backend/services/saleService.ts`
 
-**2.1.** Localizar la línea con los `useState` del componente (aprox. líneas 14–16):
-```tsx
-  const [popupOpen, setPopupOpen] = useState(false)
-  const [generalPopupOpen, setGeneralPopupOpen] = useState(false)
-  const [alert, setAlert] = useState<{ kind: AlertKind; text: string } | null>(null)
-```
+Dentro de la función `createSale`, reemplazar el bloque donde se calcula y valida `calculatedTotal` con la siguiente lógica (mantener todas las demás partes):
 
-Agregar **debajo** de esas líneas:
-```tsx
-  const [discountPct, setDiscountPct] = useState(0)
-```
+1. Calcular `calculatedSubtotal` como la suma de `unitPrice * quantity` de todos los ítems (renombrar la variable existente de `calculatedTotal` a `calculatedSubtotal`).
 
-**2.2.** Localizar el bloque `<CartList ... />` (aprox. líneas 133–138):
-```tsx
-      <CartList
-        lines={cart.lines}
-        onQuantityChange={(id, q) => dispatch({ type: 'SET_QUANTITY', lineId: id, quantity: q })}
-        onUnitPriceChange={(id, p) => dispatch({ type: 'SET_UNIT_PRICE', lineId: id, unitPrice: p })}
-        onRemove={(id) => dispatch({ type: 'REMOVE', lineId: id })}
-      />
-```
+2. Parsear `discountPct`:
+   - Si `data.discountPct` es `undefined`, usar `new Prisma.Decimal(0)`.
+   - Si no, convertirlo con `toDecimal(data.discountPct)`.
+   - Si el valor absoluto supera 200 (es decir, es mayor que 200 o menor que -200), lanzar: `new Error("discountPct must be in [-200, 200]")`.
 
-Reemplazarlo por:
-```tsx
-      <CartList
-        lines={cart.lines}
-        onQuantityChange={(id, q) => dispatch({ type: 'SET_QUANTITY', lineId: id, quantity: q })}
-        onUnitPriceChange={(id, p) => dispatch({ type: 'SET_UNIT_PRICE', lineId: id, unitPrice: p })}
-        onRemove={(id) => dispatch({ type: 'REMOVE', lineId: id })}
-        discountPct={discountPct}
-        onDiscountChange={setDiscountPct}
-      />
-```
+3. Calcular `expectedTotal`:
+   - `factor = Decimal(1) - discountPct / Decimal(100)`
+   - `raw = calculatedSubtotal * factor`
+   - Si `raw < 0`, `expectedTotal = Decimal(0)`, si no `expectedTotal = raw`
 
-**2.3.** Guardar.
+4. Comparar `clientTotal` contra `expectedTotal` (en vez de `calculatedSubtotal`):
+   - Si `|clientTotal - expectedTotal| > MONEY_EPSILON`, lanzar error descriptivo.
 
-**2.4.** Correr desde `h:/anton/Integral/renderer`:
-```
-npm run build
-```
-Debe compilar sin errores de TypeScript. Si hay errores, revisar los pasos 1 y 2.
+5. El `total` canónico a persistir es `expectedTotal` (la recalculación del servidor, no el input del cliente).
+
+6. Al crear la venta con `tx.sale.create`, incluir `discountPct` en los datos:
+   ```ts
+   data: {
+     total,
+     discountPct,
+     ...(data.date ? { date: data.date } : {}),
+     items: { ... },
+     payments: { ... }
+   }
+   ```
+
+**Verificación:** `tsc --noEmit` sin errores.
 
 ---
 
-### Paso 3 — Calcular subtotal y total en `CartList` y renderizar el pie
+## Paso 0.5 — Relajar la validación de `paymentsSum` para aceptar overpayment
 
-Archivo: [renderer/src/Pages/Sells/CartList.tsx](renderer/src/Pages/Sells/CartList.tsx)
+**Archivo:** `backend/services/saleService.ts`
 
-**3.1.** Agregar el import de `lineTotal` si no está ya importado. La línea de imports actual en el archivo es:
-```tsx
-import { formatMoney } from '../../utils/format'
-import { lineTotal } from './cartReducer'
-import type { CartLine } from './types'
+Localizar el bloque de validación de `paymentsSum` (actualmente valida igualdad exacta con `MONEY_EPSILON`):
+
+Reemplazar:
+```ts
+if (paymentsSum.sub(total).abs().gt(MONEY_EPSILON)) {
+  throw new Error(
+    `Payments sum (${paymentsSum.toString()}) must equal sale total (${total.toString()})`
+  )
+}
 ```
-`lineTotal` ya está importado — no hay que cambiar nada en imports.
 
-**3.2.** Localizar el bloque que maneja el caso vacío (aprox. línea 52):
-```tsx
-  if (lines.length === 0) {
-    return <p className="cart-list__empty">Agregá productos con el lector o F2</p>
+por:
+```ts
+if (total.sub(paymentsSum).gt(MONEY_EPSILON)) {
+  throw new Error(
+    `Payments sum (${paymentsSum.toString()}) is less than sale total (${total.toString()})`
+  )
+}
+```
+
+Esto permite que los pagos superen el total (el exceso es el vuelto en efectivo), pero sigue rechazando pagos insuficientes.
+
+**Verificación:** `tsc --noEmit` sin errores.
+
+---
+
+## Paso 0.6 — Agregar filtros `minTotal` / `maxTotal` a `ListSalesFilters`
+
+**Archivo:** `backend/services/saleService.ts`
+
+Agregar `minTotal?: DecimalInput` y `maxTotal?: DecimalInput` a `ListSalesFilters`:
+
+```ts
+export interface ListSalesFilters extends PaginationInput {
+  fromDate?: Date
+  toDate?: Date
+  method?: SalePaymentMethod | string
+  productId?: number
+  minTotal?: DecimalInput
+  maxTotal?: DecimalInput
+}
+```
+
+**Verificación:** `tsc --noEmit` sin errores.
+
+---
+
+## Paso 0.7 — Actualizar `buildSaleWhere` para filtrar por rango de precio
+
+**Archivo:** `backend/services/saleService.ts`
+
+En la función `buildSaleWhere`, agregar dentro del objeto retornado el filtro de `total`:
+
+```ts
+...((filters.minTotal !== undefined || filters.maxTotal !== undefined) ? {
+  total: {
+    ...(filters.minTotal !== undefined ? { gte: toDecimal(filters.minTotal) } : {}),
+    ...(filters.maxTotal !== undefined ? { lte: toDecimal(filters.maxTotal) } : {})
   }
+} : {})
 ```
 
-Agregar **justo antes** de ese bloque (después de las funciones `commitUnitPrice` etc.) las siguientes variables:
-```tsx
-  const subtotal = lines.reduce((acc, line) => acc + lineTotal(line), 0)
-  const discountFactor = 1 - discountPct / 100
-  const total = Math.max(0, subtotal * discountFactor)
-```
+Agregarlo junto a los filtros existentes de `date`, `payments`, `items`.
 
-Nota: estas variables se calculan siempre, incluso si `lines` está vacío — está bien, simplemente van a ser `0`. El pie sólo se va a renderizar cuando `lines.length > 0` (ver paso 3.3).
-
-**3.3.** Localizar el cierre del `return` del componente. El JSX actual termina en:
-```tsx
-    </div>
-  )
-}
-```
-
-Antes del `</div>` que cierra el `<div className="cart-list">`, hay que agregar el pie. El bloque que se debe agregar va **después del bloque del `.map()`** pero **dentro** del `<div className="cart-list">`.
-
-Localizar el patrón exacto al final del return:
-```tsx
-      {lines.map(line => {
-```
-...y al final del map:
-```tsx
-      })}
-    </div>
-  )
-}
-```
-
-Reemplazar el cierre del map y el div por:
-```tsx
-      })}
-
-      <div className="cart-list__footer">
-        <div className="cart-list__footer-row">
-          <span className="cart-list__footer-label">Subtotal</span>
-          <span className="cart-list__footer-value">{formatMoney(subtotal)}</span>
-        </div>
-        <div className="cart-list__footer-row">
-          <span className="cart-list__footer-label">Descuento</span>
-          <input
-            className="cart-list__discount-input"
-            type="number"
-            step="0.01"
-            value={discountPct}
-            onChange={e => {
-              const n = Number(e.target.value)
-              if (Number.isFinite(n)) onDiscountChange(n)
-            }}
-          />
-          <span className="cart-list__footer-pct">%</span>
-        </div>
-        <div className="cart-list__footer-row">
-          <span className="cart-list__footer-label cart-list__footer-label--total">Total</span>
-          <span className="cart-list__footer-value cart-list__footer-value--total">{formatMoney(total)}</span>
-        </div>
-      </div>
-    </div>
-  )
-}
-```
-
-**3.4.** Guardar.
+**Verificación:** `tsc --noEmit` sin errores en todo el backend.
 
 ---
 
-### Paso 4 — Agregar estilos del pie en `Sells.css`
+## Paso 0.8 — Compilar el backend completo
 
-Archivo: [renderer/src/Pages/Sells/Sells.css](renderer/src/Pages/Sells/Sells.css)
+Ejecutar:
+```
+npx tsc --noEmit --project tsconfig.json
+```
+o el comando de build equivalente del proyecto.
 
-**4.1.** Al final del archivo, agregar:
+**Verificación:** cero errores de TypeScript.
+
+---
+
+# FASE 1 — Contratos IPC: actualizar tipos
+
+## Paso 1.1 — Actualizar `electron/ipcContract.ts`
+
+**Archivo:** `electron/ipcContract.ts`
+
+**Cambio A:** agregar `discountPct: string` a `SaleFromApi` (después de `total`):
+```ts
+export interface SaleFromApi {
+  id: number
+  date: Date
+  total: string
+  discountPct: string
+  items: SaleItemFromApi[]
+  payments: SalePaymentFromApi[]
+}
+```
+
+**Cambio B:** agregar `discountPct?: number | string` a `CreateSalePayload`:
+```ts
+export interface CreateSalePayload {
+  items: CreateSaleItemPayload[]
+  payments: CreateSalePaymentPayload[]
+  total: number | string
+  discountPct?: number | string
+  date?: Date
+}
+```
+
+**Cambio C:** agregar `minTotal?: number | string` y `maxTotal?: number | string` a `ListSalesFiltersPayload`:
+```ts
+export interface ListSalesFiltersPayload {
+  skip?: number
+  take?: number
+  fromDate?: Date
+  toDate?: Date
+  method?: string
+  productId?: number
+  minTotal?: number | string
+  maxTotal?: number | string
+}
+```
+
+**Verificación:** `tsc --noEmit` sin errores en `electron/`.
+
+---
+
+## Paso 1.2 — Actualizar `renderer/src/electron-api.d.ts` (espejo de ipcContract.ts)
+
+**Archivo:** `renderer/src/electron-api.d.ts`
+
+Aplicar exactamente los mismos tres cambios del paso 1.1 en los tipos correspondientes del archivo:
+
+**Cambio A:** agregar `discountPct: string` a `SaleFromApi`:
+```ts
+export type SaleFromApi = {
+  id: number
+  date: Date
+  total: string
+  discountPct: string
+  items: SaleItemFromApi[]
+  payments: SalePaymentFromApi[]
+}
+```
+
+**Cambio B:** agregar `discountPct?: number | string` a `CreateSalePayload`:
+```ts
+export type CreateSalePayload = {
+  items: CreateSaleItemPayload[]
+  payments: CreateSalePaymentPayload[]
+  total: number | string
+  discountPct?: number | string
+  date?: Date
+}
+```
+
+**Cambio C:** agregar `minTotal?: number | string` y `maxTotal?: number | string` a `ListSalesFiltersPayload`:
+```ts
+export type ListSalesFiltersPayload = {
+  skip?: number
+  take?: number
+  fromDate?: Date
+  toDate?: Date
+  method?: string
+  productId?: number
+  minTotal?: number | string
+  maxTotal?: number | string
+}
+```
+
+**Verificación:** `npm run build --prefix renderer` sin errores de tipo.
+
+---
+
+# FASE 2 — Actualizar flujo de confirmación en `Sells.tsx`
+
+## Paso 2.1 — Pasar `discountPct` en `createSale`
+
+**Archivo:** `renderer/src/Pages/Sells/Sells.tsx`
+
+En `handleConfirmSale`, localizar la línea:
+```ts
+await window.api.createSale({ items, payments: paymentsPayload, total })
+```
+
+Reemplazar por:
+```ts
+await window.api.createSale({ items, payments: paymentsPayload, total, discountPct })
+```
+
+El valor `discountPct` ya existe en el scope de `Sells.tsx` como estado.
+
+**Verificación:** `npm run build --prefix renderer` sin errores.
+
+---
+
+## Paso 2.2 — Actualizar el `fakeSale` en tests que usan `SaleFromApi`
+
+**Archivo:** `renderer/src/Pages/Sells/__tests__/Sells.confirm.test.tsx`
+
+Localizar la definición de `fakeSale`:
+```ts
+const fakeSale: SaleFromApi = {
+  id: 1,
+  date: new Date(),
+  total: '1000',
+  items: [],
+  payments: []
+}
+```
+
+Agregar `discountPct: '0'`:
+```ts
+const fakeSale: SaleFromApi = {
+  id: 1,
+  date: new Date(),
+  total: '1000',
+  discountPct: '0',
+  items: [],
+  payments: []
+}
+```
+
+**Verificación:** `npm test --prefix renderer` — todos en verde.
+
+---
+
+## Paso 2.3 — Agregar test: `discountPct` se envía al confirmar con descuento
+
+**Archivo:** `renderer/src/Pages/Sells/__tests__/Sells.confirm.test.tsx`
+
+Agregar dentro del `describe('Sells — flujo de confirmación de venta', ...)`:
+
+```ts
+it('confirmar con descuento del 10% envía discountPct=10 en el payload', async () => {
+  const user = userEvent.setup()
+  render(<Sells />)
+  await addOneProduct()
+  // total sin descuento = 1000; con 10% descuento = 900
+  // El input de descuento está en el PaymentPanel; usar fireEvent para cambiarlo
+  const discountInput = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
+  fireEvent.change(discountInput, { target: { value: '10' } })
+  fireEvent.blur(discountInput)
+  fireEvent.change(screen.getByRole('textbox', { name: 'EFECTIVO' }), { target: { value: '900' } })
+  const approve = screen.getByRole('button', { name: 'APROBAR VENTA' })
+  await waitFor(() => expect(approve).not.toBeDisabled())
+  await user.click(approve)
+  await waitFor(() => expect(createSale).toHaveBeenCalledTimes(1))
+  const arg = createSale.mock.calls[0][0] as CreateSalePayload
+  expect(Number(arg.discountPct)).toBe(10)
+  expect(Number(arg.total)).toBeCloseTo(900, 1)
+})
+```
+
+**Verificación:** `npm test --prefix renderer` — todos en verde (si el test falla por el selector del input de descuento, ajustar el selector según el aria-label real en PaymentPanel).
+
+---
+
+# FASE 3 — Navegación: nueva pestaña "Historial"
+
+## Paso 3.1 — Agregar `'history'` al tipo `Cont`
+
+**Archivo:** `renderer/src/renderTypes.ts`
+
+Reemplazar:
+```ts
+export type Cont = 'sells' | 'stock' | null
+```
+por:
+```ts
+export type Cont = 'sells' | 'stock' | 'history' | null
+```
+
+**Verificación:** sin errores de compilación.
+
+---
+
+## Paso 3.2 — Agregar botón "Historial" en el Header
+
+**Archivo:** `renderer/src/Pages/Header.tsx`
+
+Dentro del `<ul className="Header__nav">`, agregar después del botón "Sells":
+```tsx
+<button
+  className="header-button"
+  onClick={() => handleClick("history")}
+  aria-pressed={content === "history"}
+>
+  Historial
+</button>
+```
+
+**Verificación:** `npm run build --prefix renderer` sin errores.
+
+---
+
+## Paso 3.3 — Agregar render de `SalesHistory` en `App.tsx`
+
+**Archivo:** `renderer/src/App.tsx`
+
+Importar el componente (se creará en el paso 3.4):
+```ts
+import SalesHistory from "./Pages/SalesHistory/SalesHistory"
+```
+
+Agregar dentro del `<main className="app-content">`:
+```tsx
+{content === "history" && <SalesHistory />}
+```
+
+junto a los renders existentes de `sells` y `stock`.
+
+**Verificación:** `npm run build --prefix renderer` va a fallar hasta que se cree el archivo del paso 3.4. Avanzar al siguiente paso.
+
+---
+
+## Paso 3.4 — Crear `SalesHistory.tsx` mínimo (placeholder)
+
+**Archivo:** `renderer/src/Pages/SalesHistory/SalesHistory.tsx` (crear nuevo)
+
+```tsx
+export default function SalesHistory() {
+  return <div>Historial de ventas — en construcción</div>
+}
+```
+
+**Verificación:** `npm run build --prefix renderer` compila sin errores. Al hacer click en "Historial" en la nav, se muestra el placeholder.
+
+---
+
+# FASE 4 — Lógica de filtros: `salesHistoryFilters.ts`
+
+## Paso 4.1 — Crear `renderer/src/Pages/SalesHistory/salesHistoryFilters.ts`
+
+**Archivo:** `renderer/src/Pages/SalesHistory/salesHistoryFilters.ts` (crear nuevo)
+
+Debe contener:
+
+**1. Tipo `SalesHistoryFilters`:**
+```ts
+export interface SalesHistoryFilters {
+  fromDate: string      // "YYYY-MM-DD" o vacío
+  toDate: string        // "YYYY-MM-DD" o vacío
+  fromTime: string      // "HH:MM" o vacío
+  toTime: string        // "HH:MM" o vacío
+  minTotal: string      // número como string o vacío
+  maxTotal: string      // número como string o vacío
+  method: string        // PaymentMethod o '' para "todas"
+}
+
+export const initialFilters: SalesHistoryFilters = {
+  fromDate: '',
+  toDate: '',
+  fromTime: '',
+  toTime: '',
+  minTotal: '',
+  maxTotal: '',
+  method: ''
+}
+```
+
+**2. Función `getSaleLocalTime(date: Date): string`:**
+- Devuelve la hora local en formato "HH:MM" usando `Intl.DateTimeFormat` con `timeZone: 'America/Argentina/Buenos_Aires'`, `hour: '2-digit'`, `minute: '2-digit'`, `hour12: false`.
+- Exportar para testear.
+
+**3. Función `filterByTime(sales: SaleFromApi[], fromTime: string, toTime: string): SaleFromApi[]`:**
+- Si ambos `fromTime` y `toTime` están vacíos, devolver `sales` sin filtrar.
+- Si solo `fromTime`, incluir las ventas con hora `>= fromTime`.
+- Si solo `toTime`, incluir las ventas con hora `<= toTime`.
+- Si ambos, incluir las ventas con hora `>= fromTime && <= toTime`.
+- El cruce de medianoche (ej: 22:00 a 02:00) **no se maneja en esta versión**; si `fromTime > toTime`, devolver `sales` sin filtrar (tratar como sin filtro de tiempo).
+- La comparación es lexicográfica sobre strings "HH:MM" (funciona porque el formato está normalizado).
+- Exportar.
+
+**4. Función `buildApiFilters(filters: SalesHistoryFilters): ListSalesFiltersPayload`:**
+- Devuelve un objeto con solo los campos definidos (sin claves con `undefined`).
+- `fromDate`: si no está vacío, crear `new Date(filters.fromDate + 'T00:00:00')` → campo `fromDate`.
+- `toDate`: si no está vacío, crear `new Date(filters.toDate + 'T23:59:59')` → campo `toDate`.
+- `method`: si no está vacío → campo `method`.
+- `minTotal`: si no está vacío y es un número válido → campo `minTotal` como string.
+- `maxTotal`: si no está vacío y es un número válido → campo `maxTotal` como string.
+- Los filtros `fromTime` y `toTime` **no se envían al backend** (se aplican en el cliente con `filterByTime`).
+- Exportar.
+
+**Verificación:** `npm run build --prefix renderer` sin errores.
+
+---
+
+## Paso 4.2 — Crear tests de `salesHistoryFilters.ts`
+
+**Archivo:** `renderer/src/Pages/SalesHistory/__tests__/salesHistoryFilters.test.ts` (crear nuevo)
+
+**Tests de `filterByTime`:**
+
+Usar un helper para crear un `SaleFromApi` mínimo con una fecha:
+```ts
+function makeSale(isoDate: string): SaleFromApi {
+  return {
+    id: 1,
+    date: new Date(isoDate),
+    total: '100',
+    discountPct: '0',
+    items: [],
+    payments: []
+  }
+}
+```
+
+Tests:
+1. `'sin filtros → devuelve todo'`: `filterByTime([sale1, sale2], '', '')` devuelve ambas.
+2. `'solo fromTime: excluye ventas anteriores'`: venta a las 10:00 y venta a las 15:00, `fromTime='12:00'` → solo devuelve la de 15:00.
+3. `'solo toTime: excluye ventas posteriores'`: venta a las 10:00 y venta a las 15:00, `toTime='12:00'` → solo devuelve la de 10:00.
+4. `'rango normal: incluye ventas dentro del rango'`: tres ventas a 09:00, 14:00, 20:00. Rango 12:00-16:00 → solo la de 14:00.
+5. `'fromTime == toTime: solo venta exacta'`: venta a 14:00. Rango 14:00-14:00 → la incluye.
+6. `'fromTime > toTime (cruce de medianoche): sin filtro'`: `fromTime='22:00', toTime='02:00'` → devuelve todo sin filtrar.
+7. `'lista vacía → devuelve lista vacía'`: `filterByTime([], '10:00', '20:00')` → `[]`.
+
+**Tests de `buildApiFilters`:**
+
+1. `'filtros vacíos → objeto vacío (sin campos undefined)'`: `buildApiFilters(initialFilters)` devuelve `{}`.
+2. `'fromDate y toDate → incluye fromDate como inicio del día y toDate como fin del día'`: `buildApiFilters({ ...initialFilters, fromDate: '2024-03-01', toDate: '2024-03-31' })` → `fromDate` es Date a medianoche inicio, `toDate` es Date a 23:59:59.
+3. `'method → incluye method'`: `buildApiFilters({ ...initialFilters, method: 'CASH' })` → `{ method: 'CASH' }`.
+4. `'minTotal y maxTotal → incluye como string'`: `buildApiFilters({ ...initialFilters, minTotal: '500', maxTotal: '2000' })` → `{ minTotal: '500', maxTotal: '2000' }`.
+5. `'fromTime y toTime → NO aparecen en el resultado'`: el objeto retornado no tiene propiedades `fromTime` ni `toTime`.
+
+**Verificación:** `npm test --prefix renderer` — todos en verde.
+
+---
+
+# FASE 5 — Componente `SalesHistory`: panel de filtros + lista
+
+## Paso 5.1 — Implementar estado y estructura base en `SalesHistory.tsx`
+
+**Archivo:** `renderer/src/Pages/SalesHistory/SalesHistory.tsx`
+
+Reemplazar el placeholder por la estructura completa:
+
+**Estado del componente:**
+- `filters: SalesHistoryFilters` — estado de los controles de filtro, inicializado con `initialFilters`.
+- `sales: SaleFromApi[]` — lista de resultados, inicialmente `[]`.
+- `loading: boolean` — inicialmente `false`.
+- `selectedSale: SaleFromApi | null` — venta seleccionada para el modal, inicialmente `null`.
+
+**Función `loadSales()`:**
+```ts
+async function loadSales() {
+  setLoading(true)
+  try {
+    const apiFilters = buildApiFilters(filters)
+    const result = await window.api.listSales(apiFilters)
+    const filtered = filterByTime(result, filters.fromTime, filters.toTime)
+    setSales(filtered)
+  } finally {
+    setLoading(false)
+  }
+}
+```
+
+**`useEffect` de carga inicial:** llamar `loadSales()` una sola vez al montar el componente (array de dependencias vacío `[]`).
+
+**Estructura JSX:**
+```tsx
+return (
+  <section className="sales-history">
+    {/* Panel de filtros */}
+    <div className="sales-history__filters">
+      {/* — pasos 5.2 y 5.3 — */}
+    </div>
+    {/* Tabla de resultados */}
+    <div className="sales-history__list">
+      {/* — paso 5.4 — */}
+    </div>
+    {/* Modal de detalle */}
+    {/* — integrar en Fase 6 — */}
+  </section>
+)
+```
+
+**Verificación:** `npm run build --prefix renderer` sin errores.
+
+---
+
+## Paso 5.2 — Implementar panel de filtros
+
+**Archivo:** `renderer/src/Pages/SalesHistory/SalesHistory.tsx`
+
+Reemplazar el comentario del panel de filtros por los controles:
+
+**Fila 1 — Fechas:**
+- Label + `<input type="date">` para `fromDate` (desde fecha)
+- Label + `<input type="date">` para `toDate` (hasta fecha)
+
+**Fila 2 — Franjas horarias:**
+- Label + `<input type="time">` para `fromTime` (desde hora)
+- Label + `<input type="time">` para `toTime` (hasta hora)
+
+**Fila 3 — Precios:**
+- Label + `<input type="number" min="0" step="0.01">` para `minTotal` (precio mínimo)
+- Label + `<input type="number" min="0" step="0.01">` para `maxTotal` (precio máximo)
+
+**Fila 4 — Método de pago:**
+- `<select>` con las opciones:
+  - `value=""` → "Todos los medios"
+  - `value="CASH"` → "EFECTIVO"
+  - `value="DEBIT"` → "DÉBITO"
+  - `value="CREDIT"` → "CRÉDITO"
+  - `value="TRANSFER"` → "TRANSFERENCIA"
+  - `value="OTHER"` → "OTROS"
+
+**Botón:** `<button type="button" onClick={loadSales}>Buscar</button>`
+
+Cada control llama a `setFilters(prev => ({ ...prev, [campo]: valor }))` en su `onChange`.
+
+**Verificación:** `npm run build --prefix renderer` sin errores.
+
+---
+
+## Paso 5.3 — Implementar tabla de lista de ventas
+
+**Archivo:** `renderer/src/Pages/SalesHistory/SalesHistory.tsx`
+
+Reemplazar el comentario de la tabla por:
+
+Si `loading === true`, mostrar `<p>Cargando...</p>`.
+
+Si `sales.length === 0`, mostrar `<p className="sales-history__empty">No se encontraron ventas con los filtros aplicados.</p>`.
+
+Si hay ventas, mostrar una tabla con:
+- Header: `ID | Fecha y hora | Total | Medios de pago`
+- Por cada `sale` en `sales`:
+  - Fila clickable: `onClick={() => setSelectedSale(sale)}` y `tabIndex={0}` y `onKeyDown` que dispara click en Enter/Space.
+  - `sale.id`
+  - Fecha y hora formateada: `new Intl.DateTimeFormat('es-AR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date(sale.date))`
+  - Total: usar `formatMoney` importado de `renderer/src/utils/format.ts` con `Number(sale.total)`.
+  - Medios de pago: `sale.payments.map(p => PAYMENT_LABELS[p.method as PaymentMethod] ?? p.method).join(', ')`.
+    - `PAYMENT_LABELS` es el Record importado de `renderer/src/Pages/Sells/payments.ts`.
+    - Si `sale.payments` está vacío, mostrar `—`.
+
+**Verificación:** `npm run build --prefix renderer` sin errores.
+
+---
+
+## Paso 5.4 — Crear `SalesHistory.css`
+
+**Archivo:** `renderer/src/Pages/SalesHistory/SalesHistory.css` (crear nuevo)
+
+Estilos mínimos:
 
 ```css
-/* Cart footer (subtotal / descuento / total) */
-.cart-list__footer {
-  grid-column: 1 / -1;
+.sales-history {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+.sales-history__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: flex-end;
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.sales-history__filters label {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 4px;
+}
+
+.sales-history__filters input,
+.sales-history__filters select {
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.sales-history__list table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.sales-history__list th {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 2px solid #e5e7eb;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.sales-history__row {
+  cursor: pointer;
+}
+
+.sales-history__row:hover {
+  background: #f0f4ff;
+}
+
+.sales-history__row td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 14px;
+}
+
+.sales-history__empty {
+  color: #6b7280;
+  text-align: center;
+  padding: 32px;
+}
+```
+
+Importar el CSS en `SalesHistory.tsx`:
+```ts
+import './SalesHistory.css'
+```
+
+**Verificación:** visual — la pantalla se ve ordenada.
+
+---
+
+# FASE 6 — Componente `SaleDetailModal`
+
+## Paso 6.1 — Crear `SaleDetailModal.tsx` con estructura básica
+
+**Archivo:** `renderer/src/Pages/SalesHistory/SaleDetailModal.tsx` (crear nuevo)
+
+Props:
+```ts
+interface SaleDetailModalProps {
+  sale: SaleFromApi | null
+  onClose: () => void
+}
+```
+
+- Si `sale === null`, el componente devuelve `null` (no renderiza nada).
+- Estructura cuando hay venta:
+  ```tsx
+  <div className="modal-overlay" onClick={onClose}>
+    <div
+      className="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Venta #${sale.id}`}
+      onClick={e => e.stopPropagation()}
+    >
+      <button className="modal__close" type="button" onClick={onClose} aria-label="Cerrar">✕</button>
+      <h2 className="modal__title">Venta #{sale.id}</h2>
+      {/* — contenido — pasos 6.2 a 6.4 — */}
+    </div>
+  </div>
+  ```
+
+**Verificación:** `npm run build --prefix renderer` sin errores.
+
+---
+
+## Paso 6.2 — Agregar header del modal: fecha, hora e ID
+
+**Archivo:** `renderer/src/Pages/SalesHistory/SaleDetailModal.tsx`
+
+Después del `<h2>`, agregar un párrafo con la fecha/hora de la venta:
+```tsx
+<p className="modal__date">
+  {new Intl.DateTimeFormat('es-AR', {
+    dateStyle: 'full',
+    timeStyle: 'short',
+    timeZone: 'America/Argentina/Buenos_Aires'
+  }).format(new Date(sale.date))}
+</p>
+```
+
+---
+
+## Paso 6.3 — Sección de ítems del modal
+
+**Archivo:** `renderer/src/Pages/SalesHistory/SaleDetailModal.tsx`
+
+Agregar debajo del header una tabla de ítems:
+
+- Header de tabla: `Producto | Cantidad | Precio unitario | Subtotal`
+- Por cada `item` en `sale.items`:
+  - Nombre: `item.product.name`
+  - Cantidad: `item.quantity`
+  - Precio unitario: `formatMoney(Number(item.unitPrice))`
+  - Subtotal línea: `formatMoney(item.quantity * Number(item.unitPrice))`
+
+---
+
+## Paso 6.4 — Sección de pie del modal: totales y pagos
+
+**Archivo:** `renderer/src/Pages/SalesHistory/SaleDetailModal.tsx`
+
+Calcular y mostrar:
+
+**Subtotal** (suma de todas las líneas):
+```ts
+const subtotal = sale.items.reduce((acc, item) => acc + item.quantity * Number(item.unitPrice), 0)
+```
+
+**Descuento/Recargo:**
+```ts
+const pct = Number(sale.discountPct)
+```
+- Si `pct > 0`: mostrar fila "Descuento: X%"
+- Si `pct < 0`: mostrar fila "Recargo: X%"
+- Si `pct === 0`: no mostrar fila de descuento
+
+**Total final:** `formatMoney(Number(sale.total))`
+
+**Pagos desglosados:** por cada `payment` en `sale.payments`:
+- Método en español: `PAYMENT_LABELS[payment.method as PaymentMethod] ?? payment.method`
+- Monto: `formatMoney(Number(payment.amount))`
+
+Agregar una sección `<div className="modal__totals">` para este bloque.
+
+**Verificación:** `npm run build --prefix renderer` sin errores.
+
+---
+
+## Paso 6.5 — Accesibilidad: foco y Escape
+
+**Archivo:** `renderer/src/Pages/SalesHistory/SaleDetailModal.tsx`
+
+Agregar:
+
+1. Un `ref` al div `.modal` y un `useEffect` que haga `focus()` sobre él cuando `sale !== null`:
+   ```ts
+   const modalRef = useRef<HTMLDivElement>(null)
+   useEffect(() => {
+     if (sale !== null) modalRef.current?.focus()
+   }, [sale])
+   ```
+   Agregar `tabIndex={-1}` al div `.modal` para que sea enfocable.
+
+2. Un `useEffect` que escucha `keydown` en el documento y llama `onClose` cuando `key === 'Escape'` y `sale !== null`:
+   ```ts
+   useEffect(() => {
+     const handler = (e: KeyboardEvent) => {
+       if (e.key === 'Escape') onClose()
+     }
+     if (sale !== null) {
+       document.addEventListener('keydown', handler)
+       return () => document.removeEventListener('keydown', handler)
+     }
+   }, [sale, onClose])
+   ```
+
+**Verificación:** `npm run build --prefix renderer` sin errores.
+
+---
+
+## Paso 6.6 — Crear estilos del modal en `SaleDetailModal.css`
+
+**Archivo:** `renderer/src/Pages/SalesHistory/SaleDetailModal.css` (crear nuevo)
+
+```css
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 10px;
+  padding: 24px;
+  width: 90%;
+  max-width: 700px;
+  max-height: 85vh;
+  overflow-y: auto;
+  position: relative;
+  outline: none;
+}
+
+.modal__close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #6b7280;
+}
+
+.modal__title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.modal__date {
+  font-size: 13px;
+  color: #6b7280;
+  margin: 0 0 16px;
+}
+
+.modal table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 16px;
+}
+
+.modal th {
+  text-align: left;
+  padding: 8px;
+  border-bottom: 2px solid #e5e7eb;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.modal td {
+  padding: 8px;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 14px;
+}
+
+.modal__totals {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 6px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 2px solid #dde5ee;
+  border-top: 2px solid #e5e7eb;
+  padding-top: 12px;
 }
 
-.cart-list__footer-row {
+.modal__totals-row {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  gap: 16px;
+  font-size: 14px;
 }
 
-.cart-list__footer-label {
-  font-weight: 600;
-  color: #374151;
-  min-width: 90px;
-  text-align: right;
-}
-
-.cart-list__footer-label--total {
-  font-size: 1.05rem;
-  color: #1e293b;
-}
-
-.cart-list__footer-value {
-  min-width: 110px;
-  text-align: right;
-  color: #374151;
-}
-
-.cart-list__footer-value--total {
-  font-size: 1.15rem;
+.modal__totals-row--total {
+  font-size: 16px;
   font-weight: 700;
-  color: #1e293b;
-}
-
-.cart-list__discount-input {
-  width: 70px;
-  padding: 4px 6px;
-  border: 1px solid #c0ccda;
-  border-radius: 4px;
-  font-size: 0.95rem;
-  text-align: right;
-}
-
-.cart-list__footer-pct {
-  color: #6b7280;
-  font-size: 0.95rem;
 }
 ```
 
-**4.2.** Guardar.
+Importar el CSS en `SaleDetailModal.tsx`:
+```ts
+import './SaleDetailModal.css'
+```
+
+**Verificación:** `npm run build --prefix renderer` sin errores.
 
 ---
 
-### Paso 5 — Correr tests y build
+## Paso 6.7 — Integrar `SaleDetailModal` en `SalesHistory.tsx`
 
-**5.1.** Desde `h:/anton/Integral/renderer`:
-```
-npm test
-```
-Verificar que todos los tests previos siguen pasando (los nuevos tests se agregan en el paso 6).
+**Archivo:** `renderer/src/Pages/SalesHistory/SalesHistory.tsx`
 
-**5.2.** Desde `h:/anton/Integral/renderer`:
-```
-npm run build
-```
-Verificar que no hay errores de tipos.
+1. Importar `SaleDetailModal`:
+   ```ts
+   import SaleDetailModal from './SaleDetailModal'
+   ```
+
+2. Agregar el modal al JSX, después del div de la lista y dentro del `<section>`:
+   ```tsx
+   <SaleDetailModal
+     sale={selectedSale}
+     onClose={() => setSelectedSale(null)}
+   />
+   ```
+
+**Verificación:** `npm run build --prefix renderer` sin errores. Hacer click en una fila abre el modal.
 
 ---
 
-### Paso 6 — Escribir tests del pie: subtotal y total
+# FASE 7 — Tests del renderer
 
-Archivo: [renderer/src/Pages/Sells/__tests__/CartList.test.tsx](renderer/src/Pages/Sells/__tests__/CartList.test.tsx)
+## Paso 7.1 — Crear tests del componente `SalesHistory`
 
-**6.1.** Actualizar la función auxiliar `renderCart` para incluir las nuevas props obligatorias. Localizar el bloque `renderCart` existente en el archivo:
+**Archivo:** `renderer/src/Pages/SalesHistory/__tests__/SalesHistory.test.tsx` (crear nuevo)
 
-```tsx
-const renderCart = (lines: CartLine[], handlers: Partial<{
-  onQuantityChange: (lineId: string, quantity: number) => void
-  onUnitPriceChange: (lineId: string, unitPrice: string) => void
-  onRemove: (lineId: string) => void
-}> = {}) => {
-  const onQuantityChange = handlers.onQuantityChange ?? vi.fn()
-  const onUnitPriceChange = handlers.onUnitPriceChange ?? vi.fn()
-  const onRemove = handlers.onRemove ?? vi.fn()
-  const utils = render(
-    <CartList
-      lines={lines}
-      onQuantityChange={onQuantityChange}
-      onUnitPriceChange={onUnitPriceChange}
-      onRemove={onRemove}
-    />
-  )
-  return { ...utils, onQuantityChange, onUnitPriceChange, onRemove }
+Mockear `window.api.listSales` en `beforeEach`.
+
+**Helper:** crear `makeSale(overrides)` para generar un `SaleFromApi` mínimo:
+```ts
+function makeSale(overrides: Partial<SaleFromApi> = {}): SaleFromApi {
+  return {
+    id: 1,
+    date: new Date('2024-03-15T14:00:00'),
+    total: '1000',
+    discountPct: '0',
+    items: [],
+    payments: [{ id: 1, saleId: 1, method: 'CASH', amount: '1000' }],
+    ...overrides
+  }
 }
 ```
 
-Reemplazarlo por:
-```tsx
-const renderCart = (lines: CartLine[], handlers: Partial<{
-  onQuantityChange: (lineId: string, quantity: number) => void
-  onUnitPriceChange: (lineId: string, unitPrice: string) => void
-  onRemove: (lineId: string) => void
-  onDiscountChange: (pct: number) => void
-}> = {}, discountPct = 0) => {
-  const onQuantityChange = handlers.onQuantityChange ?? vi.fn()
-  const onUnitPriceChange = handlers.onUnitPriceChange ?? vi.fn()
-  const onRemove = handlers.onRemove ?? vi.fn()
-  const onDiscountChange = handlers.onDiscountChange ?? vi.fn()
-  const utils = render(
-    <CartList
-      lines={lines}
-      onQuantityChange={onQuantityChange}
-      onUnitPriceChange={onUnitPriceChange}
-      onRemove={onRemove}
-      discountPct={discountPct}
-      onDiscountChange={onDiscountChange}
-    />
-  )
-  return { ...utils, onQuantityChange, onUnitPriceChange, onRemove, onDiscountChange }
-}
-```
+**Tests a incluir:**
 
-**6.2.** Al final del archivo, agregar el siguiente bloque de tests:
+1. `'al montar, llama window.api.listSales y muestra las ventas'`:
+   - Mock retorna `[makeSale({ id: 1 }), makeSale({ id: 2 })]`
+   - Verificar que aparezcan los IDs 1 y 2 en el DOM.
 
-```tsx
-describe('CartList — pie de carrito: subtotal y total', () => {
-  it('muestra el subtotal correcto con una línea', () => {
-    // 2 unidades * $150 = $300
-    renderCart([productLine(1, 2, '150')])
-    expect(screen.getByText('Subtotal')).toBeInTheDocument()
-    // formatMoney formatea en ARS — buscamos el valor formateado
-    // lineTotal = 2 * 150 = 300
-    expect(screen.getByText(/300/)).toBeInTheDocument()
-  })
+2. `'muestra mensaje de vacío si no hay ventas'`:
+   - Mock retorna `[]`
+   - Verificar que aparezca el mensaje de sin resultados.
 
-  it('muestra el subtotal correcto con múltiples líneas', () => {
-    // línea 1: 1 * 100 = 100; línea 2: 3 * 50 = 150; total = 250
-    renderCart([productLine(1, 1, '100'), productLine(2, 3, '50')])
-    expect(screen.getByText(/250/)).toBeInTheDocument()
-  })
+3. `'click en "Buscar" vuelve a llamar listSales con los filtros aplicados'`:
+   - Cambiar el select de método de pago a "CASH".
+   - Hacer click en "Buscar".
+   - Verificar que `listSales` fue llamada con `{ method: 'CASH' }` (o que incluye ese campo).
 
-  it('sin descuento (0%), Total == Subtotal', () => {
-    renderCart([productLine(1, 1, '200')], {}, 0)
-    const values = screen.getAllByText(/200/)
-    // tanto subtotal como total muestran 200
-    expect(values.length).toBeGreaterThanOrEqual(2)
-  })
+4. `'click en una fila abre el modal de detalle'`:
+   - Mock retorna `[makeSale({ id: 5 })]`
+   - Esperar a que aparezca la fila.
+   - Hacer click en la fila.
+   - Verificar que aparece "Venta #5" en el DOM.
 
-  it('con 10% de descuento, Total = Subtotal * 0.9', () => {
-    // subtotal = 1 * 1000 = 1000; total = 1000 * 0.9 = 900
-    renderCart([productLine(1, 1, '1000')], {}, 10)
-    expect(screen.getByText(/900/)).toBeInTheDocument()
-    expect(screen.getByText(/1000/)).toBeInTheDocument()
-  })
+5. `'cerrar el modal limpia la selección'`:
+   - Abrir el modal (igual que el test anterior).
+   - Click en el botón ✕ del modal.
+   - Verificar que "Venta #5" ya no aparece en el DOM.
 
-  it('con recargo negativo (-20%), Total = Subtotal * 1.2', () => {
-    // subtotal = 1 * 500 = 500; total = 500 * 1.2 = 600
-    renderCart([productLine(1, 1, '500')], {}, -20)
-    expect(screen.getByText(/600/)).toBeInTheDocument()
-    expect(screen.getByText(/500/)).toBeInTheDocument()
-  })
+6. `'muestra total formateado en ARS en la lista'`:
+   - Mock retorna `[makeSale({ total: '15000' })]`
+   - Verificar que el texto formateado (con signo ARS o similar) aparece en la tabla.
 
-  it('el total nunca baja de 0 aunque el descuento supere el 100%', () => {
-    // subtotal = 100; descuento = 200% → total = max(0, 100 * (1-2)) = 0
-    renderCart([productLine(1, 1, '100')], {}, 200)
-    expect(screen.getByText('Total')).toBeInTheDocument()
-    // total = 0, formateado como $0 o $ 0
-    expect(screen.getByText(/\$\s*0/)).toBeInTheDocument()
-  })
-
-  it('el pie no se muestra cuando el carrito está vacío', () => {
-    renderCart([])
-    expect(screen.queryByText('Subtotal')).not.toBeInTheDocument()
-    expect(screen.queryByText('Total')).not.toBeInTheDocument()
-  })
-})
-```
-
-**6.3.** Guardar. Ejecutar:
-```
-npm test
-```
-Todos los tests del nuevo bloque deben pasar. Si alguno falla, revisar el cálculo en el paso 3.
+**Verificación:** `npm test --prefix renderer` — todos en verde.
 
 ---
 
-### Paso 7 — Escribir tests del input de descuento
+## Paso 7.2 — Crear tests de `SaleDetailModal`
 
-Seguir en el mismo archivo: [renderer/src/Pages/Sells/__tests__/CartList.test.tsx](renderer/src/Pages/Sells/__tests__/CartList.test.tsx)
+**Archivo:** `renderer/src/Pages/SalesHistory/__tests__/SaleDetailModal.test.tsx` (crear nuevo)
 
-**7.1.** Al final del archivo, agregar:
+**Helper `makeSale`** (mismo que el anterior, reutilizar o copiar):
 
-```tsx
-describe('CartList — input de descuento', () => {
-  it('el input muestra el valor de discountPct recibido por prop', () => {
-    renderCart([productLine(1, 1, '100')], {}, 15)
-    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
-    expect(input.value).toBe('15')
-  })
+**Tests a incluir:**
 
-  it('cambiar el input a un número válido llama onDiscountChange con ese número', () => {
-    const onDiscountChange = vi.fn()
-    renderCart([productLine(1, 1, '100')], { onDiscountChange }, 0)
-    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
-    fireEvent.change(input, { target: { value: '25' } })
-    expect(onDiscountChange).toHaveBeenCalledWith(25)
-  })
+1. `'no renderiza nada si sale es null'`:
+   - Renderizar `<SaleDetailModal sale={null} onClose={vi.fn()} />`.
+   - Verificar que el DOM no tiene "Venta #".
 
-  it('cambiar el input a un número negativo llama onDiscountChange con ese número negativo', () => {
-    const onDiscountChange = vi.fn()
-    renderCart([productLine(1, 1, '100')], { onDiscountChange }, 0)
-    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
-    fireEvent.change(input, { target: { value: '-10' } })
-    expect(onDiscountChange).toHaveBeenCalledWith(-10)
-  })
+2. `'muestra el ID de la venta'`:
+   - Renderizar con `makeSale({ id: 42 })`.
+   - Verificar que aparece "Venta #42".
 
-  it('cambiar el input a NaN (texto inválido) NO llama onDiscountChange', () => {
-    const onDiscountChange = vi.fn()
-    renderCart([productLine(1, 1, '100')], { onDiscountChange }, 0)
-    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'abc' } })
-    expect(onDiscountChange).not.toHaveBeenCalled()
-  })
-})
-```
+3. `'lista los ítems con nombre, cantidad, precio unitario y subtotal'`:
+   - Crear una venta con un ítem: `{ quantity: 3, unitPrice: '500', product: { name: 'Aceite', ... } }`.
+   - Verificar que aparecen "Aceite", "3", el precio unitario y el subtotal de línea (1500).
 
-**Nota importante sobre el test que usa `{ name: /descuento/i }`:** Para que el selector por accesibilidad funcione, el input de descuento debe tener un `aria-label` o estar asociado a un `<label>`. En el paso 3.3 el JSX no incluyó `aria-label` — hay que corregirlo.
+4. `'muestra subtotal calculado como suma de líneas'`:
+   - Venta con dos ítems: 2×500 y 3×200.
+   - Verificar que el subtotal mostrado es 1600 (en alguna forma formateada).
 
-**7.2.** Corregir el input de descuento en [renderer/src/Pages/Sells/CartList.tsx](renderer/src/Pages/Sells/CartList.tsx).
+5. `'muestra descuento cuando discountPct > 0'`:
+   - `makeSale({ discountPct: '10' })`.
+   - Verificar que el texto "10%" o "Descuento" aparece en el modal.
 
-Localizar el input de descuento (agregado en el paso 3.3):
-```tsx
-          <input
-            className="cart-list__discount-input"
-            type="number"
-            step="0.01"
-            value={discountPct}
-            onChange={e => {
-              const n = Number(e.target.value)
-              if (Number.isFinite(n)) onDiscountChange(n)
-            }}
-          />
-```
+6. `'no muestra descuento cuando discountPct es 0'`:
+   - `makeSale({ discountPct: '0' })`.
+   - Verificar que NO aparece "Descuento" ni "Recargo" en el modal.
 
-Reemplazarlo por:
-```tsx
-          <input
-            className="cart-list__discount-input"
-            type="number"
-            step="0.01"
-            aria-label="Descuento"
-            value={discountPct}
-            onChange={e => {
-              const n = Number(e.target.value)
-              if (Number.isFinite(n)) onDiscountChange(n)
-            }}
-          />
-```
+7. `'muestra los pagos con método en español y monto'`:
+   - Venta con `payments: [{ method: 'CASH', amount: '500' }, { method: 'TRANSFER', amount: '500' }]`.
+   - Verificar que aparecen "EFECTIVO" y "TRANSFERENCIA".
 
-**7.3.** Guardar y ejecutar:
-```
-npm test
-```
-Todos los tests deben pasar.
+8. `'Escape llama a onClose'`:
+   - Renderizar el modal con venta válida.
+   - Disparar `fireEvent.keyDown(document, { key: 'Escape' })`.
+   - Verificar que `onClose` fue llamado.
+
+9. `'click en overlay llama onClose'`:
+   - Hacer click en el overlay (fuera del modal).
+   - Verificar que `onClose` fue llamado.
+
+10. `'click dentro del modal NO llama onClose'`:
+    - Hacer click en el div `.modal` interior.
+    - Verificar que `onClose` NO fue llamado.
+
+**Verificación:** `npm test --prefix renderer` — todos en verde.
 
 ---
 
-### Paso 8 — Verificación final
+# FASE 8 — Verificación final
 
-**8.1.** Desde `h:/anton/Integral/renderer`:
-```
-npm test
-npm run build
-```
-Ambos deben terminar sin errores.
+## Paso 8.1 — Suite completa de tests
 
-**8.2.** Revisar el diff:
+Ejecutar:
 ```
-git status
-git diff renderer/src/Pages/Sells/CartList.tsx
-git diff renderer/src/Pages/Sells/Sells.tsx
-git diff renderer/src/Pages/Sells/Sells.css
+npm test --prefix renderer
 ```
 
-Archivos que este cambio debe tocar:
-- Modified: `renderer/src/Pages/Sells/CartList.tsx`
-- Modified: `renderer/src/Pages/Sells/Sells.tsx`
-- Modified: `renderer/src/Pages/Sells/Sells.css`
-- Modified: `renderer/src/Pages/Sells/__tests__/CartList.test.tsx`
+Esperado: **todos los tests en verde**. Si alguno falla, arreglarlo antes de cerrar.
 
 ---
 
-### Paso 9 — Smoke test manual (si el ejecutor tiene acceso al entorno)
+## Paso 8.2 — Verificación visual manual
 
-Desde la raíz del proyecto (`h:/anton/Integral`):
-```
-npm run dev
-```
+Ejecutar `npm run dev` desde la raíz y abrir la app.
 
-Pasos a reproducir:
-1. Ir a la pestaña **Sells**.
-2. Agregar 2 productos distintos con cantidades y precios distintos.
-3. Verificar que el **Subtotal** muestra la suma correcta de todas las filas.
-4. Sin descuento, verificar que el **Total** es igual al Subtotal.
-5. Escribir `10` en el input de **Descuento** → verificar que el Total se actualiza a Subtotal × 0.9.
-6. Escribir `-20` → verificar que el Total se actualiza a Subtotal × 1.2 (recargo).
-7. Escribir `0` → verificar que Total = Subtotal.
-8. Verificar que el pie está alineado a la derecha del carrito.
-9. Vaciar el carrito (eliminar todos los productos) → verificar que el pie desaparece y aparece el mensaje "Agregá productos con el lector o F2".
-10. Agregar un ítem General (F10) y verificar que también suma al Subtotal.
+**Checklist:**
+
+1. El botón "Historial" aparece en el Header y navega a la pantalla correcta.
+2. Al abrir "Historial", se carga automáticamente la lista de ventas.
+3. El panel de filtros tiene: 2 inputs de fecha, 2 de hora, 2 de precio y 1 selector de método.
+4. Cambiar el método de pago y hacer click en "Buscar" filtra los resultados.
+5. Ingresar un rango de fechas y hacer click en "Buscar" — los resultados reflejan el filtro.
+6. Ingresar una franja horaria (ej: 10:00 a 18:00) y hacer "Buscar" — se aplica en el cliente.
+7. Ingresar un rango de precio — filtra por total de venta.
+8. Click en una venta abre el modal con todos los datos de la venta.
+9. El modal muestra: ID, fecha/hora, tabla de productos (nombre/cantidad/precio/subtotal), subtotal total, descuento si aplica, total final y lista de pagos con métodos en español.
+10. Apretar Escape cierra el modal.
+11. Click en el overlay cierra el modal.
+12. Click en ✕ cierra el modal.
+13. Crear una venta desde la pantalla "Sells" con descuento (ej: 10%) → confirmar → ir a "Historial" → la venta aparece con el descuento correcto en el modal.
 
 ---
 
-## Fuera de scope (NO hacer)
+# Resumen de archivos a modificar / crear
 
-- No modificar el `cartReducer.ts`.
-- No guardar el descuento en estado persistente (se resetea al navegar, coherente con la política del carrito).
-- No agregar botones de "aplicar" — el descuento se aplica en tiempo real al cambiar el input.
-- No bloquear valores extremos del descuento (> 100%) — es decisión del cajero.
-- No hacer commit ni push.
+| Archivo | Cambio |
+|---|---|
+| `backend/prisma/schema.prisma` | Agregar campo `discountPct Decimal @default(0)` a `Sale` |
+| `backend/prisma/migrations/…` | Nueva migración generada automáticamente |
+| `backend/services/saleService.ts` | `CreateSaleInput` + validación de total con descuento + paymentsSum relax + filtros de precio |
+| `electron/ipcContract.ts` | `SaleFromApi.discountPct`, `CreateSalePayload.discountPct`, `ListSalesFiltersPayload` con minTotal/maxTotal |
+| `renderer/src/electron-api.d.ts` | Espejo de los cambios de ipcContract.ts |
+| `renderer/src/renderTypes.ts` | Agregar `'history'` |
+| `renderer/src/Pages/Header.tsx` | Agregar botón "Historial" |
+| `renderer/src/App.tsx` | Importar y renderizar `SalesHistory` |
+| `renderer/src/Pages/Sells/Sells.tsx` | Pasar `discountPct` en `createSale` |
+| `renderer/src/Pages/Sells/__tests__/Sells.confirm.test.tsx` | Actualizar `fakeSale` + agregar test de discountPct |
+| `renderer/src/Pages/SalesHistory/SalesHistory.tsx` | Componente nuevo |
+| `renderer/src/Pages/SalesHistory/SalesHistory.css` | Estilos nuevos |
+| `renderer/src/Pages/SalesHistory/SaleDetailModal.tsx` | Componente nuevo |
+| `renderer/src/Pages/SalesHistory/SaleDetailModal.css` | Estilos nuevos |
+| `renderer/src/Pages/SalesHistory/salesHistoryFilters.ts` | Lógica de filtros nueva |
+| `renderer/src/Pages/SalesHistory/__tests__/salesHistoryFilters.test.ts` | Tests de filtros nuevos |
+| `renderer/src/Pages/SalesHistory/__tests__/SalesHistory.test.tsx` | Tests del componente nuevos |
+| `renderer/src/Pages/SalesHistory/__tests__/SaleDetailModal.test.tsx` | Tests del modal nuevos |

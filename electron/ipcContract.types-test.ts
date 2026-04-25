@@ -7,6 +7,7 @@ import type {
   CategoryFromApi,
   ElectronApi,
   ProductFromApi,
+  SaleFromApi,
   StockMovementFromApi,
   SupplierFromApi
 } from "./ipcContract"
@@ -101,7 +102,11 @@ const api: ElectronApi = {
   createStockMovement: async (_d) => movement,
   listStockMovements: async (_f) => [movement],
   getStockMovementById: async (_id) => movement,
-  deleteStockMovement: async (_id, _r) => bareMovement
+  deleteStockMovement: async (_id, _r) => bareMovement,
+
+  createSale: async (_d) => ({} as SaleFromApi),
+  listSales: async (_f) => [] as SaleFromApi[],
+  getSaleById: async (_id) => null
 }
 
 void api

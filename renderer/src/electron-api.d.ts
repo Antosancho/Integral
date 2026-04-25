@@ -131,6 +131,57 @@ export type StockMovementFromApi = BareStockMovementFromApi & {
   product: BareProductFromApi
 }
 
+export type SaleItemFromApi = {
+  id: number
+  saleId: number
+  productId: number
+  quantity: number
+  unitPrice: string
+  product: BareProductFromApi
+}
+
+export type SalePaymentFromApi = {
+  id: number
+  saleId: number
+  method: string
+  amount: string
+}
+
+export type SaleFromApi = {
+  id: number
+  date: Date
+  total: string
+  items: SaleItemFromApi[]
+  payments: SalePaymentFromApi[]
+}
+
+export type CreateSaleItemPayload = {
+  productId: number
+  quantity: number
+  unitPrice: number | string
+}
+
+export type CreateSalePaymentPayload = {
+  method: "CASH" | "TRANSFER" | "DEBIT" | "CREDIT" | "OTHER" | string
+  amount: number | string
+}
+
+export type CreateSalePayload = {
+  items: CreateSaleItemPayload[]
+  payments: CreateSalePaymentPayload[]
+  total: number | string
+  date?: Date
+}
+
+export type ListSalesFiltersPayload = {
+  skip?: number
+  take?: number
+  fromDate?: Date
+  toDate?: Date
+  method?: string
+  productId?: number
+}
+
 // ---------- ElectronApi ----------
 
 type ElectronApi = {
@@ -159,6 +210,10 @@ type ElectronApi = {
   listStockMovements: (filters?: ListStockMovementsFilters) => Promise<StockMovementFromApi[]>
   getStockMovementById: (id: number) => Promise<StockMovementFromApi | null>
   deleteStockMovement: (id: number, revertStock?: boolean) => Promise<BareStockMovementFromApi>
+
+  createSale: (data: CreateSalePayload) => Promise<SaleFromApi>
+  listSales: (filters?: ListSalesFiltersPayload) => Promise<SaleFromApi[]>
+  getSaleById: (id: number) => Promise<SaleFromApi | null>
 }
 
 declare global {
