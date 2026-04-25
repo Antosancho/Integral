@@ -1,349 +1,575 @@
-# Plan — F10: agregar ítem "general" (monto libre) al carrito
+# Plan: Total del carrito + input de descuento/recargo
 
 ## Objetivo
-Al presionar **F10** en la pantalla Sells, abrir un popup con un input de monto. Al confirmar, se agrega al carrito una **fila de tipo "general"** (sin producto asociado) con ese monto. Las filas "general" conviven con las filas de producto en la misma lista, son **editables en cantidad y monto**, se pueden **eliminar**, y **no** disparan alerta de stock.
 
-## Decisiones de diseño (ya acordadas con el usuario)
-1. Se extiende `CartLine` con un campo discriminador `kind: 'product' | 'general'`. `productId` / `product` pasan a ser opcionales (solo presentes cuando `kind === 'product'`).
-2. Cada F10 agrega **una fila independiente** (no se acumulan). Id interno único para poder identificarlas.
-3. Cantidad y monto editables inline (igual que un producto).
-4. El popup F10 tiene **un único input** (monto). No hay descripción.
-5. Validación: número **positivo** (> 0), admite decimales. **Acepta coma decimal además de punto** (es-AR).
-6. **F10 es toggle**: abre/cierra el popup. `Enter` confirma, `Escape` cancela. Al cerrar (por cualquier motivo) el foco vuelve al input de barcode.
-7. Las filas "general" **no tienen stock**, por lo tanto no se muestra la advertencia "Sin stock suficiente" ni se valida stock al agregar.
-8. **Nombre de fila:** siempre el literal `"General"`. No editable.
-9. **F10 y Electron:** se deshabilita el menú nativo de la ventana con `Menu.setApplicationMenu(null)` en `electron/main.ts` para evitar que F10 active el menú del sistema en Windows.
-10. **Persistencia futura:** cuando se implemente `createSale`, `SaleItem.productId` será **opcional** en el schema de Prisma — una línea `'general'` se guardará con `productId = null`. Esto **no** se implementa en esta iteración (no se toca backend).
+Agregar al pie del carrito:
+1. **Subtotal**: suma de todos los `lineTotal` de las filas.
+2. **Input de descuento/recargo**: campo numérico (%) en la esquina derecha. Positivo = descuento. Negativo = recargo.
+3. **Total final**: subtotal aplicando el porcentaje.
 
 ---
 
-## Arquitectura — cambios de tipos
+## Análisis del estado actual
 
-El carrito actualmente tiene esta forma:
+- [renderer/src/Pages/Sells/CartList.tsx](renderer/src/Pages/Sells/CartList.tsx) — renderiza las filas del carrito. El total por fila ya existe con `lineTotal(line)`. El componente recibe `lines`, no conoce descuentos.
+- [renderer/src/Pages/Sells/cartReducer.ts](renderer/src/Pages/Sells/cartReducer.ts) — `lineTotal(line)` ya existe y es la función que suma `unitPrice * quantity`.
+- [renderer/src/Pages/Sells/Sells.tsx](renderer/src/Pages/Sells/Sells.tsx) — monta `CartList`, maneja el estado del carrito. Es el lugar correcto para mantener el estado del descuento (es un estado de la sesión de venta, no del carrito en sí).
+- [renderer/src/Pages/Sells/Sells.css](renderer/src/Pages/Sells/Sells.css) — estilos actuales. El grid del carrito es `2fr 1fr 1fr 1fr auto`.
+- [renderer/src/utils/format.ts](renderer/src/utils/format.ts) — ya existe `formatMoney`.
 
-```ts
-type CartLine = {
-  productId: number
-  product: ProductFromApi
-  quantity: number
-  unitPrice: string
-}
-```
+## Decisiones de diseño
 
-Queda así (**unión discriminada** por `kind`):
+1. El **estado del descuento** vive en `Sells.tsx` como `discountPct: number` (float, ej: `10` = 10%, `-5` = recargo 5%). Se inicializa en `0`.
+2. El **subtotal** y el **total** se calculan en `Sells.tsx` (o pueden pasarse como props a `CartList`) — se opta por calcular en `Sells.tsx` y pasar como props a `CartList` para mantener `CartList` sin lógica de negocio extra.
+3. El **input de descuento** vive dentro de `CartList` como control local (draft igual que los demás inputs) pero el valor confirmado se propaga al padre via una nueva prop `onDiscountChange`.
+4. El pie del carrito (subtotal, descuento, total) se agrega como un bloque separado **debajo** del grid de filas, fuera del grid, para no romper el layout de columnas.
+5. Si el carrito está vacío (`lines.length === 0`), el pie **no se muestra** (no tiene sentido mostrar $0 con descuento cuando no hay productos).
+6. El `discountPct` admite decimales (ej: `2.5%`). Validación: debe ser un número finito. No tiene límite de rango (se puede aplicar 100% de descuento o 200% de recargo — es decisión del cajero).
+7. El total final nunca puede ser negativo: `Math.max(0, subtotal * (1 - discountPct / 100))`.
 
-```ts
-type ProductCartLine = {
-  kind: 'product'
-  lineId: string           // nuevo: id único de fila (también para filas de producto, por consistencia)
-  productId: number
-  product: ProductFromApi
-  quantity: number
-  unitPrice: string
-}
+## Archivos impactados
 
-type GeneralCartLine = {
-  kind: 'general'
-  lineId: string           // nuevo: id único de fila
-  quantity: number
-  unitPrice: string        // el monto ingresado por F10 (se trata igual que unitPrice de un producto)
-}
+- [renderer/src/Pages/Sells/CartList.tsx](renderer/src/Pages/Sells/CartList.tsx) — agregar pie con subtotal/total y el input de descuento.
+- [renderer/src/Pages/Sells/Sells.tsx](renderer/src/Pages/Sells/Sells.tsx) — agregar estado `discountPct`, pasar props nuevas a `CartList`.
+- [renderer/src/Pages/Sells/Sells.css](renderer/src/Pages/Sells/Sells.css) — estilos del pie del carrito.
+- [renderer/src/Pages/Sells/__tests__/CartList.test.tsx](renderer/src/Pages/Sells/__tests__/CartList.test.tsx) — agregar tests del pie (subtotal, total con descuento, input de descuento).
 
-type CartLine = ProductCartLine | GeneralCartLine
-```
+## Archivos que NO se tocan
 
-Notas clave:
-- **`lineId`** reemplaza a `productId` como identificador de fila para `REMOVE` / `SET_QUANTITY` / `SET_UNIT_PRICE`. Esto permite tener múltiples filas "general" independientes y no rompe la identidad cuando hay repetición.
-- Para filas de producto seguimos haciendo el merge por `productId` en `ADD` (regla existente: mismo producto → +1 cantidad). **El `lineId` se genera sólo cuando se crea la fila nueva y se preserva en el merge** (el spread `{ ...l, quantity: l.quantity + 1 }` lo mantiene intacto — no regenerarlo).
-- El campo `unitPrice` se reutiliza para el monto "general" para que `lineTotal(line) = quantity * Number(unitPrice)` siga funcionando sin ramas.
+- `cartReducer.ts` — `lineTotal` ya existe, no necesita cambios.
+- `types.ts` — no cambia la estructura del carrito.
+- `amount.ts`, `lineId.ts`, `BarcodeInput.tsx`, `SearchPopup.tsx`, `GeneralAmountPopup.tsx`.
 
 ---
 
-## Lista de pasos (cada uno pensado para ser ejecutado y verificado aislado)
+## Principios para el modelo ejecutor
 
-### Fase 0 — Preparación
-- [ ] **Paso 0.1** Leer el archivo [renderer/src/Pages/Sells/types.ts](renderer/src/Pages/Sells/types.ts) y el [renderer/src/Pages/Sells/cartReducer.ts](renderer/src/Pages/Sells/cartReducer.ts) para familiarizarse con el estado actual. No modificar nada todavía.
-- [ ] **Paso 0.2** Confirmar con `npm test` (o el script que corresponda en el proyecto) que los tests actuales pasan en verde **antes** de tocar nada. Si ya están rotos, detener y reportar.
+- Cambios **mínimos y acotados**: no refactorizar lo que ya funciona.
+- Seguir el estilo ya presente: sin comentarios innecesarios, sin emojis, comillas simples, sin punto y coma.
+- Correr `npm test` después de cada paso con cambios de lógica.
+- No usar `any` en TypeScript.
+- No hacer commit ni push.
 
-### Fase 1 — Refactor de tipos + `lineId` para filas de producto (sin feature nueva aún)
+---
 
-El objetivo de esta fase es que el código siga haciendo **exactamente lo mismo que hoy**, pero internamente ya identifique las filas por `lineId` y use el discriminador `kind`. Esto aísla el refactor del feature nuevo.
+## Pasos
 
-- [ ] **Paso 1.1** En [renderer/src/Pages/Sells/types.ts](renderer/src/Pages/Sells/types.ts), reemplazar `CartLine` por la unión discriminada descripta arriba (`ProductCartLine | GeneralCartLine`). Dejar `CartState = { lines: CartLine[] }` como está.
+### Paso 0 — Verificar estado inicial
 
-- [ ] **Paso 1.2** Crear un util `renderer/src/Pages/Sells/lineId.ts` que exporte una función `newLineId(): string`. Implementación: usar `crypto.randomUUID()` si está disponible (`typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'`), si no, fallback a `Date.now().toString(36) + Math.random().toString(36).slice(2, 8)`.
-  - Tests (crear `renderer/src/Pages/Sells/__tests__/lineId.test.ts`):
-    - `newLineId()` devuelve string no vacío.
-    - Dos llamadas consecutivas devuelven strings distintos.
+0.1. Ejecutar desde `h:/anton/Integral/renderer`:
+```
+npm test
+```
+0.2. Confirmar que **todos los tests pasan** antes de empezar. Si algún test falla, reportar y detenerse.
 
-- [ ] **Paso 1.3** Actualizar [renderer/src/Pages/Sells/cartReducer.ts](renderer/src/Pages/Sells/cartReducer.ts):
-  - Cambiar las acciones para que `REMOVE`, `SET_QUANTITY`, `SET_UNIT_PRICE` acepten **`lineId: string`** en lugar de `productId: number`.
-  - `ADD` sigue siendo `{ type: 'ADD'; product: ProductFromApi }` y sigue haciendo merge por `productId` (en líneas con `kind === 'product'`). Cuando crea una línea nueva, le asigna `kind: 'product'` y un `lineId` fresco con `newLineId()`.
-  - **Importante — preservar `lineId` en el merge:** al sumar cantidad en un producto existente, mantener el mismo `lineId`. El spread actual `{ ...l, quantity: l.quantity + 1 }` ya lo hace — **no** reemplazar la línea con un objeto construido desde cero que regenere el id.
-  - Para que TypeScript reconozca `productId` dentro de `ADD`, filtrar/estrechar antes: el merge debe recorrer sólo líneas con `kind === 'product'` antes de comparar `l.productId === action.product.id`.
-  - `lineTotal` no cambia (sigue siendo `quantity * Number(unitPrice)`).
+---
 
-- [ ] **Paso 1.4** Actualizar los tests existentes en [renderer/src/Pages/Sells/__tests__/cartReducer.test.ts](renderer/src/Pages/Sells/__tests__/cartReducer.test.ts):
-  - Reemplazar todo `productId` usado como identificador de fila en los dispatch de `REMOVE`/`SET_QUANTITY`/`SET_UNIT_PRICE` por `lineId`. Para obtenerlo, leerlo del estado después de `ADD` (`state.lines[0].lineId`).
-  - Agregar asserts nuevos: después de `ADD`, `state.lines[0].kind === 'product'` y `typeof state.lines[0].lineId === 'string'` y `state.lines[0].lineId.length > 0`.
-  - El test "ADD incrementa quantity en +1 cuando el producto ya existe" debe además verificar que el `lineId` de la fila **no cambia** entre las dos invocaciones (la identidad de la fila se preserva).
-  - Donde el test actual usa `l.productId === ...` para encontrar la fila (ej. el test de 2 productos distintos), el acceso a `productId` ahora requiere estrechar el tipo: filtrar primero por `l.kind === 'product'`. Si TypeScript se queja, agregar el guard.
-  - Todos los tests existentes deben seguir pasando.
+### Paso 1 — Agregar prop `discountPct` y `onDiscountChange` a `CartList`
 
-- [ ] **Paso 1.5** Actualizar [renderer/src/Pages/Sells/CartList.tsx](renderer/src/Pages/Sells/CartList.tsx):
-  - Los handlers `onQuantityChange`, `onUnitPriceChange`, `onRemove` ahora reciben `lineId: string` como primer argumento en lugar de `productId: number`. Actualizar el tipo `Props`.
-  - El `key` del `map` pasa a ser `line.lineId`.
-  - Dentro del `map`, cuando acceda a `line.product.name` o `line.quantity > line.product.stock`, **solo** hacerlo si `line.kind === 'product'`. Para esta fase, si algún día `kind !== 'product'` no pasaría nada (porque no se crean aún), pero dejar los guards listos: si `line.kind === 'general'`, mostrar `"General"` como nombre y nunca la warning de stock.
-  - El handler de `Delete` y del botón `✕` ahora llama `onRemove(line.lineId)`.
-  - Los `onChange` de los inputs de cantidad y precio llaman `onQuantityChange(line.lineId, ...)` y `onUnitPriceChange(line.lineId, ...)`.
+Archivo: [renderer/src/Pages/Sells/CartList.tsx](renderer/src/Pages/Sells/CartList.tsx)
 
-- [ ] **Paso 1.6** Actualizar [renderer/src/Pages/Sells/Sells.tsx](renderer/src/Pages/Sells/Sells.tsx) para que los dispatch `REMOVE` / `SET_QUANTITY` / `SET_UNIT_PRICE` usen `lineId` y los callbacks pasados a `<CartList>` tomen `lineId`. Es decir:
-  ```tsx
-  onQuantityChange={(id, q) => dispatch({ type: 'SET_QUANTITY', lineId: id, quantity: q })}
-  onUnitPriceChange={(id, p) => dispatch({ type: 'SET_UNIT_PRICE', lineId: id, unitPrice: p })}
-  onRemove={(id) => dispatch({ type: 'REMOVE', lineId: id })}
-  ```
-  - La lógica de alerta "Sin stock suficiente" dentro de `addProduct` sigue usando `newLine.quantity > product.stock`, pero se queda en `addProduct` (solo agregamos productos por ahora).
-  - Ojo con la búsqueda del `newLine` tras `ADD`: actualmente se hace `nextState.lines.find(l => l.productId === product.id)`. Con la unión discriminada, filtrar primero por `kind === 'product'` para que TypeScript reconozca la propiedad `productId`, p.ej. `nextState.lines.find(l => l.kind === 'product' && l.productId === product.id)`.
+**1.1.** Localizar el bloque `type Props` (líneas 3–11):
+```tsx
+type Props = {
+  lines: CartLine[]
+  onQuantityChange: (lineId: string, quantity: number) => void
+  onUnitPriceChange: (lineId: string, unitPrice: string) => void
+  onRemove: (lineId: string) => void
+}
+```
 
-- [ ] **Paso 1.7** Correr `npm test`. Todos los tests deben pasar. Arrancar la app en dev y verificar manualmente que el flujo actual sigue funcionando: escanear → se agrega, repetir → suma cantidad, cambiar cantidad inline, cambiar precio inline, eliminar con ✕ y con `Delete`. **Si algo se rompió, parar y depurar antes de seguir.**
+Reemplazarlo por:
+```tsx
+type Props = {
+  lines: CartLine[]
+  onQuantityChange: (lineId: string, quantity: number) => void
+  onUnitPriceChange: (lineId: string, unitPrice: string) => void
+  onRemove: (lineId: string) => void
+  discountPct: number
+  onDiscountChange: (pct: number) => void
+}
+```
 
-### Fase 2 — Reducer: acción `ADD_GENERAL` + util de normalización
+**1.2.** Localizar la firma del componente (línea 13):
+```tsx
+export default function CartList({ lines, onQuantityChange, onUnitPriceChange, onRemove }: Props) {
+```
 
-- [ ] **Paso 2.1** Crear `renderer/src/Pages/Sells/amount.ts` con dos helpers puros:
-  ```ts
-  // Normaliza el input del usuario: trim, cambia coma decimal por punto.
-  export function normalizeAmount(raw: string): string
+Reemplazarla por:
+```tsx
+export default function CartList({ lines, onQuantityChange, onUnitPriceChange, onRemove, discountPct, onDiscountChange }: Props) {
+```
 
-  // Valida que el resultado normalizado sea un número finito > 0.
-  // Devuelve el string normalizado si es válido, o un objeto de error.
-  export function validateGeneralAmount(raw: string):
-    | { ok: true; value: string }
-    | { ok: false; error: string }
-  ```
-  Reglas:
-  - `normalizeAmount('  150,50 ')` → `'150.50'`.
-  - `normalizeAmount('150.50')` → `'150.50'` (sin cambios).
-  - `normalizeAmount('')` → `''`.
-  - Si el string tiene **varias comas o puntos**, no intentar "adivinar": `validateGeneralAmount` lo rechaza por no ser número finito tras `Number(...)`.
-  - `validateGeneralAmount`: primero `normalizeAmount`, después chequear `n = Number(normalized)`: válido si `Number.isFinite(n) && n > 0`. El `value` devuelto en caso `ok` es el **string normalizado** (con punto), no el original.
-  - Mensajes de error: para vacío → `"Ingresá un monto"`, para los demás casos inválidos → `"Ingresá un monto positivo"`.
+**1.3.** Guardar. No correr tests todavía (el tipo en `Sells.tsx` todavía no pasa las props nuevas, el build va a fallar — se arregla en el paso 2).
 
-- [ ] **Paso 2.2** Crear tests en `renderer/src/Pages/Sells/__tests__/amount.test.ts`:
-  - `validateGeneralAmount('500')` → `{ ok: true, value: '500' }`
-  - `validateGeneralAmount('150.50')` → `{ ok: true, value: '150.50' }`
-  - `validateGeneralAmount('150,50')` → `{ ok: true, value: '150.50' }` (coma → punto)
-  - `validateGeneralAmount(' 200 ')` → `{ ok: true, value: '200' }` (trim)
-  - `validateGeneralAmount(' 1.234,56 ')` → `{ ok: false, ... }` (múltiples separadores, no adivinamos)
-  - `validateGeneralAmount('')` → `{ ok: false, error: 'Ingresá un monto' }`
-  - `validateGeneralAmount('0')` → `{ ok: false, ... }`
-  - `validateGeneralAmount('-3')` → `{ ok: false, ... }`
-  - `validateGeneralAmount('-3,5')` → `{ ok: false, ... }`
-  - `validateGeneralAmount('abc')` → `{ ok: false, ... }`
-  - `validateGeneralAmount('NaN')` → `{ ok: false, ... }`
+---
 
-- [ ] **Paso 2.3** En [renderer/src/Pages/Sells/cartReducer.ts](renderer/src/Pages/Sells/cartReducer.ts), agregar una acción nueva:
-  ```ts
-  | { type: 'ADD_GENERAL'; amount: string }
-  ```
-  Comportamiento:
-  - Llamar `validateGeneralAmount(action.amount)` (import desde `./amount`). Si `!ok`, devolver el estado tal cual (no agregar nada).
-  - Si es válido: crear una `GeneralCartLine` con `kind: 'general'`, `lineId: newLineId()`, `quantity: 1`, `unitPrice: value` (el string **normalizado** que devolvió la validación, no el input crudo). Pushear al final del array `lines`.
-  - **Siempre agrega una fila nueva** — no hay merge entre filas general, aunque el monto sea el mismo.
+### Paso 2 — Agregar estado `discountPct` en `Sells.tsx` y pasarlo a `CartList`
 
-- [ ] **Paso 2.4** Agregar tests en `cartReducer.test.ts`:
-  - `ADD_GENERAL` con `amount: '500'` agrega una fila nueva con `kind === 'general'`, `quantity === 1`, `unitPrice === '500'`, `lineId` string no vacío.
-  - `ADD_GENERAL` con `amount: '150,50'` agrega fila con `unitPrice === '150.50'` (normalizado) y `lineTotal` devuelve `150.5`.
-  - Dos `ADD_GENERAL` consecutivos con el mismo `amount` producen **dos filas distintas** (`lineId` distintos, `lines.length === 2`).
-  - `ADD_GENERAL` con `amount: '0'` no modifica el estado (`next === state`).
-  - `ADD_GENERAL` con `amount: '-10'` no modifica el estado.
-  - `ADD_GENERAL` con `amount: ''` no modifica el estado.
-  - `ADD_GENERAL` con `amount: 'abc'` no modifica el estado.
-  - `ADD_GENERAL` con `amount: '150.50'` agrega fila con `unitPrice === '150.50'` y `lineTotal` devuelve `150.5`.
-  - Una fila general puede ser eliminada con `REMOVE` pasando su `lineId`.
-  - `SET_QUANTITY` sobre una fila general con `quantity: 3` actualiza a 3 (funciona igual que con productos).
-  - `SET_UNIT_PRICE` sobre una fila general con `unitPrice: '200'` actualiza el monto.
-  - Después de un `ADD` (producto) y un `ADD_GENERAL`, el estado contiene ambas filas y cada una es modificable/removible por su `lineId` sin afectar a la otra.
+Archivo: [renderer/src/Pages/Sells/Sells.tsx](renderer/src/Pages/Sells/Sells.tsx)
 
-- [ ] **Paso 2.5** Correr `npm test`. Verificar verde. El reducer ya soporta filas general pero la UI todavía no las dispara.
+**2.1.** Localizar la línea con los `useState` del componente (aprox. líneas 14–16):
+```tsx
+  const [popupOpen, setPopupOpen] = useState(false)
+  const [generalPopupOpen, setGeneralPopupOpen] = useState(false)
+  const [alert, setAlert] = useState<{ kind: AlertKind; text: string } | null>(null)
+```
 
-### Fase 3 — Componente `GeneralAmountPopup`
+Agregar **debajo** de esas líneas:
+```tsx
+  const [discountPct, setDiscountPct] = useState(0)
+```
 
-- [ ] **Paso 3.1** Crear `renderer/src/Pages/Sells/GeneralAmountPopup.tsx`. Props:
-  ```ts
-  type Props = {
-    open: boolean
-    onClose: () => void
-    onConfirm: (amount: string) => void   // recibe el string normalizado (con punto)
+**2.2.** Localizar el bloque `<CartList ... />` (aprox. líneas 133–138):
+```tsx
+      <CartList
+        lines={cart.lines}
+        onQuantityChange={(id, q) => dispatch({ type: 'SET_QUANTITY', lineId: id, quantity: q })}
+        onUnitPriceChange={(id, p) => dispatch({ type: 'SET_UNIT_PRICE', lineId: id, unitPrice: p })}
+        onRemove={(id) => dispatch({ type: 'REMOVE', lineId: id })}
+      />
+```
+
+Reemplazarlo por:
+```tsx
+      <CartList
+        lines={cart.lines}
+        onQuantityChange={(id, q) => dispatch({ type: 'SET_QUANTITY', lineId: id, quantity: q })}
+        onUnitPriceChange={(id, p) => dispatch({ type: 'SET_UNIT_PRICE', lineId: id, unitPrice: p })}
+        onRemove={(id) => dispatch({ type: 'REMOVE', lineId: id })}
+        discountPct={discountPct}
+        onDiscountChange={setDiscountPct}
+      />
+```
+
+**2.3.** Guardar.
+
+**2.4.** Correr desde `h:/anton/Integral/renderer`:
+```
+npm run build
+```
+Debe compilar sin errores de TypeScript. Si hay errores, revisar los pasos 1 y 2.
+
+---
+
+### Paso 3 — Calcular subtotal y total en `CartList` y renderizar el pie
+
+Archivo: [renderer/src/Pages/Sells/CartList.tsx](renderer/src/Pages/Sells/CartList.tsx)
+
+**3.1.** Agregar el import de `lineTotal` si no está ya importado. La línea de imports actual en el archivo es:
+```tsx
+import { formatMoney } from '../../utils/format'
+import { lineTotal } from './cartReducer'
+import type { CartLine } from './types'
+```
+`lineTotal` ya está importado — no hay que cambiar nada en imports.
+
+**3.2.** Localizar el bloque que maneja el caso vacío (aprox. línea 52):
+```tsx
+  if (lines.length === 0) {
+    return <p className="cart-list__empty">Agregá productos con el lector o F2</p>
   }
-  ```
-  Comportamiento:
-  - Si `!open`, devuelve `null`.
-  - Render: overlay (reusar clases `search-popup__overlay` / `search-popup__container` para mantener consistencia; es aceptable, no exige CSS nuevo).
-  - Título `<h2>Monto general</h2>`.
-  - Un único `<input type="text" inputMode="decimal">` con placeholder `"Monto (ej: 1500,50)"`.
-    - **Nota importante:** se usa `type="text"` (no `type="number"`) porque `type="number"` en Chromium rechaza la coma como separador decimal dependiendo del locale y no permite leer el valor crudo para normalizar. `inputMode="decimal"` da el teclado numérico en mobile y sigue permitiendo coma.
-  - Usa estado local `const [value, setValue] = useState('')` y `const [error, setError] = useState<string | null>(null)`. Cuando `open` pasa de `false` a `true`, resetea ambos a vacío/null (usar un `useEffect` que dependa de `open`).
-  - Auto-foco al input al abrir (patrón igual al `SearchPopup`: `useEffect` con `setTimeout(() => inputRef.current?.focus(), 0)` cuando `open` pasa a true).
-  - `onKeyDown` del input:
-    - `Enter`: llamar `validateGeneralAmount(value)` (import desde `./amount`). Si `ok`, llamar `onConfirm(result.value)` (el string normalizado) y luego `onClose()`. Si `!ok`, setear `error` con `result.error` y **no cerrar**.
-    - `Escape`: `onClose()`.
-  - Click en overlay (fuera del container): `onClose()` (mismo patrón que `SearchPopup`).
-  - Mostrar `error` (si existe) con clase `search-popup__error`.
-  - **No** duplicar la lógica de validación en este archivo: siempre delegar a `validateGeneralAmount` de `./amount`.
+```
 
-- [ ] **Paso 3.2** Crear tests en `renderer/src/Pages/Sells/__tests__/GeneralAmountPopup.test.tsx`.
-  - **El proyecto ya tiene testing tools configuradas** (verificado en [renderer/package.json](renderer/package.json)): `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom` y `happy-dom` como entorno DOM (se usa `happy-dom` en lugar de `jsdom`, pero la API de RTL es idéntica). Estos tests **no son opcionales** — hay que escribirlos.
-  - Si al correr `npm test` el entorno DOM no está activado (vitest por defecto usa `node`), confirmar que `vitest.config.ts` / `vite.config.ts` del renderer tenga `test.environment: 'happy-dom'`. Si no lo tiene, agregarlo en este mismo paso (es requisito para que `render(...)` funcione).
-  - Tests de interacción obligatorios:
-    - Con `open=false` no renderiza nada.
-    - Con `open=true` renderiza el input y `<h2>Monto general</h2>`.
-    - Escribir `"500"` + Enter → llama `onConfirm('500')` y luego `onClose()`.
-    - Escribir `"150,50"` + Enter → llama `onConfirm('150.50')` (normalizado con punto) y luego `onClose()`.
-    - Escribir `""` + Enter → **no** llama `onConfirm`, **no** llama `onClose`, y aparece mensaje de error visible.
-    - Escribir `"-5"` + Enter → no llama `onConfirm`, muestra error.
-    - Escribir `"abc"` + Enter → no llama `onConfirm`, muestra error.
-    - Escribir `"150.50"` + Enter → llama `onConfirm('150.50')`.
-    - Tecla Escape → llama `onClose`, no llama `onConfirm`.
-    - Al cambiar de `open=false` a `open=true`, el value del input arranca en `""` y no hay error visible.
+Agregar **justo antes** de ese bloque (después de las funciones `commitUnitPrice` etc.) las siguientes variables:
+```tsx
+  const subtotal = lines.reduce((acc, line) => acc + lineTotal(line), 0)
+  const discountFactor = 1 - discountPct / 100
+  const total = Math.max(0, subtotal * discountFactor)
+```
 
-- [ ] **Paso 3.3** Correr `npm test`. Verificar verde.
+Nota: estas variables se calculan siempre, incluso si `lines` está vacío — está bien, simplemente van a ser `0`. El pie sólo se va a renderizar cuando `lines.length > 0` (ver paso 3.3).
 
-### Fase 4 — Deshabilitar menú nativo de Electron (necesario para F10 en Windows)
+**3.3.** Localizar el cierre del `return` del componente. El JSX actual termina en:
+```tsx
+    </div>
+  )
+}
+```
 
-- [ ] **Paso 4.1** En [electron/main.ts](electron/main.ts):
-  - Importar `Menu` de `electron` (agregar `Menu` al import existente: `import { app, BrowserWindow, ipcMain, Menu } from "electron"`).
-  - **Ubicación exacta de la llamada:** dentro del callback de `app.whenReady().then(...)`, **antes** de `createWindow()` y antes de `registerIpcHandlers(ipcMain)`. Es decir:
-    ```ts
-    app.whenReady().then(() => {
-      Menu.setApplicationMenu(null)
-      registerIpcHandlers(ipcMain)
-      createWindow()
-      app.on("activate", () => {
-        if (BrowserWindow.getAllWindows().length === 0) createWindow()
-      })
-    })
-    ```
-    Se pone antes de `createWindow()` para que la ventana nazca ya sin menú (evita un parpadeo/flash del menú al iniciar). El estado actual de [electron/main.ts](electron/main.ts) **no** deshabilita el menú en ningún lado, por lo que no hay duplicación.
-  - **Verificar** que no haya código existente que dependa del menú (atajos del sistema, "Ayuda", etc.). Si lo hay, detener y reportar antes de continuar. *(Revisado al momento de redactar este plan: no hay.)*
+Antes del `</div>` que cierra el `<div className="cart-list">`, hay que agregar el pie. El bloque que se debe agregar va **después del bloque del `.map()`** pero **dentro** del `<div className="cart-list">`.
 
-- [ ] **Paso 4.2** Recompilar el main process y reiniciar Electron. Smoke manual: apretar F10 en la app; no debe aparecer ningún menú nativo ni tomar foco ninguna barra del sistema. Si el menú aparece igual, detener y reportar (en ese caso habría que interceptar también el `before-input-event` de `webContents`).
+Localizar el patrón exacto al final del return:
+```tsx
+      {lines.map(line => {
+```
+...y al final del map:
+```tsx
+      })}
+    </div>
+  )
+}
+```
 
-### Fase 5 — Integración en `Sells.tsx` (F10 + render del popup)
+Reemplazar el cierre del map y el div por:
+```tsx
+      })}
 
-- [ ] **Paso 5.1** En [renderer/src/Pages/Sells/Sells.tsx](renderer/src/Pages/Sells/Sells.tsx):
-  - Importar `GeneralAmountPopup`.
-  - Agregar `const [generalPopupOpen, setGeneralPopupOpen] = useState(false)`.
-  - Agregar un `prevGeneralOpenRef = useRef(false)` paralelo al existente `prevOpenRef` para devolver foco al barcode cuando se cierra el popup de monto general (mismo patrón que ya se usa con `popupOpen` / `prevOpenRef`).
-  - Reemplazar el `useEffect` de teclas globales (el que hoy maneja F2) para que ambos popups sean mutuamente excluyentes. Quedando así:
-    ```ts
-    useEffect(() => {
-      const onKey = (e: KeyboardEvent) => {
-        if (e.key === 'F2') {
-          e.preventDefault()
-          setPopupOpen(prev => {
-            const next = !prev
-            if (next) setGeneralPopupOpen(false)
-            return next
-          })
-        } else if (e.key === 'F10') {
-          e.preventDefault()
-          setGeneralPopupOpen(prev => {
-            const next = !prev
-            if (next) setPopupOpen(false)
-            return next
-          })
-        }
-      }
-      window.addEventListener('keydown', onKey)
-      return () => window.removeEventListener('keydown', onKey)
-    }, [])
-    ```
-    **Importante:** este cambio es explícito — no dejar el F2 con la forma simple anterior (`setPopupOpen(prev => !prev)`) porque no cerraría el popup general cuando se aprieta F2.
-  - Agregar un `useEffect` simétrico al de `popupOpen` para devolver foco al barcode cuando `generalPopupOpen` pasa de `true` a `false`:
-    ```ts
-    useEffect(() => {
-      if (prevGeneralOpenRef.current && !generalPopupOpen) {
-        setTimeout(() => barcodeInputRef.current?.focus(), 0)
-      }
-      prevGeneralOpenRef.current = generalPopupOpen
-    }, [generalPopupOpen])
-    ```
-  - Agregar handler `handleConfirmGeneral(amount: string)` que dispara `dispatch({ type: 'ADD_GENERAL', amount })`. **No** cerrar el popup acá — `GeneralAmountPopup` ya llama `onClose` después de `onConfirm`. Tampoco validar acá — ya vino validado del popup.
-  - Renderizar `<GeneralAmountPopup open={generalPopupOpen} onClose={() => setGeneralPopupOpen(false)} onConfirm={handleConfirmGeneral} />` al final del `return`, al lado del `SearchPopup` existente.
+      <div className="cart-list__footer">
+        <div className="cart-list__footer-row">
+          <span className="cart-list__footer-label">Subtotal</span>
+          <span className="cart-list__footer-value">{formatMoney(subtotal)}</span>
+        </div>
+        <div className="cart-list__footer-row">
+          <span className="cart-list__footer-label">Descuento</span>
+          <input
+            className="cart-list__discount-input"
+            type="number"
+            step="0.01"
+            value={discountPct}
+            onChange={e => {
+              const n = Number(e.target.value)
+              if (Number.isFinite(n)) onDiscountChange(n)
+            }}
+          />
+          <span className="cart-list__footer-pct">%</span>
+        </div>
+        <div className="cart-list__footer-row">
+          <span className="cart-list__footer-label cart-list__footer-label--total">Total</span>
+          <span className="cart-list__footer-value cart-list__footer-value--total">{formatMoney(total)}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+```
 
-- [ ] **Paso 5.2** Smoke test rápido sólo de F10: apretar F10 con el popup cerrado → abre; F10 de nuevo → cierra. F2 con general abierto → cierra general, abre búsqueda. F10 con búsqueda abierta → cierra búsqueda, abre general. Si algo no se comporta así, volver al Paso 5.1.
-
-- [ ] **Paso 5.3** Interacción con `BarcodeInput` — **nota de verificación** (no requiere cambios, pero confirmar):
-  - [renderer/src/Pages/Sells/BarcodeInput.tsx](renderer/src/Pages/Sells/BarcodeInput.tsx) **no captura F2 ni F10 en su `onKeyDown`** (solo maneja `Enter`). El botón `F2` dentro de `BarcodeInput` dispara `onRequestSearch` por click, no por tecla. Por lo tanto:
-    - El `window.addEventListener('keydown', ...)` agregado en `Sells.tsx` para F2/F10 es la **única** fuente que toggleará los popups via teclado.
-    - El `e.preventDefault()` sobre F2/F10 en el listener global **no rompe** nada del flujo del scanner (el scanner manda Enter, no F-keys).
-    - No hay riesgo de doble-toggle ni de que el input de barcode "se coma" la tecla: el listener global corre siempre, incluso con foco en el input.
-  - Verificar manualmente: con foco dentro del input de barcode, apretar F2 → debe abrir el popup de búsqueda (igual que antes). Apretar F10 → debe abrir el popup de monto general. Si alguno no funciona con foco en barcode, revisar si algún handler de `BarcodeInput` está haciendo `stopPropagation`.
-
-### Fase 6 — Render de fila "general" en `CartList`
-
-- [ ] **Paso 6.1** En [renderer/src/Pages/Sells/CartList.tsx](renderer/src/Pages/Sells/CartList.tsx), dentro del `map`:
-  - Calcular `const name = line.kind === 'product' ? line.product.name : 'General'`.
-  - Calcular `const overStock = line.kind === 'product' && line.quantity > line.product.stock`.
-  - Renderizar `name` en la primera celda y la warning **solo** si `overStock` (para filas general nunca aparece).
-  - Los inputs de cantidad y precio unitario **no cambian** (funcionan igual para ambas variantes porque el reducer ya soporta `SET_QUANTITY` / `SET_UNIT_PRICE` por `lineId`).
-  - El botón ✕ y la tecla `Delete` llaman `onRemove(line.lineId)` igual que antes.
-
-- [ ] **Paso 6.2** (Opcional cosmético) En [renderer/src/Pages/Sells/Sells.css](renderer/src/Pages/Sells/Sells.css), agregar una clase visual para distinguir filas general (p.ej. un badge o un color de fondo sutil). **No es requisito funcional** — puede saltearse si se quiere priorizar velocidad.
-
-### Fase 7 — Verificación end-to-end
-
-- [ ] **Paso 7.1** Correr `npm test`. Todos verdes.
-- [ ] **Paso 7.2** Correr TypeScript sin emitir (`npx tsc --noEmit` o el script equivalente del renderer). Sin errores.
-- [ ] **Paso 7.3** Arrancar la app en dev y ejecutar este **smoke test manual** (checklist):
-  1. En la pantalla Sells, con el carrito vacío, apretar **F10** → aparece el popup "Monto general". **El menú nativo de Electron NO aparece** (gracias a la Fase 4).
-  2. Apretar **F10** de nuevo → el popup se cierra, el foco vuelve al input de código de barras.
-  3. F10 → escribir `500` → Enter → se cierra el popup, aparece una fila **"General"** con cantidad 1, precio unitario 500, total $500. El foco está en el input de barcode.
-  4. F10 → escribir `150,50` (con coma) → Enter → agrega fila "General" con precio unitario `150.50` y total $150,50.
-  5. F10 → escribir `0` → Enter → **no se agrega nada**, aparece un mensaje de error en el popup y queda abierto.
-  6. F10 → escribir `-50` → Enter → no se agrega, error visible.
-  7. F10 → escribir `abc` → Enter → no se agrega, error visible.
-  8. F10 → Escape → el popup se cierra sin agregar nada, foco vuelve al barcode.
-  9. Con fila "General" en el carrito: editar cantidad a 3 → total pasa a `3 × unitPrice`.
-  10. Con fila "General" en el carrito: editar el monto (unitPrice) a `200` → total se recalcula.
-  11. Click ✕ en la fila General → se elimina.
-  12. F10 dos veces (agregar dos filas generales con `100` y `200`) → aparecen **dos filas independientes**. Eliminar una no afecta a la otra.
-  13. Con el popup de búsqueda (F2) abierto, apretar F10 → el de búsqueda se cierra y abre el de monto general. Simétrico: con el de monto general abierto, F2 lo cierra y abre el de búsqueda.
-  14. Agregar un producto por scanner + agregar una fila general → ambos conviven en el carrito. Editar/eliminar uno no afecta al otro. La fila "General" **nunca** muestra la advertencia "Sin stock suficiente", incluso si el producto sí la muestra.
-  15. Ninguna fila "General" muestra nombre de producto ni referencia al barcode.
-  16. Click en otra parte de la app (Home/Stock) y volver a Sells → el carrito se resetea (comportamiento conocido, no es un bug).
-
-- [ ] **Paso 7.4** Si algún ítem del smoke test falla, volver al paso correspondiente y corregir antes de marcar la tarea como completa.
+**3.4.** Guardar.
 
 ---
 
-## Archivos que se van a crear
-- `renderer/src/Pages/Sells/lineId.ts`
-- `renderer/src/Pages/Sells/amount.ts`
-- `renderer/src/Pages/Sells/GeneralAmountPopup.tsx`
-- `renderer/src/Pages/Sells/__tests__/lineId.test.ts`
-- `renderer/src/Pages/Sells/__tests__/amount.test.ts`
-- `renderer/src/Pages/Sells/__tests__/GeneralAmountPopup.test.tsx` *(opcional si no hay RTL — ver Paso 3.2)*
+### Paso 4 — Agregar estilos del pie en `Sells.css`
 
-## Archivos que se van a modificar
-- [renderer/src/Pages/Sells/types.ts](renderer/src/Pages/Sells/types.ts)
-- [renderer/src/Pages/Sells/cartReducer.ts](renderer/src/Pages/Sells/cartReducer.ts)
-- [renderer/src/Pages/Sells/CartList.tsx](renderer/src/Pages/Sells/CartList.tsx)
-- [renderer/src/Pages/Sells/Sells.tsx](renderer/src/Pages/Sells/Sells.tsx)
-- [renderer/src/Pages/Sells/__tests__/cartReducer.test.ts](renderer/src/Pages/Sells/__tests__/cartReducer.test.ts)
-- [electron/main.ts](electron/main.ts) — `Menu.setApplicationMenu(null)` (Fase 4)
-- [renderer/src/Pages/Sells/Sells.css](renderer/src/Pages/Sells/Sells.css) *(opcional)*
+Archivo: [renderer/src/Pages/Sells/Sells.css](renderer/src/Pages/Sells/Sells.css)
 
-## Archivos que **no** se tocan
-- Nada de `backend/` (el cambio a `SaleItem.productId` opcional es iteración futura, cuando se implemente `createSale`).
-- Ningún canal IPC nuevo: las filas "general" son puramente renderer y solo se materializarán cuando se implemente la creación de `Sale`/`SaleItem`.
+**4.1.** Al final del archivo, agregar:
+
+```css
+/* Cart footer (subtotal / descuento / total) */
+.cart-list__footer {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 2px solid #dde5ee;
+}
+
+.cart-list__footer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cart-list__footer-label {
+  font-weight: 600;
+  color: #374151;
+  min-width: 90px;
+  text-align: right;
+}
+
+.cart-list__footer-label--total {
+  font-size: 1.05rem;
+  color: #1e293b;
+}
+
+.cart-list__footer-value {
+  min-width: 110px;
+  text-align: right;
+  color: #374151;
+}
+
+.cart-list__footer-value--total {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.cart-list__discount-input {
+  width: 70px;
+  padding: 4px 6px;
+  border: 1px solid #c0ccda;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  text-align: right;
+}
+
+.cart-list__footer-pct {
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+```
+
+**4.2.** Guardar.
 
 ---
 
-## Notas para el ejecutor
-- El riesgo principal está en la **Fase 1** (refactor de `productId` → `lineId`). Si el Paso 1.7 (smoke de regresión) falla, **no avanzar** hasta que el flujo actual vuelva a estar verde. Los pasos 2 en adelante asumen que `lineId` ya funciona.
-- Mantener los cambios de cada paso en commits separados facilita revertir si algo se rompe.
-- No introducir lógica de "total de la venta" en esta iteración — sigue siendo una iteración aparte (ver `context.md` → "Flujo de creación de una venta").
-- No tocar `addProduct`/flujo de scanner salvo para adaptarse al cambio de firmas de dispatch.
-- **No** duplicar la validación de monto: siempre a través de `validateGeneralAmount` de `amount.ts`.
+### Paso 5 — Correr tests y build
+
+**5.1.** Desde `h:/anton/Integral/renderer`:
+```
+npm test
+```
+Verificar que todos los tests previos siguen pasando (los nuevos tests se agregan en el paso 6).
+
+**5.2.** Desde `h:/anton/Integral/renderer`:
+```
+npm run build
+```
+Verificar que no hay errores de tipos.
+
+---
+
+### Paso 6 — Escribir tests del pie: subtotal y total
+
+Archivo: [renderer/src/Pages/Sells/__tests__/CartList.test.tsx](renderer/src/Pages/Sells/__tests__/CartList.test.tsx)
+
+**6.1.** Actualizar la función auxiliar `renderCart` para incluir las nuevas props obligatorias. Localizar el bloque `renderCart` existente en el archivo:
+
+```tsx
+const renderCart = (lines: CartLine[], handlers: Partial<{
+  onQuantityChange: (lineId: string, quantity: number) => void
+  onUnitPriceChange: (lineId: string, unitPrice: string) => void
+  onRemove: (lineId: string) => void
+}> = {}) => {
+  const onQuantityChange = handlers.onQuantityChange ?? vi.fn()
+  const onUnitPriceChange = handlers.onUnitPriceChange ?? vi.fn()
+  const onRemove = handlers.onRemove ?? vi.fn()
+  const utils = render(
+    <CartList
+      lines={lines}
+      onQuantityChange={onQuantityChange}
+      onUnitPriceChange={onUnitPriceChange}
+      onRemove={onRemove}
+    />
+  )
+  return { ...utils, onQuantityChange, onUnitPriceChange, onRemove }
+}
+```
+
+Reemplazarlo por:
+```tsx
+const renderCart = (lines: CartLine[], handlers: Partial<{
+  onQuantityChange: (lineId: string, quantity: number) => void
+  onUnitPriceChange: (lineId: string, unitPrice: string) => void
+  onRemove: (lineId: string) => void
+  onDiscountChange: (pct: number) => void
+}> = {}, discountPct = 0) => {
+  const onQuantityChange = handlers.onQuantityChange ?? vi.fn()
+  const onUnitPriceChange = handlers.onUnitPriceChange ?? vi.fn()
+  const onRemove = handlers.onRemove ?? vi.fn()
+  const onDiscountChange = handlers.onDiscountChange ?? vi.fn()
+  const utils = render(
+    <CartList
+      lines={lines}
+      onQuantityChange={onQuantityChange}
+      onUnitPriceChange={onUnitPriceChange}
+      onRemove={onRemove}
+      discountPct={discountPct}
+      onDiscountChange={onDiscountChange}
+    />
+  )
+  return { ...utils, onQuantityChange, onUnitPriceChange, onRemove, onDiscountChange }
+}
+```
+
+**6.2.** Al final del archivo, agregar el siguiente bloque de tests:
+
+```tsx
+describe('CartList — pie de carrito: subtotal y total', () => {
+  it('muestra el subtotal correcto con una línea', () => {
+    // 2 unidades * $150 = $300
+    renderCart([productLine(1, 2, '150')])
+    expect(screen.getByText('Subtotal')).toBeInTheDocument()
+    // formatMoney formatea en ARS — buscamos el valor formateado
+    // lineTotal = 2 * 150 = 300
+    expect(screen.getByText(/300/)).toBeInTheDocument()
+  })
+
+  it('muestra el subtotal correcto con múltiples líneas', () => {
+    // línea 1: 1 * 100 = 100; línea 2: 3 * 50 = 150; total = 250
+    renderCart([productLine(1, 1, '100'), productLine(2, 3, '50')])
+    expect(screen.getByText(/250/)).toBeInTheDocument()
+  })
+
+  it('sin descuento (0%), Total == Subtotal', () => {
+    renderCart([productLine(1, 1, '200')], {}, 0)
+    const values = screen.getAllByText(/200/)
+    // tanto subtotal como total muestran 200
+    expect(values.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('con 10% de descuento, Total = Subtotal * 0.9', () => {
+    // subtotal = 1 * 1000 = 1000; total = 1000 * 0.9 = 900
+    renderCart([productLine(1, 1, '1000')], {}, 10)
+    expect(screen.getByText(/900/)).toBeInTheDocument()
+    expect(screen.getByText(/1000/)).toBeInTheDocument()
+  })
+
+  it('con recargo negativo (-20%), Total = Subtotal * 1.2', () => {
+    // subtotal = 1 * 500 = 500; total = 500 * 1.2 = 600
+    renderCart([productLine(1, 1, '500')], {}, -20)
+    expect(screen.getByText(/600/)).toBeInTheDocument()
+    expect(screen.getByText(/500/)).toBeInTheDocument()
+  })
+
+  it('el total nunca baja de 0 aunque el descuento supere el 100%', () => {
+    // subtotal = 100; descuento = 200% → total = max(0, 100 * (1-2)) = 0
+    renderCart([productLine(1, 1, '100')], {}, 200)
+    expect(screen.getByText('Total')).toBeInTheDocument()
+    // total = 0, formateado como $0 o $ 0
+    expect(screen.getByText(/\$\s*0/)).toBeInTheDocument()
+  })
+
+  it('el pie no se muestra cuando el carrito está vacío', () => {
+    renderCart([])
+    expect(screen.queryByText('Subtotal')).not.toBeInTheDocument()
+    expect(screen.queryByText('Total')).not.toBeInTheDocument()
+  })
+})
+```
+
+**6.3.** Guardar. Ejecutar:
+```
+npm test
+```
+Todos los tests del nuevo bloque deben pasar. Si alguno falla, revisar el cálculo en el paso 3.
+
+---
+
+### Paso 7 — Escribir tests del input de descuento
+
+Seguir en el mismo archivo: [renderer/src/Pages/Sells/__tests__/CartList.test.tsx](renderer/src/Pages/Sells/__tests__/CartList.test.tsx)
+
+**7.1.** Al final del archivo, agregar:
+
+```tsx
+describe('CartList — input de descuento', () => {
+  it('el input muestra el valor de discountPct recibido por prop', () => {
+    renderCart([productLine(1, 1, '100')], {}, 15)
+    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
+    expect(input.value).toBe('15')
+  })
+
+  it('cambiar el input a un número válido llama onDiscountChange con ese número', () => {
+    const onDiscountChange = vi.fn()
+    renderCart([productLine(1, 1, '100')], { onDiscountChange }, 0)
+    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '25' } })
+    expect(onDiscountChange).toHaveBeenCalledWith(25)
+  })
+
+  it('cambiar el input a un número negativo llama onDiscountChange con ese número negativo', () => {
+    const onDiscountChange = vi.fn()
+    renderCart([productLine(1, 1, '100')], { onDiscountChange }, 0)
+    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '-10' } })
+    expect(onDiscountChange).toHaveBeenCalledWith(-10)
+  })
+
+  it('cambiar el input a NaN (texto inválido) NO llama onDiscountChange', () => {
+    const onDiscountChange = vi.fn()
+    renderCart([productLine(1, 1, '100')], { onDiscountChange }, 0)
+    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'abc' } })
+    expect(onDiscountChange).not.toHaveBeenCalled()
+  })
+})
+```
+
+**Nota importante sobre el test que usa `{ name: /descuento/i }`:** Para que el selector por accesibilidad funcione, el input de descuento debe tener un `aria-label` o estar asociado a un `<label>`. En el paso 3.3 el JSX no incluyó `aria-label` — hay que corregirlo.
+
+**7.2.** Corregir el input de descuento en [renderer/src/Pages/Sells/CartList.tsx](renderer/src/Pages/Sells/CartList.tsx).
+
+Localizar el input de descuento (agregado en el paso 3.3):
+```tsx
+          <input
+            className="cart-list__discount-input"
+            type="number"
+            step="0.01"
+            value={discountPct}
+            onChange={e => {
+              const n = Number(e.target.value)
+              if (Number.isFinite(n)) onDiscountChange(n)
+            }}
+          />
+```
+
+Reemplazarlo por:
+```tsx
+          <input
+            className="cart-list__discount-input"
+            type="number"
+            step="0.01"
+            aria-label="Descuento"
+            value={discountPct}
+            onChange={e => {
+              const n = Number(e.target.value)
+              if (Number.isFinite(n)) onDiscountChange(n)
+            }}
+          />
+```
+
+**7.3.** Guardar y ejecutar:
+```
+npm test
+```
+Todos los tests deben pasar.
+
+---
+
+### Paso 8 — Verificación final
+
+**8.1.** Desde `h:/anton/Integral/renderer`:
+```
+npm test
+npm run build
+```
+Ambos deben terminar sin errores.
+
+**8.2.** Revisar el diff:
+```
+git status
+git diff renderer/src/Pages/Sells/CartList.tsx
+git diff renderer/src/Pages/Sells/Sells.tsx
+git diff renderer/src/Pages/Sells/Sells.css
+```
+
+Archivos que este cambio debe tocar:
+- Modified: `renderer/src/Pages/Sells/CartList.tsx`
+- Modified: `renderer/src/Pages/Sells/Sells.tsx`
+- Modified: `renderer/src/Pages/Sells/Sells.css`
+- Modified: `renderer/src/Pages/Sells/__tests__/CartList.test.tsx`
+
+---
+
+### Paso 9 — Smoke test manual (si el ejecutor tiene acceso al entorno)
+
+Desde la raíz del proyecto (`h:/anton/Integral`):
+```
+npm run dev
+```
+
+Pasos a reproducir:
+1. Ir a la pestaña **Sells**.
+2. Agregar 2 productos distintos con cantidades y precios distintos.
+3. Verificar que el **Subtotal** muestra la suma correcta de todas las filas.
+4. Sin descuento, verificar que el **Total** es igual al Subtotal.
+5. Escribir `10` en el input de **Descuento** → verificar que el Total se actualiza a Subtotal × 0.9.
+6. Escribir `-20` → verificar que el Total se actualiza a Subtotal × 1.2 (recargo).
+7. Escribir `0` → verificar que Total = Subtotal.
+8. Verificar que el pie está alineado a la derecha del carrito.
+9. Vaciar el carrito (eliminar todos los productos) → verificar que el pie desaparece y aparece el mensaje "Agregá productos con el lector o F2".
+10. Agregar un ítem General (F10) y verificar que también suma al Subtotal.
+
+---
+
+## Fuera de scope (NO hacer)
+
+- No modificar el `cartReducer.ts`.
+- No guardar el descuento en estado persistente (se resetea al navegar, coherente con la política del carrito).
+- No agregar botones de "aplicar" — el descuento se aplica en tiempo real al cambiar el input.
+- No bloquear valores extremos del descuento (> 100%) — es decisión del cajero.
+- No hacer commit ni push.
