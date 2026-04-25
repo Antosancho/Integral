@@ -9,6 +9,7 @@ export type CartAction =
   | { type: 'SET_QUANTITY'; lineId: string; quantity: number }
   | { type: 'SET_UNIT_PRICE'; lineId: string; unitPrice: string }
   | { type: 'ADD_GENERAL'; amount: string }
+  | { type: 'RESET' }
 
 export const initialCart: CartState = { lines: [] }
 
@@ -81,6 +82,9 @@ export function cartReducer(state: CartState, action: CartAction): CartState {
       }
       return { lines: [...state.lines, newLine] }
     }
+
+    case 'RESET':
+      return initialCart
   }
 }
 

@@ -25,7 +25,10 @@ function buildElectronApi(invoke) {
         createStockMovement: (data) => call("stockMovement:create", { data }),
         listStockMovements: (filters) => call("stockMovement:list", { filters }),
         getStockMovementById: (id) => call("stockMovement:getById", { id }),
-        deleteStockMovement: (id, revertStock) => call("stockMovement:delete", { id, revertStock })
+        deleteStockMovement: (id, revertStock) => call("stockMovement:delete", { id, revertStock }),
+        createSale: (data) => call("sale:create", { data }),
+        listSales: (filters) => call("sale:list", { filters }),
+        getSaleById: (id) => call("sale:getById", { id })
     };
 }
 //# sourceMappingURL=ipcContract.js.map

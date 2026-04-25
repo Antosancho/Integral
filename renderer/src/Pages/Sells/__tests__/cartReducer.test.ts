@@ -236,3 +236,17 @@ describe('ADD_GENERAL', () => {
     expect(state.lines[0].kind).toBe('general')
   })
 })
+describe('RESET', () => {
+  it('vuelve al estado inicial vacío desde un carrito con líneas', () => {
+    const a = cartReducer(initialCart, { type: 'ADD', product: mockProduct(1) })
+    const b = cartReducer(a, { type: 'ADD', product: mockProduct(2) })
+    const reset = cartReducer(b, { type: 'RESET' })
+    expect(reset.lines).toHaveLength(0)
+    expect(reset).toEqual(initialCart)
+  })
+
+  it('idempotente: RESET sobre carrito vacío sigue vacío', () => {
+    const reset = cartReducer(initialCart, { type: 'RESET' })
+    expect(reset.lines).toHaveLength(0)
+  })
+})

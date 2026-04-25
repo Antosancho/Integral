@@ -5,6 +5,7 @@ exports.registerIpcHandlers = registerIpcHandlers;
 exports.invokeIpcHandler = invokeIpcHandler;
 const repositories_1 = require("../backend/repositories");
 const ipcSerialize_1 = require("./ipcSerialize");
+const saleService_1 = require("../backend/services/saleService");
 function toIpcError(channel, error) {
     if (error instanceof Error) {
         const maybeCode = error.code;
@@ -50,7 +51,10 @@ function buildIpcHandlers() {
         "stockMovement:create": withChannelError("stockMovement:create", ({ data }) => (0, repositories_1.createStockMovement)(data)),
         "stockMovement:list": withChannelError("stockMovement:list", ({ filters }) => (0, repositories_1.listStockMovements)(filters)),
         "stockMovement:getById": withChannelError("stockMovement:getById", ({ id }) => (0, repositories_1.getStockMovementById)(id)),
-        "stockMovement:delete": withChannelError("stockMovement:delete", ({ id, revertStock }) => (0, repositories_1.deleteStockMovement)(id, revertStock ?? false))
+        "stockMovement:delete": withChannelError("stockMovement:delete", ({ id, revertStock }) => (0, repositories_1.deleteStockMovement)(id, revertStock ?? false)),
+        "sale:create": withChannelError("sale:create", ({ data }) => (0, saleService_1.createSale)(data)),
+        "sale:list": withChannelError("sale:list", ({ filters }) => (0, saleService_1.listSales)(filters)),
+        "sale:getById": withChannelError("sale:getById", ({ id }) => (0, saleService_1.getSaleById)(id))
     };
 }
 function registerIpcHandlers(ipcMain) {

@@ -33,6 +33,13 @@ import {
   type UpdateSupplierInput
 } from "../backend/repositories"
 import { toIpcSafe } from "./ipcSerialize"
+import {
+  createSale,
+  getSaleById,
+  listSales,
+  type CreateSaleInput,
+  type ListSalesFilters
+} from "../backend/services/saleService"
 
 export type IpcPayload = unknown
 export type IpcHandler = (payload: IpcPayload) => Promise<unknown>
@@ -141,6 +148,16 @@ export function buildIpcHandlers(): IpcHandlerMap {
     "stockMovement:delete": withChannelError<{ id: number; revertStock?: boolean }>(
       "stockMovement:delete",
       ({ id, revertStock }) => deleteStockMovement(id, revertStock ?? false)
+    ),
+
+    "sale:create": withChannelError<{ data: CreateSaleInput }>("sale:create", ({ data }) =>
+      createSale(data)
+    ),
+    "sale:list": withChannelError<{ filters?: ListSalesFilters }>("sale:list", ({ filters }) =>
+      listSales(filters)
+    ),
+    "sale:getById": withChannelError<{ id: number }>("sale:getById", ({ id }) =>
+      getSaleById(id)
     )
   }
 }

@@ -31,6 +31,7 @@ Integral/
 │   └── services/index.ts         # Re-exporta repositories (capa vacía por ahora)
 ├── electron/
 │   ├── main.ts                   # Entry point Electron, crea BrowserWindow
+│   ├── setupEnv.ts               # Setea DATABASE_URL antes de cargar Prisma (dev/prod)
 │   ├── preload.ts                # Expone window.api via contextBridge
 │   ├── ipcContract.ts            # Tipado del API y builder de ElectronApi
 │   ├── ipcHandlers.ts            # Registra handlers en ipcMain
@@ -161,8 +162,18 @@ El módulo de ventas requiere tres tablas nuevas:
 - **Historial de ventas**: lista filtrable con detalle de ítems y pagos
 - **Crear venta**: flujo tipo carrito → productos via scanner/buscador → form de pagos con cálculo de vuelto → confirmar
 
-#### Iteración actual (en curso): pie de carrito con subtotal, total y descuento/recargo
-Se agrega al pie del `CartList` un bloque con: **Subtotal** (suma de `lineTotal` de todas las filas), **input de Descuento %** (positivo = descuento, negativo = recargo), **Total final** (subtotal aplicando el %).
+#### Iteración actual (en curso): medios de pago + confirmación de venta + layout sticky
+
+- **Layout**: pantalla dividida en 2 zonas: zona scrolleable del carrito (`cart-list`) + panel de pago sticky en la parte inferior (`PaymentPanel`).
+- **5 medios de pago**: EFECTIVO, DÉBITO, CRÉDITO, TRANSFERENCIA, OTROS. Cada uno tiene un botón-label (click autocompleta el faltante) y un input de monto libre.
+- **Vuelto**: se calcula como `Σpagos - total` (con signo). Negativo = falta cubrir (déficit); `0` = pago exacto; positivo = cambio a devolver. Se muestra debajo del TOTAL.
+- **Botón APROBAR VENTA**: bloqueado (disabled + atenuado) salvo que `(carrito no vacío) ∧ (Σpagos ≥ total − 0.01) ∧ (sin líneas 'general')`. Se acepta que el cliente pague de más (recibe vuelto positivo).
+- **Líneas general**: aún no se persisten (el backend exige `productId`). Si el carrito tiene alguna línea general, APROBAR se bloquea y aparece el hint "Las líneas General aún no se pueden guardar".
+- **En éxito**: vaciar carrito (RESET), resetear `discountPct = 0`, resetear todos los inputs de pago a `''`, devolver foco al barcode input. Sin alerta de éxito.
+- **IPC**: nuevos canales `sale:create`, `sale:list`, `sale:getById` expuestos via `window.api`. No se modificó el schema Prisma ni `saleService.ts`.
+
+#### Iteración anterior (completa): pie de carrito con subtotal, total y descuento/recargo
+Se agrega al pie del `CartList` un bloque con: **Subtotal** (suma de `lineTotal` de todas las filas), **input de Descuento %** (positivo = descuento, negativo = recargo), **Total final** (subtotal aplicando el %). El footer fue removido de `CartList` y movido al `PaymentPanel` en la iteración siguiente.
 
 **Decisiones de comportamiento del descuento:**
 1. **Signo**: positivo = descuento, negativo = recargo. Confirmado con el usuario a pesar de ser un UX poco convencional en cajas.
@@ -247,6 +258,24 @@ const sale = await window.api.createSale(data)
 - Los tipos están en `renderer/src/electron-api.d.ts`
 - Cada función llama a un canal IPC con `ipcRenderer.invoke(channel, payload)`
 - Los valores `BigInt` y `Decimal` de Prisma se serializan automáticamente en `ipcSerialize.ts`
+
+---
+
+## Configuración de la base de datos (DATABASE_URL)
+
+Prisma necesita la variable `DATABASE_URL` para conectarse a SQLite. Se resuelve en dos lugares (en este orden de prioridad):
+
+1. **`electron/setupEnv.ts`** — se importa como **primer import** de `main.ts` (antes de cualquier import que pueda cargar el Prisma client). Setea `process.env.DATABASE_URL` programáticamente:
+   - En desarrollo (`app.isPackaged === false`): apunta a `backend/prisma/dev.db` (resuelto desde `__dirname` del compilado en `dist/electron/`).
+   - En producción (app empaquetada): apunta a `<userData>/integral.db` usando `app.getPath("userData")`. Ese path es per-usuario y escribible por el instalador.
+   - Las barras invertidas de Windows se convierten a `/` para el formato `file:` de Prisma.
+   - No pisa la variable si ya está seteada (permite override por entorno).
+
+2. **`backend/db/client.ts`** tiene un fallback `loadEnv()` que lee un `.env` desde la raíz del proyecto si `DATABASE_URL` no está seteada. Esto es útil para scripts standalone (`test:backend-db`, `test:ipc-bridge`) que se ejecutan via `ts-node` y no pasan por `main.ts`.
+
+**Por qué este diseño:** el código fuente se distribuye compilado al cliente final, así que un `.env` en la raíz del proyecto no llega al instalador. Hay que setear `DATABASE_URL` desde el main process con un path conocido y escribible. El `.env` de la raíz queda solo como conveniencia para desarrollo y scripts CLI.
+
+**Pendiente para producción:** la primera ejecución en una máquina nueva todavía no genera la base ni corre las migraciones automáticamente. Cuando se empaquete el instalador, hay que decidir entre (a) bundlear una `dev.db` semilla y copiarla a `userData` en el primer arranque o (b) ejecutar `prisma migrate deploy` programáticamente al iniciar.
 
 ---
 
