@@ -21,6 +21,7 @@ function createWindow() {
     mainWindow.loadURL("http://localhost:5173");
 }
 electron_1.app.whenReady().then(() => {
+    electron_1.Menu.setApplicationMenu(null);
     (0, ipcHandlers_1.registerIpcHandlers)(electron_1.ipcMain);
     createWindow();
     electron_1.app.on("activate", () => {
