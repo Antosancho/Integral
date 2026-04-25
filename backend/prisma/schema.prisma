@@ -64,6 +64,7 @@ model Sale {
   id        Int             @id @default(autoincrement())
   date      DateTime        @default(now())
   total     Decimal
+  discountPct Decimal @default(0)
 
   items     SaleItem[]
   payments  SalePayment[]

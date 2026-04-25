@@ -151,6 +151,7 @@ export type SaleFromApi = {
   id: number
   date: Date
   total: string
+  discountPct: string
   items: SaleItemFromApi[]
   payments: SalePaymentFromApi[]
 }
@@ -170,6 +171,7 @@ export type CreateSalePayload = {
   items: CreateSaleItemPayload[]
   payments: CreateSalePaymentPayload[]
   total: number | string
+  discountPct?: number | string
   date?: Date
 }
 
@@ -180,6 +182,8 @@ export type ListSalesFiltersPayload = {
   toDate?: Date
   method?: string
   productId?: number
+  minTotal?: number | string
+  maxTotal?: number | string
 }
 
 // ---------- ElectronApi ----------

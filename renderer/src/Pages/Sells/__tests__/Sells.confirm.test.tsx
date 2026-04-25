@@ -12,7 +12,7 @@ const product: ProductFromApi = {
   salePrice: '1000',
   stock: 5,
   minStock: 0,
-  createdAt: new Date() as unknown as string,
+  createdAt: new Date(),
   categoryId: 1,
   supplierId: 1,
   category: { id: 1, name: 'Cat' },
@@ -23,6 +23,7 @@ const fakeSale: SaleFromApi = {
   id: 1,
   date: new Date(),
   total: '1000',
+  discountPct: '0',
   items: [],
   payments: []
 }
@@ -137,22 +138,41 @@ describe('Sells — flujo de confirmación de venta', () => {
     expect(screen.getByText('Coca 2L')).toBeInTheDocument()
   })
 
-  it('pago con exceso habilita APROBAR y muestra vuelto positivo', async () => {
-    const user = userEvent.setup()
-    render(<Sells />)
-    await addOneProduct()
-    // total = 1000, el cliente paga 1500 en efectivo
-    fireEvent.change(screen.getByRole('textbox', { name: 'EFECTIVO' }), { target: { value: '1500' } })
-    const approve = screen.getByRole('button', { name: 'APROBAR VENTA' })
-    await waitFor(() => expect(approve).not.toBeDisabled())
-    // El vuelto es positivo (500 de cambio)
-    const vueltoBox = screen.getByText('VUELTO').parentElement!
-    expect(vueltoBox.textContent).toMatch(/500/)
-    // Confirmar la venta
-    await user.click(approve)
-    await waitFor(() => expect(createSale).toHaveBeenCalledTimes(1))
-    const arg = createSale.mock.calls[0][0] as CreateSalePayload
-    // Se enviaron los 1500 ingresados (no solo el total)
-    expect(arg.payments).toEqual([{ method: 'CASH', amount: 1500 }])
+   it('pago con exceso habilita APROBAR y muestra vuelto positivo', async () => {
+     const user = userEvent.setup()
+     render(<Sells />)
+     await addOneProduct()
+     // total = 1000, el cliente paga 1500 en efectivo
+     fireEvent.change(screen.getByRole('textbox', { name: 'EFECTIVO' }), { target: { value: '1500' } })
+     const approve = screen.getByRole('button', { name: 'APROBAR VENTA' })
+     await waitFor(() => expect(approve).not.toBeDisabled())
+     // El vuelto es positivo (500 de cambio)
+     const vueltoBox = screen.getByText('VUELTO').parentElement!
+     expect(vueltoBox.textContent).toMatch(/500/)
+     // Confirmar la venta
+     await user.click(approve)
+     await waitFor(() => expect(createSale).toHaveBeenCalledTimes(1))
+     const arg = createSale.mock.calls[0][0] as CreateSalePayload
+     // Se enviaron los 1500 ingresados (no solo el total)
+     expect(arg.payments).toEqual([{ method: 'CASH', amount: 1500 }])
+   })
+
+    it('confirmar con descuento del 10% envía discountPct=10 en el payload', async () => {
+      const user = userEvent.setup()
+      render(<Sells />)
+      await addOneProduct()
+      // total sin descuento = 1000; con 10% descuento = 900
+      // El input de descuento está en el PaymentPanel; usar fireEvent para cambiarlo
+      const discountInput = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
+      fireEvent.change(discountInput, { target: { value: '10' } })
+      fireEvent.blur(discountInput)
+      fireEvent.change(screen.getByRole('textbox', { name: 'EFECTIVO' }), { target: { value: '900' } })
+      const approve = screen.getByRole('button', { name: 'APROBAR VENTA' })
+      await waitFor(() => expect(approve).not.toBeDisabled())
+      await user.click(approve)
+      await waitFor(() => expect(createSale).toHaveBeenCalledTimes(1))
+      const arg = createSale.mock.calls[0][0] as CreateSalePayload
+      expect(Number(arg.discountPct)).toBe(10)
+      expect(Number(arg.total)).toBeCloseTo(900, 1)
   })
 })

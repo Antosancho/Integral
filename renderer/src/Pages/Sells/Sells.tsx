@@ -151,15 +151,15 @@ export default function Sells() {
       .map(m => ({ method: m, amount: parsePaymentAmount(payments[m]) }))
       .filter(p => p.amount > 0)
 
-    try {
-      await window.api.createSale({ items, payments: paymentsPayload, total })
-      dispatch({ type: 'RESET' })
-      setDiscountPct(0)
-      setPayments(initialPayments)
-      setTimeout(() => barcodeInputRef.current?.focus(), 0)
-    } catch (e) {
-      setAlert({ kind: 'not-found', text: e instanceof Error ? e.message : 'Error al guardar la venta' })
-    }
+     try {
+       await window.api.createSale({ items, payments: paymentsPayload, total, discountPct })
+       dispatch({ type: 'RESET' })
+       setDiscountPct(0)
+       setPayments(initialPayments)
+       setTimeout(() => barcodeInputRef.current?.focus(), 0)
+     } catch (e) {
+       setAlert({ kind: 'not-found', text: e instanceof Error ? e.message : 'Error al guardar la venta' })
+     }
   }
 
   const subtotal = cart.lines.reduce((acc, l) => acc + lineTotal(l), 0)

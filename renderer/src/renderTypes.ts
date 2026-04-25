@@ -1,1 +1,1 @@
-export type Cont = 'sells' | 'stock' | null
+export type Cont = 'sells' | 'stock' | 'history' | null
