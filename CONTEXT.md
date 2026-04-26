@@ -244,6 +244,38 @@ type CartLine = {
 - Crear / editar / eliminar productos desde la UI
 - Al crear/editar, si la categoría o el proveedor no existen, el usuario puede **crearlos en el momento** via un modal/selector emergente (patrón tipo explorador de archivos de Windows: ventana que lista los existentes y permite crear uno nuevo sin salir del formulario principal)
 
+#### Iteración actual (en curso): Crear producto desde la pantalla Stock
+
+**Feature**: botón "+ Nuevo producto" en la pantalla Stock que abre un modal con formulario completo de alta de producto.
+
+**Componentes nuevos a crear bajo `renderer/src/Pages/Stock/`:**
+- `validateProductForm.ts` — validación pura, sin dependencias de UI
+- `CategorySelector.tsx` — select con inline-create de categoría
+- `SupplierSelector.tsx` — select con inline-create de proveedor (campos adicionales: phone, notes opcionales)
+- `CreateProductModal.tsx` — modal principal de alta
+- `CreateProductModal.css` — estilos del modal
+- `__tests__/` — tests unitarios de cada componente con Vitest + Testing Library
+
+**Campos del formulario y restricciones:**
+- `name` — **obligatorio**
+- `purchasePrice` — Decimal IVA incluido, **obligatorio**, >= 0 (acepta coma decimal es-AR)
+- `salePrice` — Decimal IVA incluido, **obligatorio**, >= 0
+- `categoryId` — FK a Category, **obligatorio** (0 = sin selección)
+- `supplierId` — FK a Supplier, **obligatorio** (0 = sin selección)
+- `barcode` — BigInt único, **opcional** (solo dígitos, máx 20 chars; unicidad la valida el backend)
+- `stock` — Int, **opcional** (default 0, debe ser entero >= 0)
+- `minStock` — Int, **opcional** (default 0, debe ser entero >= 0)
+
+**Patrón de recarga de lista**: `reloadKey` (Int state) agregado como dependencia del `useEffect` de carga en `Stock.tsx`. Incrementar `reloadKey` en `onSuccess` del modal fuerza el re-fetch sin desmontar el componente.
+
+**Decisiones de validación:**
+1. Los campos de precio usan `normalizeDecimal` (trim + reemplaza coma por punto) antes de parsear con `Number()`.
+2. Barcode: primero valida que sean solo dígitos, luego que no supere 20 chars. La unicidad la rechaza el backend (error de constraint que se muestra en el modal sin cerrarlo).
+3. Stock vacío (`''`) se mapea a `0` en el payload; no es error de validación.
+4. El formulario usa `ProductFormDraft` (todos campos como string, excepto `categoryId`/`supplierId` que son `number`) para evitar problemas de edición de decimales y signos negativos.
+
+**El backend IPC no requiere cambios**: `product:create`, `category:list`, `category:create`, `supplier:list`, `supplier:create` ya están implementados en `electron/ipcHandlers.ts` y `electron/ipcContract.ts`.
+
 ---
 
 ## IPC bridge (cómo se llama al backend desde el renderer)
