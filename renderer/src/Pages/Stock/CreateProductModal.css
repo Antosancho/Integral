@@ -1,0 +1,92 @@
+.create-product-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.create-product-modal {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.create-product-modal__title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.create-product-modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.create-product-modal__label {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.create-product-modal__input {
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.create-product-modal__input--error {
+  border-color: #ef4444;
+}
+
+.create-product-modal__field-error {
+  color: #dc2626;
+  font-size: 0.8rem;
+}
+
+.create-product-modal__api-error {
+  color: #dc2626;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.create-product-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.create-product-modal__btn-cancel {
+  padding: 8px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+}
+
+.create-product-modal__btn-submit {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #3b82f6;
+  color: white;
+  cursor: pointer;
+}
+
+.create-product-modal__btn-submit:disabled {
+  background: #93c5fd;
+  cursor: not-allowed;
+}

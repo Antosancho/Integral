@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import "./Stock.css"
 import { formatMoney } from "../utils/format"
+import CreateProductModal from './Stock/CreateProductModal'
 
 type Product = Awaited<ReturnType<Window["api"]["listProducts"]>>[number]
 
@@ -14,6 +15,8 @@ export default function Stock() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   const columns = useMemo<Column[]>(
     () => [
@@ -59,10 +62,14 @@ export default function Stock() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [reloadKey])
 
   return (
-    <section className="stock-grid">
+    <>
+      <div className="stock-actions">
+        <button className="stock-actions__btn-new" onClick={() => setShowCreateModal(true)}>+ Nuevo producto</button>
+      </div>
+      <section className="stock-grid">
       {columns.map((column) => (
         <div key={column.key} className="stock-grid__header">
           {column.label}
@@ -84,6 +91,16 @@ export default function Stock() {
             </div>
           ))
         )}
-    </section>
+      </section>
+
+      <CreateProductModal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={() => {
+          setShowCreateModal(false)
+          setReloadKey((k) => k + 1)
+        }}
+      />
+    </>
   )
 }
