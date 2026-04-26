@@ -67,7 +67,8 @@ export default function SaleDetailModal({ sale, onClose }: SaleDetailModalProps)
           <tbody>
             {sale.items.map(item => (
               <tr key={item.id}>
-                <td>{item.product.name}</td>
+                {/* If the item has no linked product (general), show literal 'General' */}
+                <td>{item.product?.name ?? 'General'}</td>
                 <td>{item.quantity}</td>
                 <td>{formatMoney(Number(item.unitPrice))}</td>
                 <td>{formatMoney(item.quantity * Number(item.unitPrice))}</td>

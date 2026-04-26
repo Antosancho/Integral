@@ -76,12 +76,13 @@ model Sale {
 model SaleItem {
   id        Int      @id @default(autoincrement())
   saleId    Int
-  productId Int
+  productId Int?
   quantity  Int
   unitPrice Decimal
 
   sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  // product is optional to allow "general" sale items (no product associated)
+  product   Product? @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   @@index([saleId])
   @@index([productId])

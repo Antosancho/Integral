@@ -4,6 +4,7 @@ import { PAYMENT_LABELS, type PaymentMethod } from '../Sells/payments'
 import { formatMoney } from '../../utils/format'
 import { buildApiFilters, filterByTime, initialFilters, type SalesHistoryFilters } from './salesHistoryFilters'
 import SaleDetailModal from './SaleDetailModal'
+import CajaSummary from './CajaSummary'
 import './SalesHistory.css'
 
 export default function SalesHistory() {
@@ -113,50 +114,52 @@ export default function SalesHistory() {
         <button type="button" onClick={loadSales}>Buscar</button>
       </div>
 
-      <div className="sales-history__list">
-        {loading ? (
-          <p>Cargando...</p>
-        ) : sales.length === 0 ? (
-          <p className="sales-history__empty">No se encontraron ventas con los filtros aplicados.</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Fecha y hora</th>
-                <th>Total</th>
-                <th>Medios de pago</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sales.map(sale => (
-                <tr
-                  key={sale.id}
-                  className="sales-history__row"
-                  tabIndex={0}
-                  onClick={() => setSelectedSale(sale)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      setSelectedSale(sale)
-                    }
-                  }}
-                >
-                  <td>{sale.id}</td>
-                  <td>{formatDate(sale.date)}</td>
-                  <td>{formatMoney(Number(sale.total))}</td>
-                  <td>{formatPaymentMethods(sale.payments)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+       <div className="sales-history__list">
+         {loading ? (
+           <p>Cargando...</p>
+         ) : sales.length === 0 ? (
+           <p className="sales-history__empty">No se encontraron ventas con los filtros aplicados.</p>
+         ) : (
+           <table>
+             <thead>
+               <tr>
+                 <th>ID</th>
+                 <th>Fecha y hora</th>
+                 <th>Total</th>
+                 <th>Medios de pago</th>
+               </tr>
+             </thead>
+             <tbody>
+               {sales.map(sale => (
+                 <tr
+                   key={sale.id}
+                   className="sales-history__row"
+                   tabIndex={0}
+                   onClick={() => setSelectedSale(sale)}
+                   onKeyDown={e => {
+                     if (e.key === 'Enter' || e.key === ' ') {
+                       e.preventDefault()
+                       setSelectedSale(sale)
+                     }
+                   }}
+                 >
+                   <td>{sale.id}</td>
+                   <td>{formatDate(sale.date)}</td>
+                   <td>{formatMoney(Number(sale.total))}</td>
+                   <td>{formatPaymentMethods(sale.payments)}</td>
+                 </tr>
+               ))}
+             </tbody>
+           </table>
+         )}
+       </div>
 
-      <SaleDetailModal
-        sale={selectedSale}
-        onClose={() => setSelectedSale(null)}
-      />
+       <CajaSummary sales={sales} />
+
+       <SaleDetailModal
+         sale={selectedSale}
+         onClose={() => setSelectedSale(null)}
+       />
     </section>
   )
 }

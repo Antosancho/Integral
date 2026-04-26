@@ -1,0 +1,32 @@
+.caja-summary {
+  border-top: 2px solid #e5e7eb;
+  padding: 16px 12px;
+  background-color: #f9fafb;
+  margin-top: 24px;
+}
+
+.caja-summary h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #6b7280;
+  margin: 0 0 12px 0;
+}
+
+.caja-summary__row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 14px;
+}
+
+.caja-summary__row--total {
+  font-weight: 700;
+  font-size: 15px;
+  color: #111827;
+}
+
+.caja-summary__separator {
+  border: 0;
+  border-top: 1px solid #d1d5db;
+  margin: 8px 0;
+}
