@@ -6,10 +6,14 @@ import type {
   BareStockMovementFromApi,
   CategoryFromApi,
   ElectronApi,
+  LowRotationFromApi,
   ProductFromApi,
   SaleFromApi,
+  SalesByPeriodFromApi,
+  StatsSummaryFromApi,
   StockMovementFromApi,
-  SupplierFromApi
+  SupplierFromApi,
+  TopProductFromApi
 } from "./ipcContract"
 
 // --- Fixtures que simulan lo que sale del serializer ---
@@ -106,7 +110,14 @@ const api: ElectronApi = {
 
   createSale: async (_d) => ({} as SaleFromApi),
   listSales: async (_f) => [] as SaleFromApi[],
-  getSaleById: async (_id) => null
+  getSaleById: async (_id) => null,
+
+  getSalesSummary: async (_i) => ({} as StatsSummaryFromApi),
+  getTopProductsByQuantity: async (_i) => [] as TopProductFromApi[],
+  getTopProductsByRevenue: async (_i) => [] as TopProductFromApi[],
+  getSalesByHour: async (_i) => [] as SalesByPeriodFromApi[],
+  getSalesByWeekday: async (_i) => [] as SalesByPeriodFromApi[],
+  getLowRotationProducts: async (_i) => [] as LowRotationFromApi[]
 }
 
 void api

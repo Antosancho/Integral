@@ -1,0 +1,211 @@
+.stats-page {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* ── Selector de período ─────────────────────────────────────────────────── */
+
+.stats-period-selector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.stats-period-btn {
+  padding: 6px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.stats-period-btn:hover {
+  background: #f1f5f9;
+}
+
+.stats-period-btn--active {
+  background: #3b82f6;
+  color: #fff;
+  border-color: #3b82f6;
+}
+
+/* ── Rango personalizado ─────────────────────────────────────────────────── */
+
+.stats-custom-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.stats-custom-range input[type="date"] {
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: #334155;
+}
+
+/* ── Estados de carga y error ────────────────────────────────────────────── */
+
+.stats-loading {
+  text-align: center;
+  color: #64748b;
+  margin-top: 48px;
+}
+
+.stats-error {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+/* ── Secciones ───────────────────────────────────────────────────────────── */
+
+.stats-section {
+  margin-bottom: 32px;
+}
+
+.stats-section__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #1e293b;
+}
+
+/* ── Cards de resumen ────────────────────────────────────────────────────── */
+
+.stats-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 900px) {
+  .stats-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.stat-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.stat-card__label {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin: 0 0 4px 0;
+}
+
+.stat-card__value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0 0 4px 0;
+  color: #1e293b;
+}
+
+.stat-card__change {
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+.stat-card__change--positive {
+  color: #16a34a;
+}
+
+.stat-card__change--negative {
+  color: #dc2626;
+}
+
+.stat-card__change--neutral {
+  color: #64748b;
+}
+
+/* ── Tablas de productos ─────────────────────────────────────────────────── */
+
+.stats-tables-row {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.stats-table-container {
+  flex: 1;
+  min-width: 280px;
+}
+
+.stats-table-container h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: #334155;
+}
+
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.stats-table th {
+  text-align: left;
+  padding: 6px 8px;
+  font-weight: 600;
+  color: #475569;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.stats-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+}
+
+.stats-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+/* ── Tabs de análisis temporal ───────────────────────────────────────────── */
+
+.stats-temporal-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.stats-temporal-tab {
+  padding: 4px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  background: transparent;
+  color: #475569;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.stats-temporal-tab:hover {
+  background: #f1f5f9;
+}
+
+.stats-temporal-tab--active {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
+
+/* ── Estado vacío ────────────────────────────────────────────────────────── */
+
+.stats-empty {
+  color: #94a3b8;
+  font-size: 0.9rem;
+  padding: 12px 8px;
+}

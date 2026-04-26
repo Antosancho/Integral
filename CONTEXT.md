@@ -143,7 +143,7 @@ El módulo de ventas requiere tres tablas nuevas:
 | Roles y niveles de acceso (admin / cajero) | Futuro |
 | Cuenta corriente / fiado | Futuro |
 | Impresión de tickets (impresora térmica) | Futuro |
-| Reportes (ventas, ganancia, productos más vendidos) | Futuro |
+| Reportes (ventas, ganancia, productos más vendidos) | **MVP — próximo (en planificación)** |
 | Migración de datos desde Excel / Google Sheets | Futuro |
 | Backup de base de datos | Futuro |
 
@@ -157,6 +157,7 @@ El módulo de ventas requiere tres tablas nuevas:
 | Home | Pantalla de bienvenida sin datos (placeholder OK por ahora) |
 | Stock (lista de productos) | Implementado — tabla solo lectura; **falta CRUD** |
 | Sells | **Pendiente — próximo a desarrollar** |
+| Stats (estadísticas) | **Planificada — ver sección abajo** |
 
 ### Próximo trabajo: pantalla Sells
 - **Historial de ventas**: lista filtrable con detalle de ítems y pagos
@@ -240,11 +241,34 @@ type CartLine = {
 - Los tipos `ProductFromApi`, `CategoryFromApi`, `SupplierFromApi`, etc. de [electron-api.d.ts](renderer/src/electron-api.d.ts) pasan a ser **exportados explícitamente** (antes estaban declarados sin `export` y el archivo es un módulo por `export {}`, por lo que no eran ni globales ni importables).
 - `formatMoney` se extrae de [Stock.tsx](renderer/src/Pages/Stock.tsx) a un util compartido en `renderer/src/utils/format.ts` para reutilizar en Sells.
 
+### Módulo de Estadísticas (planificado)
+
+Nueva pantalla `Stats` accesible desde el Header (botón "Estadísticas"). Período de análisis con 4 presets: **Hoy | Esta semana | Este mes | Personalizado** (default: Este mes).
+
+**Estadísticas a mostrar:**
+1. **Ventas Totales** — total facturado en el período
+2. **Cantidad de Ventas (Tickets)** — total de operaciones
+3. **Ticket Promedio** — `Ventas Totales / Cantidad de Tickets`
+4. **Productos Más Vendidos** — ranking por unidades vendidas (top 5)
+5. **Productos que Más Facturan** — ranking por monto generado (top 5)
+6. **Ganancia Total** — `Ventas Totales - Costos` (usando `purchasePriceSnapshot`)
+7. **Comparación vs Período Anterior** — cada card muestra `%` de cambio contra el período equivalente anterior
+8. **Horarios/Días con Más Ventas** — tabla con tabs "Por hora" / "Por día de semana"
+9. **Productos con Menor Rotación** — top 10 productos menos vendidos en el período
+
+**Cambio de schema**: se agrega `purchasePriceSnapshot Decimal?` a `SaleItem` (nullable, retrocompatible). Al crear una venta nueva, guarda el `purchasePrice` del producto en ese momento. Ítems "general" quedan con `null`. Requiere migración Prisma.
+
+**Backend**: repositorio `statsRepository.ts` con 6 funciones de agregación. 6 canales IPC nuevos: `stats:getSummary`, `stats:getTopProductsByQuantity`, `stats:getTopProductsByRevenue`, `stats:getSalesByHour`, `stats:getSalesByWeekday`, `stats:getLowRotationProducts`.
+
+**Frontend**: Las 7 llamadas se hacen en `Promise.all`. Comparación de períodos: el frontend llama a `getSalesSummary` dos veces en paralelo (período actual + período anterior). `getPreviousPeriod` es calendar-aware: para 'month' retorna el mes calendario anterior; para 'week' retrocede 7 días; para el resto usa el mismo rango en ms.
+
+---
+
 ### Próximo trabajo: Stock CRUD
 - Crear / editar / eliminar productos desde la UI
 - Al crear/editar, si la categoría o el proveedor no existen, el usuario puede **crearlos en el momento** via un modal/selector emergente (patrón tipo explorador de archivos de Windows: ventana que lista los existentes y permite crear uno nuevo sin salir del formulario principal)
 
-#### Iteración actual (en curso): Crear producto desde la pantalla Stock
+#### Iteración anterior (completa): Crear producto desde la pantalla Stock
 
 **Feature**: botón "+ Nuevo producto" en la pantalla Stock que abre un modal con formulario completo de alta de producto.
 
@@ -275,6 +299,32 @@ type CartLine = {
 4. El formulario usa `ProductFormDraft` (todos campos como string, excepto `categoryId`/`supplierId` que son `number`) para evitar problemas de edición de decimales y signos negativos.
 
 **El backend IPC no requiere cambios**: `product:create`, `category:list`, `category:create`, `supplier:list`, `supplier:create` ya están implementados en `electron/ipcHandlers.ts` y `electron/ipcContract.ts`.
+
+#### Iteración actual (en curso): Cargar stock desde la pantalla Stock
+
+**Feature**: botón "Cargar stock" al lado de "+ Nuevo producto" en la pantalla Stock. Abre un modal independiente que permite sumar unidades a un **producto existente** (no se pueden crear productos nuevos desde aquí).
+
+**UX — flujo en dos pasos:**
+- **Paso "search"**: input de búsqueda con debounce 250ms + tabla de resultados (Código de barras | Nombre | Stock actual). Reutiliza `searchProducts.ts` de Sells. Navegación por teclado (↑/↓/Enter). Escape cierra el modal.
+- **Paso "confirm"**: muestra nombre del producto (read-only), input de cantidad (entero > 0, obligatorio), input de notas (opcional). Botón "Volver" regresa a search. Escape regresa a search (no cierra el modal). Botón "Cargar stock" confirma.
+
+**Comportamiento post-submit exitoso**: cierra el modal e incrementa `reloadKey` en `Stock.tsx` para refrescar la tabla (mismo patrón que `CreateProductModal`).
+
+**Archivos nuevos:**
+- `renderer/src/Pages/Stock/LoadStockModal.tsx`
+- `renderer/src/Pages/Stock/LoadStockModal.css`
+- `renderer/src/Pages/Stock/__tests__/LoadStockModal.test.tsx`
+
+**Archivos modificados:**
+- `renderer/src/Pages/Stock.tsx` — agrega estado `showLoadStockModal`, botón y uso del modal
+
+**Backend**: usa IPC `stockMovement:create` existente con `type: 'IN'`. Sin cambios de backend.
+
+**Decisiones de implementación:**
+- `searchProducts.ts` se importa directamente desde `../Sells/searchProducts` sin mover el archivo.
+- La cantidad solo acepta enteros positivos (`Number.isInteger(n) && n > 0`); no se usa `normalizeDecimal` porque no hay decimales.
+- `notes` vacío se envía como `undefined` (omitido del payload).
+- El `useEffect` del listener global de Escape para el paso "confirm" debe listar `[open, step, submitting, onClose]` como dependencias para evitar stale closures.
 
 ---
 

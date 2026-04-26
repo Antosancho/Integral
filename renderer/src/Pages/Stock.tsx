@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import "./Stock.css"
 import { formatMoney } from "../utils/format"
 import CreateProductModal from './Stock/CreateProductModal'
+import LoadStockModal from './Stock/LoadStockModal'
 
 type Product = Awaited<ReturnType<Window["api"]["listProducts"]>>[number]
 
@@ -16,6 +17,7 @@ export default function Stock() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showLoadStockModal, setShowLoadStockModal] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
 
   const columns = useMemo<Column[]>(
@@ -65,33 +67,36 @@ export default function Stock() {
   }, [reloadKey])
 
   return (
-    <>
+    <div className="stock-page">
       <div className="stock-actions">
         <button className="stock-actions__btn-new" onClick={() => setShowCreateModal(true)}>+ Nuevo producto</button>
+        <button className="stock-actions__btn-load" onClick={() => setShowLoadStockModal(true)}>Cargar stock</button>
       </div>
-      <section className="stock-grid">
-      {columns.map((column) => (
-        <div key={column.key} className="stock-grid__header">
-          {column.label}
-        </div>
-      ))}
+      <div className="stock-scroll-wrapper">
+        <section className="stock-grid">
+        {columns.map((column) => (
+          <div key={column.key} className="stock-grid__header">
+            {column.label}
+          </div>
+        ))}
 
-      {loading && <div className="stock-grid__status">Cargando productos...</div>}
-      {!loading && error && <div className="stock-grid__status stock-grid__status--error">{error}</div>}
-      {!loading && !error && products.length === 0 && (
-        <div className="stock-grid__status">No hay productos cargados.</div>
-      )}
-
-      {!loading &&
-        !error &&
-        products.map((product) =>
-          columns.map((column) => (
-            <div key={`${product.id}-${column.key}`} className="stock-grid__cell">
-              {column.render(product)}
-            </div>
-          ))
+        {loading && <div className="stock-grid__status">Cargando productos...</div>}
+        {!loading && error && <div className="stock-grid__status stock-grid__status--error">{error}</div>}
+        {!loading && !error && products.length === 0 && (
+          <div className="stock-grid__status">No hay productos cargados.</div>
         )}
-      </section>
+
+        {!loading &&
+          !error &&
+          products.map((product) =>
+            columns.map((column) => (
+              <div key={`${product.id}-${column.key}`} className="stock-grid__cell">
+                {column.render(product)}
+              </div>
+            ))
+          )}
+        </section>
+        </div>
 
       <CreateProductModal
         open={showCreateModal}
@@ -101,6 +106,15 @@ export default function Stock() {
           setReloadKey((k) => k + 1)
         }}
       />
-    </>
+
+      <LoadStockModal
+        open={showLoadStockModal}
+        onClose={() => setShowLoadStockModal(false)}
+        onSuccess={() => {
+          setShowLoadStockModal(false)
+          setReloadKey((k) => k + 1)
+        }}
+      />
+    </div>
   )
 }

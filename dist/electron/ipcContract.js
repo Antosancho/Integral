@@ -28,7 +28,13 @@ function buildElectronApi(invoke) {
         deleteStockMovement: (id, revertStock) => call("stockMovement:delete", { id, revertStock }),
         createSale: (data) => call("sale:create", { data }),
         listSales: (filters) => call("sale:list", { filters }),
-        getSaleById: (id) => call("sale:getById", { id })
+        getSaleById: (id) => call("sale:getById", { id }),
+        getSalesSummary: (input) => call('stats:getSummary', input),
+        getTopProductsByQuantity: (input) => call('stats:getTopProductsByQuantity', input),
+        getTopProductsByRevenue: (input) => call('stats:getTopProductsByRevenue', input),
+        getSalesByHour: (input) => call('stats:getSalesByHour', input),
+        getSalesByWeekday: (input) => call('stats:getSalesByWeekday', input),
+        getLowRotationProducts: (input) => call('stats:getLowRotationProducts', input)
     };
 }
 //# sourceMappingURL=ipcContract.js.map

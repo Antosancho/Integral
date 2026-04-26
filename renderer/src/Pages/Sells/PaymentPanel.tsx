@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { formatMoney } from '../../utils/format'
 import {
   PAYMENT_METHODS,
@@ -33,6 +34,21 @@ export default function PaymentPanel({
   hasItems,
   onConfirm
 }: Props) {
+  const [discountDraft, setDiscountDraft] = useState<string>(String(discountPct))
+
+  useEffect(() => {
+    setDiscountDraft(String(discountPct))
+  }, [discountPct])
+
+  function commitDiscount() {
+    const n = Number(discountDraft.replace(',', '.'))
+    if (Number.isFinite(n) && n >= -200 && n <= 200) {
+      onDiscountChange(n)
+    } else {
+      setDiscountDraft(String(discountPct))
+    }
+  }
+
   const change = changeAmount(payments, total)
   const covers = paymentsCoverTotal(payments, total)
   const canConfirm = hasItems && covers
@@ -51,10 +67,12 @@ export default function PaymentPanel({
             type="number"
             step="0.01"
             aria-label="Descuento"
-            value={discountPct}
-            onChange={e => {
-              const n = e.target.valueAsNumber
-              if (Number.isFinite(n)) onDiscountChange(n)
+            value={discountDraft}
+            onChange={e => setDiscountDraft(e.target.value)}
+            onBlur={commitDiscount}
+            onKeyDown={e => {
+              if (e.key === 'Enter') commitDiscount()
+              if (e.key === 'Escape') setDiscountDraft(String(discountPct))
             }}
           />
           <span className="payment-panel__box-suffix">%</span>

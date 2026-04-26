@@ -188,6 +188,37 @@ export type ListSalesFiltersPayload = {
   maxTotal?: number | string
 }
 
+// ---------------------------------------------------------------------------
+// Tipos de salida para el módulo de Estadísticas (duplicado manual del backend)
+// ---------------------------------------------------------------------------
+
+export type StatsSummaryFromApi = {
+  totalRevenue: string
+  saleCount: number
+  averageTicket: string
+  totalProfit: string
+}
+
+export type TopProductFromApi = {
+  productId: number
+  productName: string
+  /** Unidades o monto según la consulta invocada */
+  value: string
+}
+
+export type SalesByPeriodFromApi = {
+  /** '00'–'23' para hora; '0'–'6' para día de semana (0=Dom) */
+  label: string
+  saleCount: number
+  totalRevenue: string
+}
+
+export type LowRotationFromApi = {
+  productId: number
+  productName: string
+  totalQuantity: number
+}
+
 // ---------- ElectronApi ----------
 
 type ElectronApi = {
@@ -220,6 +251,13 @@ type ElectronApi = {
   createSale: (data: CreateSalePayload) => Promise<SaleFromApi>
   listSales: (filters?: ListSalesFiltersPayload) => Promise<SaleFromApi[]>
   getSaleById: (id: number) => Promise<SaleFromApi | null>
+
+  getSalesSummary: (input: { from: Date; to: Date }) => Promise<StatsSummaryFromApi>
+  getTopProductsByQuantity: (input: { from: Date; to: Date; limit: number }) => Promise<TopProductFromApi[]>
+  getTopProductsByRevenue: (input: { from: Date; to: Date; limit: number }) => Promise<TopProductFromApi[]>
+  getSalesByHour: (input: { from: Date; to: Date }) => Promise<SalesByPeriodFromApi[]>
+  getSalesByWeekday: (input: { from: Date; to: Date }) => Promise<SalesByPeriodFromApi[]>
+  getLowRotationProducts: (input: { from: Date; to: Date; limit: number }) => Promise<LowRotationFromApi[]>
 }
 
 declare global {

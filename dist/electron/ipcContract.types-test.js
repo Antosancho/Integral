@@ -81,7 +81,13 @@ const api = {
     deleteStockMovement: async (_id, _r) => bareMovement,
     createSale: async (_d) => ({}),
     listSales: async (_f) => [],
-    getSaleById: async (_id) => null
+    getSaleById: async (_id) => null,
+    getSalesSummary: async (_i) => ({}),
+    getTopProductsByQuantity: async (_i) => [],
+    getTopProductsByRevenue: async (_i) => [],
+    getSalesByHour: async (_i) => [],
+    getSalesByWeekday: async (_i) => [],
+    getLowRotationProducts: async (_i) => []
 };
 void api;
 //# sourceMappingURL=ipcContract.types-test.js.map

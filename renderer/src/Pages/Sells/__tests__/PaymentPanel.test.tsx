@@ -165,19 +165,31 @@ describe('PaymentPanel — interacciones', () => {
     expect(onConfirm).not.toHaveBeenCalled()
   })
 
-  it('cambio de descuento a número válido llama onDiscountChange', () => {
+  it('al hacer blur con número válido llama onDiscountChange', () => {
     const onDiscountChange = vi.fn()
     renderPanel({ onDiscountChange })
     const input = screen.getByRole('spinbutton', { name: /descuento/i })
     fireEvent.change(input, { target: { value: '20' } })
+    fireEvent.blur(input)
     expect(onDiscountChange).toHaveBeenCalledWith(20)
   })
 
-  it('cambio de descuento a NaN NO llama onDiscountChange', () => {
+  it('al hacer blur con valor fuera de rango NO llama onDiscountChange y revierte el draft', () => {
+    const onDiscountChange = vi.fn()
+    renderPanel({ onDiscountChange, discountPct: 5 })
+    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '999' } })
+    fireEvent.blur(input)
+    expect(onDiscountChange).not.toHaveBeenCalled()
+    expect(input.value).toBe('5')
+  })
+
+  it('borrar el 0 no bloquea la edición — el input acepta string vacío como draft', () => {
     const onDiscountChange = vi.fn()
     renderPanel({ onDiscountChange })
-    const input = screen.getByRole('spinbutton', { name: /descuento/i })
-    fireEvent.change(input, { target: { value: 'xx' } })
+    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '' } })
+    expect(input.value).toBe('')
     expect(onDiscountChange).not.toHaveBeenCalled()
   })
 })
