@@ -11,7 +11,8 @@ import {
 } from "../repositories/utilities"
 
 export interface CreateSaleItemInput {
-  productId: number
+  // productId is optional to support "general" lines (no product associated)
+  productId?: number
   quantity: number
   unitPrice: DecimalInput
 }
@@ -91,6 +92,7 @@ export async function createSale(data: CreateSaleInput) {
       throw new Error(`items[${index}].unitPrice must be >= 0`)
     }
     return {
+      // preserve productId as-is (may be undefined/null for general lines)
       productId: item.productId,
       quantity: ensurePositiveInteger(item.quantity, `items[${index}].quantity`),
       unitPrice
@@ -148,15 +150,23 @@ export async function createSale(data: CreateSaleInput) {
    }
 
   return prisma.$transaction(async (tx) => {
-    const productIds = Array.from(new Set(normalizedItems.map((item) => item.productId)))
-    const existingProducts = await tx.product.findMany({
-      where: { id: { in: productIds } },
-      select: { id: true }
-    })
-    if (existingProducts.length !== productIds.length) {
-      const foundIds = new Set(existingProducts.map((p) => p.id))
-      const missingId = productIds.find((id) => !foundIds.has(id))
-      throw new Error(`Product ${missingId} not found`)
+    // Validate that all items that reference a product actually exist.
+    // Skip validation when there are no product-linked items.
+    const productIds = Array.from(new Set(
+      normalizedItems
+        .map((item) => item.productId)
+        .filter((id): id is number => id != null)
+    ))
+    if (productIds.length > 0) {
+      const existingProducts = await tx.product.findMany({
+        where: { id: { in: productIds } },
+        select: { id: true }
+      })
+      if (existingProducts.length !== productIds.length) {
+        const foundIds = new Set(existingProducts.map((p) => p.id))
+        const missingId = productIds.find((id) => !foundIds.has(id))
+        throw new Error(`Product ${missingId} not found`)
+      }
     }
 
     const sale = await tx.sale.create({
@@ -166,7 +176,8 @@ export async function createSale(data: CreateSaleInput) {
         ...(data.date ? { date: data.date } : {}),
         items: {
           create: normalizedItems.map((item) => ({
-            productId: item.productId,
+            // Persist productId as null when absent so DB stores general items with productId = NULL
+            productId: item.productId ?? null,
             quantity: item.quantity,
             unitPrice: item.unitPrice
           }))
@@ -182,6 +193,9 @@ export async function createSale(data: CreateSaleInput) {
     })
 
     for (const item of normalizedItems) {
+      // Items without a productId are "general" and must not touch stock nor create movements
+      if (item.productId == null) continue
+
       await tx.product.update({
         where: { id: item.productId },
         data: { stock: { decrement: item.quantity } }

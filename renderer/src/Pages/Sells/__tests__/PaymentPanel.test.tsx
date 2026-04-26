@@ -10,7 +10,7 @@ type Overrides = Partial<{
   discountPct: number
   payments: PaymentsDraft
   hasItems: boolean
-  hasGeneralLines: boolean
+  // hasGeneralLines removed: general lines are supported
   onDiscountChange: (pct: number) => void
   onPaymentChange: (method: any, value: string) => void
   onAutoFill: (method: any) => void
@@ -29,7 +29,7 @@ const renderPanel = (o: Overrides = {}) => {
       discountPct={o.discountPct ?? 0}
       payments={o.payments ?? initialPayments}
       hasItems={o.hasItems ?? true}
-      hasGeneralLines={o.hasGeneralLines ?? false}
+      
       onDiscountChange={onDiscountChange}
       onPaymentChange={onPaymentChange}
       onAutoFill={onAutoFill}
@@ -77,10 +77,10 @@ describe('PaymentPanel — botón APROBAR VENTA habilitado/deshabilitado', () =>
     expect(screen.getByRole('button', { name: 'APROBAR VENTA' })).toBeDisabled()
   })
 
-  it('deshabilitado si hay líneas "general" en el carrito', () => {
+  it('no deshabilitado por líneas "general" en el carrito (ahora soportadas)', () => {
     const payments = { ...initialPayments, CASH: '1000' }
-    renderPanel({ hasItems: true, hasGeneralLines: true, payments, total: 1000 })
-    expect(screen.getByRole('button', { name: 'APROBAR VENTA' })).toBeDisabled()
+    renderPanel({ hasItems: true, payments, total: 1000 })
+    expect(screen.getByRole('button', { name: 'APROBAR VENTA' })).not.toBeDisabled()
   })
 
   it('habilitado si hasItems && pagos cuadran && no hay general', () => {
@@ -101,10 +101,10 @@ describe('PaymentPanel — botón APROBAR VENTA habilitado/deshabilitado', () =>
     expect(screen.getByRole('button', { name: 'APROBAR VENTA' })).not.toBeDisabled()
   })
 
-  it('muestra el hint "Las líneas General aún no se pueden guardar" cuando hay general en el carrito', () => {
+  it('el hint sobre líneas General no aparece nunca', () => {
     const payments = { ...initialPayments, CASH: '1000' }
-    renderPanel({ hasItems: true, hasGeneralLines: true, payments, total: 1000 })
-    expect(screen.getByText(/líneas General aún no se pueden guardar/i)).toBeInTheDocument()
+    renderPanel({ hasItems: true, payments, total: 1000 })
+    expect(screen.queryByText(/líneas General aún no se pueden guardar/i)).toBeNull()
   })
 })
 

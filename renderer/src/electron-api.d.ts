@@ -134,10 +134,11 @@ export type StockMovementFromApi = BareStockMovementFromApi & {
 export type SaleItemFromApi = {
   id: number
   saleId: number
-  productId: number
+  productId: number | null
   quantity: number
   unitPrice: string
-  product: BareProductFromApi
+  // product may be null when the item is a 'general' line
+  product: BareProductFromApi | null
 }
 
 export type SalePaymentFromApi = {
@@ -157,7 +158,8 @@ export type SaleFromApi = {
 }
 
 export type CreateSaleItemPayload = {
-  productId: number
+  // optional: omitted for 'general' items
+  productId?: number
   quantity: number
   unitPrice: number | string
 }

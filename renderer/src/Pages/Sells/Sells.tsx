@@ -6,6 +6,7 @@ import GeneralAmountPopup from './GeneralAmountPopup'
 import PaymentPanel from './PaymentPanel'
 import SearchPopup from './SearchPopup'
 import { cartReducer, initialCart, lineTotal } from './cartReducer'
+import { buildSaleItems } from './confirmSaleUtils'
 import {
   PAYMENT_METHODS,
   initialPayments,
@@ -137,15 +138,10 @@ export default function Sells() {
   }
 
   async function handleConfirmSale() {
-    const productLines = cart.lines.filter(l => l.kind === 'product')
-    if (productLines.length === 0) return
-    if (cart.lines.some(l => l.kind === 'general')) return
+    // Do not allow confirming an empty cart
+    if (cart.lines.length === 0) return
 
-    const items = productLines.map(l => ({
-      productId: (l as Extract<typeof l, { kind: 'product' }>).productId,
-      quantity: l.quantity,
-      unitPrice: l.unitPrice
-    }))
+    const items = buildSaleItems(cart.lines)
 
     const paymentsPayload = PAYMENT_METHODS
       .map(m => ({ method: m, amount: parsePaymentAmount(payments[m]) }))
@@ -165,7 +161,6 @@ export default function Sells() {
   const subtotal = cart.lines.reduce((acc, l) => acc + lineTotal(l), 0)
   const total = Math.max(0, subtotal * (1 - discountPct / 100))
   const hasItems = cart.lines.length > 0
-  const hasGeneralLines = cart.lines.some(l => l.kind === 'general')
 
   return (
     <section className="sells">
@@ -198,7 +193,6 @@ export default function Sells() {
         onPaymentChange={handlePaymentChange}
         onAutoFill={handleAutoFillPayment}
         hasItems={hasItems}
-        hasGeneralLines={hasGeneralLines}
         onConfirm={handleConfirmSale}
       />
 

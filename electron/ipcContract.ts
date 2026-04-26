@@ -66,10 +66,11 @@ export interface StockMovementFromApi extends BareStockMovementFromApi {
 export interface SaleItemFromApi {
   id: number
   saleId: number
-  productId: number
+  productId: number | null
   quantity: number
   unitPrice: string
-  product: BareProductFromApi
+  // product may be null for "general" items that have no linked Product
+  product: BareProductFromApi | null
 }
 
 export interface SalePaymentFromApi {
@@ -89,7 +90,8 @@ export interface SaleFromApi {
 }
 
 export interface CreateSaleItemPayload {
-  productId: number
+  // optional: absent for "general" items
+  productId?: number
   quantity: number
   unitPrice: number | string
 }

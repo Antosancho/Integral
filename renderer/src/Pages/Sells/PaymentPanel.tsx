@@ -19,7 +19,6 @@ type Props = {
   onPaymentChange: (method: PaymentMethod, value: string) => void
   onAutoFill: (method: PaymentMethod) => void
   hasItems: boolean
-  hasGeneralLines: boolean
   onConfirm: () => void
 }
 
@@ -32,12 +31,11 @@ export default function PaymentPanel({
   onPaymentChange,
   onAutoFill,
   hasItems,
-  hasGeneralLines,
   onConfirm
 }: Props) {
   const change = changeAmount(payments, total)
   const covers = paymentsCoverTotal(payments, total)
-  const canConfirm = hasItems && covers && !hasGeneralLines
+  const canConfirm = hasItems && covers
 
   return (
     <div className="payment-panel">
@@ -103,9 +101,7 @@ export default function PaymentPanel({
         >
           APROBAR VENTA
         </button>
-        {hasItems && hasGeneralLines && (
-          <p className="payment-panel__hint">Las líneas General aún no se pueden guardar</p>
-        )}
+        {/* General lines are now supported; no hint needed */}
       </div>
     </div>
   )

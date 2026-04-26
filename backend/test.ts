@@ -265,7 +265,7 @@ async function main() {
     })
     assert(sale1.items.length === 1, "createSale should persist items")
     assert(sale1.payments.length === 1, "createSale should persist payments")
-    assert(sale1.items[0].product.id === product.id, "SaleItem should include its product")
+    assert(sale1.items[0].product!.id === product.id, "SaleItem should include its product")
     assert(sale1.items[0].quantity === 2, "SaleItem should persist quantity")
     assert(sale1.items[0].unitPrice.toNumber() === 150, "SaleItem should persist unit price snapshot")
     assert(sale1.total.toNumber() === 300, "Sale.total should equal sum(quantity * unitPrice) of items")
@@ -365,7 +365,7 @@ async function main() {
     const fetched = await getSaleById(sale2.id)
     assert(fetched !== null, "getSaleById should return the sale")
     assert(fetched!.items.length === 2, "getSaleById should include items")
-    assert(fetched!.items.every((i) => i.product.id === product.id), "getSaleById items should include product")
+    assert(fetched!.items.every((i) => i.product!.id === product.id), "getSaleById items should include product")
     assert(fetched!.payments.length === 2, "getSaleById should include payments")
     logStep("getSaleById returns sale with items+product and payments")
 
