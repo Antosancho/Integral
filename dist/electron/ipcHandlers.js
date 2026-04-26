@@ -54,7 +54,13 @@ function buildIpcHandlers() {
         "stockMovement:delete": withChannelError("stockMovement:delete", ({ id, revertStock }) => (0, repositories_1.deleteStockMovement)(id, revertStock ?? false)),
         "sale:create": withChannelError("sale:create", ({ data }) => (0, saleService_1.createSale)(data)),
         "sale:list": withChannelError("sale:list", ({ filters }) => (0, saleService_1.listSales)(filters)),
-        "sale:getById": withChannelError("sale:getById", ({ id }) => (0, saleService_1.getSaleById)(id))
+        "sale:getById": withChannelError("sale:getById", ({ id }) => (0, saleService_1.getSaleById)(id)),
+        "stats:getSummary": withChannelError("stats:getSummary", ({ from, to }) => (0, repositories_1.getSalesSummary)(from, to)),
+        "stats:getTopProductsByQuantity": withChannelError("stats:getTopProductsByQuantity", ({ from, to, limit }) => (0, repositories_1.getTopProductsByQuantity)(from, to, limit)),
+        "stats:getTopProductsByRevenue": withChannelError("stats:getTopProductsByRevenue", ({ from, to, limit }) => (0, repositories_1.getTopProductsByRevenue)(from, to, limit)),
+        "stats:getSalesByHour": withChannelError("stats:getSalesByHour", ({ from, to }) => (0, repositories_1.getSalesByHour)(from, to)),
+        "stats:getSalesByWeekday": withChannelError("stats:getSalesByWeekday", ({ from, to }) => (0, repositories_1.getSalesByWeekday)(from, to)),
+        "stats:getLowRotationProducts": withChannelError("stats:getLowRotationProducts", ({ from, to, limit }) => (0, repositories_1.getLowRotationProducts)(from, to, limit))
     };
 }
 function registerIpcHandlers(ipcMain) {

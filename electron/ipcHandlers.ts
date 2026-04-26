@@ -22,6 +22,12 @@ import {
   updateProduct,
   updateProductStock,
   updateSupplier,
+  getSalesSummary,
+  getTopProductsByQuantity,
+  getTopProductsByRevenue,
+  getSalesByHour,
+  getSalesByWeekday,
+  getLowRotationProducts,
   type CreateCategoryInput,
   type CreateProductInput,
   type CreateStockMovementInput,
@@ -158,6 +164,31 @@ export function buildIpcHandlers(): IpcHandlerMap {
     ),
     "sale:getById": withChannelError<{ id: number }>("sale:getById", ({ id }) =>
       getSaleById(id)
+    ),
+
+    "stats:getSummary": withChannelError<{ from: Date; to: Date }>(
+      "stats:getSummary",
+      ({ from, to }) => getSalesSummary(from, to)
+    ),
+    "stats:getTopProductsByQuantity": withChannelError<{ from: Date; to: Date; limit: number }>(
+      "stats:getTopProductsByQuantity",
+      ({ from, to, limit }) => getTopProductsByQuantity(from, to, limit)
+    ),
+    "stats:getTopProductsByRevenue": withChannelError<{ from: Date; to: Date; limit: number }>(
+      "stats:getTopProductsByRevenue",
+      ({ from, to, limit }) => getTopProductsByRevenue(from, to, limit)
+    ),
+    "stats:getSalesByHour": withChannelError<{ from: Date; to: Date }>(
+      "stats:getSalesByHour",
+      ({ from, to }) => getSalesByHour(from, to)
+    ),
+    "stats:getSalesByWeekday": withChannelError<{ from: Date; to: Date }>(
+      "stats:getSalesByWeekday",
+      ({ from, to }) => getSalesByWeekday(from, to)
+    ),
+    "stats:getLowRotationProducts": withChannelError<{ from: Date; to: Date; limit: number }>(
+      "stats:getLowRotationProducts",
+      ({ from, to, limit }) => getLowRotationProducts(from, to, limit)
     )
   }
 }

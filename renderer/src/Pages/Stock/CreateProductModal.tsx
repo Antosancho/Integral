@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ProductFromApi } from '../../electron-api'
 import CategorySelector from './CategorySelector'
 import SupplierSelector from './SupplierSelector'

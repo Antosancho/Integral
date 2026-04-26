@@ -5,6 +5,7 @@ import type { Cont } from "./renderTypes"
 import Stock from "./Pages/Stock"
 import Sells from "./Pages/Sells/Sells"
 import SalesHistory from "./Pages/SalesHistory/SalesHistory"
+import Stats from "./Pages/Stats/Stats"
 
 function App() {
   const [content, setContent] = useState<Cont>(null)
@@ -16,6 +17,7 @@ function App() {
           {content === "sells" && <Sells />}
           {content === "stock" && <Stock />}
           {content === "history" && <SalesHistory />}
+          {content === "stats" && <Stats />}
           {content === null && <div>Home</div>}
         </main>
     </>

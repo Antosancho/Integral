@@ -150,6 +150,9 @@ export async function createSale(data: CreateSaleInput) {
    }
 
   return prisma.$transaction(async (tx) => {
+    // Mapa vacío por default; se llena solo cuando hay ítems con productId
+    const purchasePriceMap = new Map<number, Prisma.Decimal>()
+
     // Validate that all items that reference a product actually exist.
     // Skip validation when there are no product-linked items.
     const productIds = Array.from(new Set(
@@ -160,12 +163,17 @@ export async function createSale(data: CreateSaleInput) {
     if (productIds.length > 0) {
       const existingProducts = await tx.product.findMany({
         where: { id: { in: productIds } },
-        select: { id: true }
+        select: { id: true, purchasePrice: true }
       })
       if (existingProducts.length !== productIds.length) {
         const foundIds = new Set(existingProducts.map((p) => p.id))
         const missingId = productIds.find((id) => !foundIds.has(id))
         throw new Error(`Product ${missingId} not found`)
+      }
+
+      // Mapa productId → precio de compra para guardar el snapshot en cada SaleItem
+      for (const p of existingProducts) {
+        purchasePriceMap.set(p.id, p.purchasePrice)
       }
     }
 
@@ -179,7 +187,11 @@ export async function createSale(data: CreateSaleInput) {
             // Persist productId as null when absent so DB stores general items with productId = NULL
             productId: item.productId ?? null,
             quantity: item.quantity,
-            unitPrice: item.unitPrice
+            unitPrice: item.unitPrice,
+            // Capturar precio de compra del momento de la venta para calcular ganancia en stats
+            purchasePriceSnapshot: item.productId != null
+              ? purchasePriceMap.get(item.productId) ?? null
+              : null
           }))
         },
         payments: {

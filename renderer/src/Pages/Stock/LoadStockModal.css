@@ -1,0 +1,140 @@
+.load-stock-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.load-stock-modal {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.load-stock-modal__title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.load-stock-modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.load-stock-modal__label {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.load-stock-modal__input {
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.load-stock-modal__input--error {
+  border-color: #ef4444;
+}
+
+.load-stock-modal__field-error {
+  color: #dc2626;
+  font-size: 0.8rem;
+}
+
+.load-stock-modal__api-error {
+  color: #dc2626;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.load-stock-modal__product-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.load-stock-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.load-stock-modal__btn-cancel {
+  padding: 8px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+}
+
+.load-stock-modal__btn-back {
+  padding: 8px 16px;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+}
+
+.load-stock-modal__btn-submit {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #3b82f6;
+  color: white;
+  cursor: pointer;
+}
+
+.load-stock-modal__btn-submit:disabled {
+  background: #93c5fd;
+  cursor: not-allowed;
+}
+
+.load-stock-modal__no-results {
+  color: #64748b;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.load-stock-search {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.load-stock-results {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.load-stock-results th,
+.load-stock-results td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.load-stock-results tbody tr {
+  cursor: pointer;
+}
+
+.load-stock-results tbody tr:hover,
+.load-stock-results__row--selected {
+  background: #eff6ff;
+}

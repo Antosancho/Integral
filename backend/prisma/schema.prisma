@@ -74,11 +74,13 @@ model Sale {
 }
 
 model SaleItem {
-  id        Int      @id @default(autoincrement())
-  saleId    Int
-  productId Int?
-  quantity  Int
-  unitPrice Decimal
+  id                    Int      @id @default(autoincrement())
+  saleId                Int
+  productId             Int?
+  quantity              Int
+  unitPrice             Decimal
+  // Precio de compra del producto en el momento de la venta; null para ítems "general" o ventas antiguas
+  purchasePriceSnapshot Decimal?
 
   sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
   // product is optional to allow "general" sale items (no product associated)

@@ -1,20 +1,29 @@
 import type { ProductFromApi } from '../../electron-api'
 
 export async function searchProducts(query: string): Promise<ProductFromApi[]> {
-  if (query.trim() === '') return []
+  const q = query.trim()
+  if (q === '') return []
 
-  const byName = await window.api.listProducts({ nameContains: query.trim(), take: 50 })
+  // Start name search immediately
+  const namePromise = window.api.listProducts({ nameContains: q, take: 50 })
 
-  if (/^\d+$/.test(query.trim())) {
-    try {
-      const byBarcode = await window.api.getProductByBarcode(query.trim())
-      if (byBarcode && !byName.some(p => p.id === byBarcode.id)) {
-        return [byBarcode, ...byName]
+  // If the query is purely numeric, also try to fetch by barcode in parallel.
+  // Keep the try/catch behaviour: barcode lookup may throw if not found/invalid.
+  if (/^\d+$/.test(q)) {
+    const barcodePromise = (async () => {
+      try {
+        return await window.api.getProductByBarcode(q)
+      } catch {
+        return null
       }
-    } catch {
-      // ignorar error de barcode inválido
+    })()
+
+    const [byName, byBarcode] = await Promise.all([namePromise, barcodePromise])
+    if (byBarcode && !byName.some(p => p.id === byBarcode.id)) {
+      return [byBarcode, ...byName]
     }
+    return byName
   }
 
-  return byName
+  return await namePromise
 }

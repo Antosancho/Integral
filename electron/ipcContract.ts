@@ -89,6 +89,37 @@ export interface SaleFromApi {
   payments: SalePaymentFromApi[]
 }
 
+// ---------------------------------------------------------------------------
+// Tipos de salida para el módulo de Estadísticas
+// ---------------------------------------------------------------------------
+
+export interface StatsSummaryFromApi {
+  totalRevenue: string
+  saleCount: number
+  averageTicket: string
+  totalProfit: string
+}
+
+export interface TopProductFromApi {
+  productId: number
+  productName: string
+  /** Unidades o monto, según la consulta invocada */
+  value: string
+}
+
+export interface SalesByPeriodFromApi {
+  /** '00'–'23' para hora; '0'–'6' para día de semana (0=Dom) */
+  label: string
+  saleCount: number
+  totalRevenue: string
+}
+
+export interface LowRotationFromApi {
+  productId: number
+  productName: string
+  totalQuantity: number
+}
+
 export interface CreateSaleItemPayload {
   // optional: absent for "general" items
   productId?: number
@@ -152,6 +183,13 @@ export interface ElectronApi {
   createSale: (data: CreateSalePayload) => Promise<SaleFromApi>
   listSales: (filters?: ListSalesFiltersPayload) => Promise<SaleFromApi[]>
   getSaleById: (id: number) => Promise<SaleFromApi | null>
+
+  getSalesSummary: (input: { from: Date; to: Date }) => Promise<StatsSummaryFromApi>
+  getTopProductsByQuantity: (input: { from: Date; to: Date; limit: number }) => Promise<TopProductFromApi[]>
+  getTopProductsByRevenue: (input: { from: Date; to: Date; limit: number }) => Promise<TopProductFromApi[]>
+  getSalesByHour: (input: { from: Date; to: Date }) => Promise<SalesByPeriodFromApi[]>
+  getSalesByWeekday: (input: { from: Date; to: Date }) => Promise<SalesByPeriodFromApi[]>
+  getLowRotationProducts: (input: { from: Date; to: Date; limit: number }) => Promise<LowRotationFromApi[]>
 }
 
 export function buildElectronApi(invoke: IpcInvoke): ElectronApi {
@@ -187,6 +225,13 @@ export function buildElectronApi(invoke: IpcInvoke): ElectronApi {
 
     createSale: (data) => call<SaleFromApi>("sale:create", { data }),
     listSales: (filters) => call<SaleFromApi[]>("sale:list", { filters }),
-    getSaleById: (id) => call<SaleFromApi | null>("sale:getById", { id })
+    getSaleById: (id) => call<SaleFromApi | null>("sale:getById", { id }),
+
+    getSalesSummary: (input) => call<StatsSummaryFromApi>('stats:getSummary', input),
+    getTopProductsByQuantity: (input) => call<TopProductFromApi[]>('stats:getTopProductsByQuantity', input),
+    getTopProductsByRevenue: (input) => call<TopProductFromApi[]>('stats:getTopProductsByRevenue', input),
+    getSalesByHour: (input) => call<SalesByPeriodFromApi[]>('stats:getSalesByHour', input),
+    getSalesByWeekday: (input) => call<SalesByPeriodFromApi[]>('stats:getSalesByWeekday', input),
+    getLowRotationProducts: (input) => call<LowRotationFromApi[]>('stats:getLowRotationProducts', input)
   }
 }

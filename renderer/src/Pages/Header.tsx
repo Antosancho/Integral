@@ -42,6 +42,13 @@ export default function Header({ content, setContent }: HeaderProps) {
          >
            Stock
          </button>
+         <button
+           className={content === 'stats' ? 'header__nav-btn--active' : 'header-button'}
+           onClick={() => handleClick("stats")}
+           aria-pressed={content === "stats"}
+         >
+           Estadísticas
+         </button>
        </ul>
     </header>
   )
