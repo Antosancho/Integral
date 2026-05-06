@@ -1,6 +1,8 @@
 node_modules
-# Keep environment variables out of version control
 .env
-plan.md
 
-/generated/prisma
+backend/prisma/_backups/
+backend/prisma/dev.db-journal
+backend/prisma/test*.db
+backend/prisma/test*.db-journal
+backend/prisma/backend/

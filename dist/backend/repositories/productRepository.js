@@ -27,22 +27,43 @@ function buildProductWhere(filters) {
             : {})
     };
 }
-// Creates a product and validates stock-related values.
+/**
+ * Crea un producto y, cuando stock > 0, genera un StockMovement IN inicial
+ * en la misma transacción para garantizar trazabilidad del lote.
+ * appliedDelta = 0 porque el stock ya quedó persistido en Product.create;
+ * el movement solo registra el lote (y opcionalmente su fecha de vencimiento).
+ */
 async function createProduct(data) {
-    const stock = data.stock ?? 0;
-    const minStock = data.minStock ?? 0;
-    return client_1.default.product.create({
-        data: {
-            name: (0, utilities_1.normalizeRequiredString)(data.name, "name"),
-            purchasePrice: (0, utilities_1.toDecimal)(data.purchasePrice),
-            salePrice: (0, utilities_1.toDecimal)(data.salePrice),
-            categoryId: data.categoryId,
-            supplierId: data.supplierId,
-            barcode: data.barcode !== undefined && data.barcode !== null ? (0, utilities_1.toBigInt)(data.barcode) : null,
-            stock: (0, utilities_1.ensureNonNegativeInteger)(stock, "stock"),
-            minStock: (0, utilities_1.ensureNonNegativeInteger)(minStock, "minStock")
-        },
-        include: utilities_1.productInclude
+    const stock = (0, utilities_1.ensureNonNegativeInteger)(data.stock ?? 0, "stock");
+    const minStock = (0, utilities_1.ensureNonNegativeInteger)(data.minStock ?? 0, "minStock");
+    return client_1.default.$transaction(async (tx) => {
+        const product = await tx.product.create({
+            data: {
+                name: (0, utilities_1.normalizeRequiredString)(data.name, "name"),
+                purchasePrice: (0, utilities_1.toDecimal)(data.purchasePrice),
+                salePrice: (0, utilities_1.toDecimal)(data.salePrice),
+                categoryId: data.categoryId,
+                supplierId: data.supplierId,
+                barcode: data.barcode !== undefined && data.barcode !== null ? (0, utilities_1.toBigInt)(data.barcode) : null,
+                stock,
+                minStock
+            },
+            include: utilities_1.productInclude
+        });
+        if (stock > 0) {
+            await tx.stockMovement.create({
+                data: {
+                    productId: product.id,
+                    type: "IN",
+                    quantity: stock,
+                    // delta 0: el stock ya quedó en Product.create; este mov solo registra el lote inicial
+                    appliedDelta: 0,
+                    notes: "Lote inicial al crear producto",
+                    ...(data.expiryDate ? { expiryDate: data.expiryDate } : {})
+                }
+            });
+        }
+        return product;
     });
 }
 // Lists products with optional filters and pagination.

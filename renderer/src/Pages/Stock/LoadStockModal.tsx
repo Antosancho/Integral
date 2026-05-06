@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ProductFromApi } from '../../electron-api'
 import { searchProducts } from '../Sells/searchProducts'
+import { parseExpiryInput } from '../../utils/expiry'
 import './LoadStockModal.css'
 
 type Step = 'search' | 'confirm'
@@ -25,6 +26,8 @@ export default function LoadStockModal({ open, onClose, onSuccess }: Props) {
   const [quantityError, setQuantityError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [apiError, setApiError] = useState<string | null>(null)
+  const [expiryDate, setExpiryDate] = useState('')
+  const [expiryDateError, setExpiryDateError] = useState<string | null>(null)
 
   const searchInputRef = useRef<HTMLInputElement>(null)
   const quantityInputRef = useRef<HTMLInputElement>(null)
@@ -42,6 +45,8 @@ export default function LoadStockModal({ open, onClose, onSuccess }: Props) {
       setNotes('')
       setQuantityError(null)
       setApiError(null)
+      setExpiryDate('')
+      setExpiryDateError(null)
     }
   }, [open])
 
@@ -125,13 +130,15 @@ export default function LoadStockModal({ open, onClose, onSuccess }: Props) {
     setNotes('')
     setQuantityError(null)
     setApiError(null)
+    setExpiryDate('')
+    setExpiryDateError(null)
   }
 
   function validateQuantity(q: string): string | null {
     const trimmed = q.trim()
     if (trimmed === '') return 'La cantidad es obligatoria'
     const n = Number(trimmed)
-    if (!Number.isInteger(n) || n <= 0) return 'La cantidad debe ser un número entero mayor a 0'
+    if (!Number.isInteger(n) || n === 0) return 'La cantidad debe ser un número entero distinto de 0'
     return null
   }
 
@@ -142,6 +149,16 @@ export default function LoadStockModal({ open, onClose, onSuccess }: Props) {
       return
     }
 
+    // Validar fecha de vencimiento solo si fue ingresada
+    let parsedExpiry: Date | null = null
+    if (expiryDate.trim() !== '') {
+      parsedExpiry = parseExpiryInput(expiryDate)
+      if (!parsedExpiry) {
+        setExpiryDateError('Fecha inválida')
+        return
+      }
+    }
+
     setSubmitting(true)
     setApiError(null)
 
@@ -150,7 +167,8 @@ export default function LoadStockModal({ open, onClose, onSuccess }: Props) {
         productId: selectedProduct!.id,
         type: 'IN',
         quantity: Number(quantity.trim()),
-        notes: notes.trim() || undefined
+        notes: notes.trim() || undefined,
+        expiryDate: parsedExpiry ?? undefined
       })
       onSuccess()
     } catch (e) {
@@ -164,6 +182,8 @@ export default function LoadStockModal({ open, onClose, onSuccess }: Props) {
     setSelectedProduct(null)
     setQuantityError(null)
     setApiError(null)
+    setExpiryDate('')
+    setExpiryDateError(null)
   }
 
   if (!open) return null
@@ -223,7 +243,7 @@ export default function LoadStockModal({ open, onClose, onSuccess }: Props) {
             </div>
 
             <div className="load-stock-modal__field">
-              <label className="load-stock-modal__label">Cantidad a agregar *</label>
+              <label className="load-stock-modal__label">Cantidad a agregar (negativo = merma) *</label>
               <input
                 ref={quantityInputRef}
                 type="text"
@@ -231,7 +251,7 @@ export default function LoadStockModal({ open, onClose, onSuccess }: Props) {
                 className={`load-stock-modal__input${quantityError ? ' load-stock-modal__input--error' : ''}`}
                 value={quantity}
                 onChange={(e) => { setQuantity(e.target.value); setQuantityError(null) }}
-                placeholder="Ej: 10"
+                placeholder="Ej: 10 (negativo para merma)"
               />
               {quantityError && <p className="load-stock-modal__field-error">{quantityError}</p>}
             </div>
@@ -245,6 +265,18 @@ export default function LoadStockModal({ open, onClose, onSuccess }: Props) {
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Observaciones del movimiento"
               />
+            </div>
+
+            <div className="load-stock-modal__field">
+              <label className="load-stock-modal__label" htmlFor="load-stock-expiry">Vencimiento (opcional)</label>
+              <input
+                id="load-stock-expiry"
+                type="date"
+                className={`load-stock-modal__input${expiryDateError ? ' load-stock-modal__input--error' : ''}`}
+                value={expiryDate}
+                onChange={(e) => { setExpiryDate(e.target.value); setExpiryDateError(null) }}
+              />
+              {expiryDateError && <p className="load-stock-modal__field-error">{expiryDateError}</p>}
             </div>
 
             {apiError && <p className="load-stock-modal__api-error">{apiError}</p>}

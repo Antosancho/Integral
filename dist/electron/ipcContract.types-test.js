@@ -35,7 +35,9 @@ const bareMovement = {
     date: new Date(),
     notes: null,
     appliedDelta: null,
-    saleId: null
+    saleId: null,
+    expiryDate: null,
+    expiryDismissedAt: null
 };
 const movement = {
     ...bareMovement,
@@ -79,6 +81,8 @@ const api = {
     listStockMovements: async (_f) => [movement],
     getStockMovementById: async (_id) => movement,
     deleteStockMovement: async (_id, _r) => bareMovement,
+    listExpiringStockMovements: async () => [movement],
+    dismissStockMovementExpiry: async (_id) => movement,
     createSale: async (_d) => ({}),
     listSales: async (_f) => [],
     getSaleById: async (_id) => null,

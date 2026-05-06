@@ -44,20 +44,23 @@ model Product {
 }
 
 model StockMovement {
-  id           Int               @id @default(autoincrement())
-  productId    Int
-  type         String            @default("IN")
-  quantity     Int
-  appliedDelta Int?
-  saleId       Int?
-  date         DateTime          @default(now())
-  notes        String?
+  id                 Int       @id @default(autoincrement())
+  productId          Int
+  type               String    @default("IN")
+  quantity           Int
+  appliedDelta       Int?
+  saleId             Int?
+  expiryDate         DateTime?
+  expiryDismissedAt  DateTime?
+  date               DateTime  @default(now())
+  notes              String?
 
-  product      Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
-  sale         Sale?             @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  product            Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  sale               Sale?     @relation(fields: [saleId], references: [id], onDelete: SetNull)
 
   @@index([productId, date])
   @@index([saleId])
+  @@index([expiryDate])
 }
 
 model Sale {

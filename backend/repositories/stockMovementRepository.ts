@@ -5,6 +5,7 @@ import {
   PaginationInput,
   StockMovementType,
   ensureInteger,
+  ensureNonZeroInteger,
   ensurePositiveInteger,
   normalizeOptionalString,
   normalizePagination,
@@ -18,6 +19,8 @@ export interface CreateStockMovementInput {
   notes?: OptionalString
   date?: Date
   applyToStock?: boolean
+  /** Fecha de vencimiento del lote. Opcional — si no perece se omite. */
+  expiryDate?: Date | null
 }
 
 export interface ListStockMovementsFilters extends PaginationInput {
@@ -65,9 +68,12 @@ function buildStockMovementWhere(filters?: ListStockMovementsFilters): Prisma.St
 export async function createStockMovement(data: CreateStockMovementInput) {
   const type = normalizeStockMovementType(data.type)
   const applyToStock = data.applyToStock ?? true
+  // IN acepta negativos (merma/baja); SALE solo positivos; ADJUSTMENT cualquier entero
   const quantity =
     type === "ADJUSTMENT"
       ? ensureInteger(data.quantity, "quantity")
+      : type === "IN"
+      ? ensureNonZeroInteger(data.quantity, "quantity")
       : ensurePositiveInteger(data.quantity, "quantity")
 
   return prisma.$transaction(async (tx) => {
@@ -96,7 +102,9 @@ export async function createStockMovement(data: CreateStockMovementInput) {
         quantity,
         notes: normalizeOptionalString(data.notes),
         ...(data.date ? { date: data.date } : {}),
-        ...(appliedDelta !== undefined ? { appliedDelta } : {})
+        ...(appliedDelta !== undefined ? { appliedDelta } : {}),
+        // expiryDismissedAt siempre null al crear; solo se setea con dismissStockMovementExpiry
+        ...(data.expiryDate !== undefined ? { expiryDate: data.expiryDate } : {})
       },
       include: {
         product: true
@@ -126,6 +134,39 @@ export async function getStockMovementById(id: number) {
     include: {
       product: true
     }
+  })
+}
+
+/**
+ * Lista los lotes con vencimiento pendiente de descarte:
+ * expiryDate <= fin de hoy (hora local) y expiryDismissedAt IS NULL.
+ * La clasificación "vencido" vs "vence hoy" se hace en el renderer
+ * para mantener el repo simple y evitar duplicar lógica de zona horaria.
+ */
+export async function listExpiringStockMovements() {
+  const now = new Date()
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+
+  return prisma.stockMovement.findMany({
+    where: {
+      type: "IN",
+      expiryDate: { not: null, lte: endOfToday },
+      expiryDismissedAt: null
+    },
+    orderBy: { expiryDate: "asc" },
+    include: { product: true }
+  })
+}
+
+/**
+ * Marca un lote como descartado de forma permanente (no reaparecerá al recargar la app).
+ * No modifica el stock; solo setea expiryDismissedAt con timestamp actual.
+ */
+export async function dismissStockMovementExpiry(id: number) {
+  return prisma.stockMovement.update({
+    where: { id },
+    data: { expiryDismissedAt: new Date() },
+    include: { product: true }
   })
 }
 

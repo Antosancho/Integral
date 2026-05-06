@@ -85,6 +85,13 @@ export function ensureNonNegativeInteger(value: number, fieldName: string): numb
   return value
 }
 
+/** Acepta cualquier entero distinto de cero (positivo o negativo). Usado para mermas en tipo IN. */
+export function ensureNonZeroInteger(value: number, fieldName: string): number {
+  ensureInteger(value, fieldName)
+  if (value === 0) throw new Error(`${fieldName} must not be zero`)
+  return value
+}
+
 export function normalizeStockMovementType(type: string): StockMovementType {
   const normalized = type.toUpperCase() as StockMovementType
   if (!stockMovementTypes.has(normalized)) {

@@ -52,6 +52,8 @@ function buildIpcHandlers() {
         "stockMovement:list": withChannelError("stockMovement:list", ({ filters }) => (0, repositories_1.listStockMovements)(filters)),
         "stockMovement:getById": withChannelError("stockMovement:getById", ({ id }) => (0, repositories_1.getStockMovementById)(id)),
         "stockMovement:delete": withChannelError("stockMovement:delete", ({ id, revertStock }) => (0, repositories_1.deleteStockMovement)(id, revertStock ?? false)),
+        "stockMovement:listExpiring": withChannelError("stockMovement:listExpiring", () => (0, repositories_1.listExpiringStockMovements)()),
+        "stockMovement:dismissExpiry": withChannelError("stockMovement:dismissExpiry", ({ id }) => (0, repositories_1.dismissStockMovementExpiry)(id)),
         "sale:create": withChannelError("sale:create", ({ data }) => (0, saleService_1.createSale)(data)),
         "sale:list": withChannelError("sale:list", ({ filters }) => (0, saleService_1.listSales)(filters)),
         "sale:getById": withChannelError("sale:getById", ({ id }) => (0, saleService_1.getSaleById)(id)),

@@ -163,7 +163,7 @@ describe('Sells — flujo de confirmación de venta', () => {
       await addOneProduct()
       // total sin descuento = 1000; con 10% descuento = 900
       // El input de descuento está en el PaymentPanel; usar fireEvent para cambiarlo
-      const discountInput = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
+      const discountInput = screen.getByRole('textbox', { name: /descuento/i }) as HTMLInputElement
       fireEvent.change(discountInput, { target: { value: '10' } })
       fireEvent.blur(discountInput)
       fireEvent.change(screen.getByRole('textbox', { name: 'EFECTIVO' }), { target: { value: '900' } })

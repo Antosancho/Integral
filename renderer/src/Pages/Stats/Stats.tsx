@@ -132,34 +132,39 @@ export default function Stats() {
   return (
     <div className="stats-page">
 
-      {/* Selector de período */}
-      <div className="stats-period-selector">
-        {(['today', 'week', 'month', 'custom'] as PeriodPreset[]).map((p) => (
-          <button
-            key={p}
-            className={`stats-period-btn${preset === p ? ' stats-period-btn--active' : ''}`}
-            onClick={() => setPreset(p)}
-          >
-            {PERIOD_LABELS[p]}
-          </button>
-        ))}
+      {/* Cabecera fija: selector de período */}
+      <div className="stats-header">
+        <div className="stats-period-selector">
+          {(['today', 'week', 'month', 'custom'] as PeriodPreset[]).map((p) => (
+            <button
+              key={p}
+              className={`stats-period-btn${preset === p ? ' stats-period-btn--active' : ''}`}
+              onClick={() => setPreset(p)}
+            >
+              {PERIOD_LABELS[p]}
+            </button>
+          ))}
+        </div>
+
+        {preset === 'custom' && (
+          <div className="stats-custom-range">
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+            />
+            <span>—</span>
+            <input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+            />
+          </div>
+        )}
       </div>
 
-      {preset === 'custom' && (
-        <div className="stats-custom-range">
-          <input
-            type="date"
-            value={customFrom}
-            onChange={(e) => setCustomFrom(e.target.value)}
-          />
-          <span>—</span>
-          <input
-            type="date"
-            value={customTo}
-            onChange={(e) => setCustomTo(e.target.value)}
-          />
-        </div>
-      )}
+      {/* Contenido scrolleable */}
+      <div className="stats-scroll-area">
 
       {loading && <p className="stats-loading">Cargando...</p>}
       {error && <p className="stats-error">{error}</p>}
@@ -318,6 +323,7 @@ export default function Stats() {
         </>
       )}
 
+      </div>
     </div>
   )
 }

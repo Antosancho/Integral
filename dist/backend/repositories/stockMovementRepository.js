@@ -6,6 +6,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createStockMovement = createStockMovement;
 exports.listStockMovements = listStockMovements;
 exports.getStockMovementById = getStockMovementById;
+exports.listExpiringStockMovements = listExpiringStockMovements;
+exports.dismissStockMovementExpiry = dismissStockMovementExpiry;
 exports.deleteStockMovement = deleteStockMovement;
 const client_1 = __importDefault(require("../db/client"));
 const utilities_1 = require("./utilities");
@@ -45,9 +47,12 @@ function buildStockMovementWhere(filters) {
 async function createStockMovement(data) {
     const type = (0, utilities_1.normalizeStockMovementType)(data.type);
     const applyToStock = data.applyToStock ?? true;
+    // IN acepta negativos (merma/baja); SALE solo positivos; ADJUSTMENT cualquier entero
     const quantity = type === "ADJUSTMENT"
         ? (0, utilities_1.ensureInteger)(data.quantity, "quantity")
-        : (0, utilities_1.ensurePositiveInteger)(data.quantity, "quantity");
+        : type === "IN"
+            ? (0, utilities_1.ensureNonZeroInteger)(data.quantity, "quantity")
+            : (0, utilities_1.ensurePositiveInteger)(data.quantity, "quantity");
     return client_1.default.$transaction(async (tx) => {
         let appliedDelta;
         if (applyToStock) {
@@ -70,7 +75,9 @@ async function createStockMovement(data) {
                 quantity,
                 notes: (0, utilities_1.normalizeOptionalString)(data.notes),
                 ...(data.date ? { date: data.date } : {}),
-                ...(appliedDelta !== undefined ? { appliedDelta } : {})
+                ...(appliedDelta !== undefined ? { appliedDelta } : {}),
+                // expiryDismissedAt siempre null al crear; solo se setea con dismissStockMovementExpiry
+                ...(data.expiryDate !== undefined ? { expiryDate: data.expiryDate } : {})
             },
             include: {
                 product: true
@@ -97,6 +104,36 @@ async function getStockMovementById(id) {
         include: {
             product: true
         }
+    });
+}
+/**
+ * Lista los lotes con vencimiento pendiente de descarte:
+ * expiryDate <= fin de hoy (hora local) y expiryDismissedAt IS NULL.
+ * La clasificación "vencido" vs "vence hoy" se hace en el renderer
+ * para mantener el repo simple y evitar duplicar lógica de zona horaria.
+ */
+async function listExpiringStockMovements() {
+    const now = new Date();
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    return client_1.default.stockMovement.findMany({
+        where: {
+            type: "IN",
+            expiryDate: { not: null, lte: endOfToday },
+            expiryDismissedAt: null
+        },
+        orderBy: { expiryDate: "asc" },
+        include: { product: true }
+    });
+}
+/**
+ * Marca un lote como descartado de forma permanente (no reaparecerá al recargar la app).
+ * No modifica el stock; solo setea expiryDismissedAt con timestamp actual.
+ */
+async function dismissStockMovementExpiry(id) {
+    return client_1.default.stockMovement.update({
+        where: { id },
+        data: { expiryDismissedAt: new Date() },
+        include: { product: true }
     });
 }
 // Deletes a movement and can optionally revert its stock impact.

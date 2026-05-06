@@ -9,12 +9,14 @@ import {
   deleteProduct,
   deleteStockMovement,
   deleteSupplier,
+  dismissStockMovementExpiry,
   getCategoryById,
   getProductByBarcode,
   getProductById,
   getStockMovementById,
   getSupplierById,
   listCategories,
+  listExpiringStockMovements,
   listProducts,
   listStockMovements,
   listSuppliers,
@@ -154,6 +156,14 @@ export function buildIpcHandlers(): IpcHandlerMap {
     "stockMovement:delete": withChannelError<{ id: number; revertStock?: boolean }>(
       "stockMovement:delete",
       ({ id, revertStock }) => deleteStockMovement(id, revertStock ?? false)
+    ),
+    "stockMovement:listExpiring": withChannelError<Record<string, never>>(
+      "stockMovement:listExpiring",
+      () => listExpiringStockMovements()
+    ),
+    "stockMovement:dismissExpiry": withChannelError<{ id: number }>(
+      "stockMovement:dismissExpiry",
+      ({ id }) => dismissStockMovementExpiry(id)
     ),
 
     "sale:create": withChannelError<{ data: CreateSaleInput }>("sale:create", ({ data }) =>
