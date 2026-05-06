@@ -1,0 +1,120 @@
+.expiry-alert {
+  position: relative;
+}
+
+/* Botón del header: fondo blanco, borde rojo */
+.expiry-alert__trigger {
+  background: white;
+  border: 2px solid #dc2626;
+  color: #991b1b;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.expiry-alert__trigger:hover {
+  background: #fef2f2;
+}
+
+/* Dropdown del popup */
+.expiry-alert__popup {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: white;
+  border: 2px solid #dc2626;
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 360px;
+  max-width: 500px;
+  max-height: 60vh;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+/* Títulos de sección */
+.expiry-alert__section-title {
+  margin: 8px 0 6px;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.expiry-alert__section-title--expired {
+  color: #991b1b;
+}
+
+.expiry-alert__section-title--today {
+  color: #b45309;
+}
+
+/* Fila de cada lote */
+.expiry-alert__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid #f3f4f6;
+}
+
+.expiry-alert__row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.expiry-alert__row-name {
+  font-weight: 600;
+  font-size: 0.875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.expiry-alert__row-meta {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.expiry-alert__row-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Botón "Ya lo saqué" — rojo */
+.expiry-alert__btn-remove {
+  background: #dc2626;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.expiry-alert__btn-remove:hover {
+  background: #b91c1c;
+}
+
+/* Botón "Recordame luego" — neutro */
+.expiry-alert__btn-remind {
+  background: white;
+  color: #1f2937;
+  border: 1px solid #cbd5e1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.expiry-alert__btn-remind:hover {
+  background: #f1f5f9;
+}

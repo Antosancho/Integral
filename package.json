@@ -7,6 +7,7 @@
     "backend"
   ],
   "scripts": {
+    "postinstall": "prisma generate --schema backend/prisma/schema.prisma",
     "build": "tsc",
     "dev": "node scripts/dev.js",
     "dev:renderer": "cd renderer && npm run dev",
@@ -15,8 +16,15 @@
     "prisma:migrate": "npx prisma migrate dev --schema backend/prisma/schema.prisma --name init_stock_schema",
     "prisma:reset": "npx prisma migrate reset --force --schema backend/prisma/schema.prisma",
     "prisma:studio": "npx prisma studio --schema backend/prisma/schema.prisma",
-    "test:backend-db": "npx ts-node backend/test.ts",
-    "test:ipc-bridge": "npx ts-node backend/testIpcBridge.ts"
+    "prisma:deploy": "npx prisma migrate deploy --schema backend/prisma/schema.prisma",
+    "wipe:test-data": "ts-node scripts/wipe-test-data.ts",
+    "test:backend-db": "cross-env ALLOW_INTEGRATION_TESTS=1 ts-node backend/test.ts",
+    "test:ipc-bridge": "cross-env ALLOW_INTEGRATION_TESTS=1 ts-node backend/testIpcBridge.ts",
+    "test:db-path-config": "npx ts-node backend/__tests__/db-path-config.test.ts",
+    "test:schema-db-sync": "npx ts-node backend/__tests__/schema-db-sync.test.ts",
+    "test:saleService-create": "npx ts-node backend/__tests__/saleService-create.test.ts",
+    "test:wipe-script": "npx ts-node backend/__tests__/wipe-test-data.test.ts",
+    "test:backend": "npm run test:db-path-config && npm run test:schema-db-sync && npm run test:saleService-create && npm run test:wipe-script"
   },
   "keywords": [],
   "author": "",
@@ -24,6 +32,7 @@
   "description": "",
   "devDependencies": {
     "@types/node": "^25.2.2",
+    "cross-env": "^7.0.3",
     "electron": "^40.2.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"

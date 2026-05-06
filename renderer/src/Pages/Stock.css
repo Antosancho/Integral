@@ -14,7 +14,7 @@
 
 .stock-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   gap: 8px;
   padding: 12px;
 }
@@ -95,4 +95,18 @@
 
 .stock-actions__btn-load:hover {
   background: #059669;
+}
+
+.stock-grid__btn-edit {
+  background: #f59e0b;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.stock-grid__btn-edit:hover {
+  background: #d97706;
 }

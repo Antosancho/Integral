@@ -8,7 +8,7 @@ import SalesHistory from "./Pages/SalesHistory/SalesHistory"
 import Stats from "./Pages/Stats/Stats"
 
 function App() {
-  const [content, setContent] = useState<Cont>(null)
+  const [content, setContent] = useState<Cont>('stock')
 
   return (
     <>
@@ -18,7 +18,6 @@ function App() {
           {content === "stock" && <Stock />}
           {content === "history" && <SalesHistory />}
           {content === "stats" && <Stats />}
-          {content === null && <div>Home</div>}
         </main>
     </>
   )

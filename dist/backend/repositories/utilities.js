@@ -8,6 +8,7 @@ exports.normalizeOptionalString = normalizeOptionalString;
 exports.ensureInteger = ensureInteger;
 exports.ensurePositiveInteger = ensurePositiveInteger;
 exports.ensureNonNegativeInteger = ensureNonNegativeInteger;
+exports.ensureNonZeroInteger = ensureNonZeroInteger;
 exports.normalizeStockMovementType = normalizeStockMovementType;
 exports.normalizePagination = normalizePagination;
 exports.normalizeSalePaymentMethod = normalizeSalePaymentMethod;
@@ -81,6 +82,13 @@ function ensureNonNegativeInteger(value, fieldName) {
     if (value < 0) {
         throw new Error(`${fieldName} must be greater than or equal to 0`);
     }
+    return value;
+}
+/** Acepta cualquier entero distinto de cero (positivo o negativo). Usado para mermas en tipo IN. */
+function ensureNonZeroInteger(value, fieldName) {
+    ensureInteger(value, fieldName);
+    if (value === 0)
+        throw new Error(`${fieldName} must not be zero`);
     return value;
 }
 function normalizeStockMovementType(type) {

@@ -1,15 +1,17 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
+import type { ReactNode } from 'react'
 import "./Stock.css"
 import { formatMoney } from "../utils/format"
-import CreateProductModal from './Stock/CreateProductModal'
+import ProductFormModal from './Stock/ProductFormModal'
 import LoadStockModal from './Stock/LoadStockModal'
 
 type Product = Awaited<ReturnType<Window["api"]["listProducts"]>>[number]
 
+/** Definición de columna para la grilla de productos. */
 type Column = {
   key: string
   label: string
-  render: (product: Product) => string
+  render: (product: Product) => ReactNode
 }
 
 export default function Stock() {
@@ -19,26 +21,37 @@ export default function Stock() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showLoadStockModal, setShowLoadStockModal] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  /** Producto seleccionado para edición; null cuando no hay ninguno abierto. */
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
 
-  const columns = useMemo<Column[]>(
-    () => [
-      { key: "name", label: "Producto", render: (p) => p.name },
-      { key: "salePrice", label: "Precio", render: (p) => formatMoney(p.salePrice) },
-      { key: "stock", label: "Stock", render: (p) => String(p.stock) },
-      { key: "category", label: "Categoria", render: (p) => p.category.name },
-      {
-        key: "barcode",
-        label: "Codigo de barras",
-        render: (p) => (p.barcode === null ? "-" : p.barcode.toString())
-      },
-      {
-        key: "advanced",
-        label: "Informacion avanzada",
-        render: (p) => `Min: ${p.minStock} | Prov: ${p.supplier.name}`
-      }
-    ],
-    []
-  )
+  const columns: Column[] = [
+    { key: "name", label: "Producto", render: (p) => p.name },
+    { key: "salePrice", label: "Precio", render: (p) => formatMoney(p.salePrice) },
+    { key: "stock", label: "Stock", render: (p) => String(p.stock) },
+    { key: "category", label: "Categoria", render: (p) => p.category.name },
+    {
+      key: "barcode",
+      label: "Codigo de barras",
+      render: (p) => (p.barcode === null ? "-" : p.barcode.toString())
+    },
+    {
+      key: "advanced",
+      label: "Informacion avanzada",
+      render: (p) => `Min: ${p.minStock} | Prov: ${p.supplier.name}`
+    },
+    {
+      key: 'actions',
+      label: 'Acciones',
+      render: (p) => (
+        <button
+          className="stock-grid__btn-edit"
+          onClick={(e) => { e.stopPropagation(); setEditingProduct(p) }}
+        >
+          Editar
+        </button>
+      )
+    }
+  ]
 
   useEffect(() => {
     let cancelled = false
@@ -98,11 +111,23 @@ export default function Stock() {
         </section>
         </div>
 
-      <CreateProductModal
+      {/* Modal de creación de producto */}
+      <ProductFormModal
         open={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSuccess={() => {
           setShowCreateModal(false)
+          setReloadKey((k) => k + 1)
+        }}
+      />
+
+      {/* Modal de edición de producto — se abre al hacer clic en "Editar" */}
+      <ProductFormModal
+        open={!!editingProduct}
+        product={editingProduct ?? undefined}
+        onClose={() => setEditingProduct(null)}
+        onSuccess={() => {
+          setEditingProduct(null)
           setReloadKey((k) => k + 1)
         }}
       />

@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react"
 import type { Cont } from "../renderTypes"
+import ExpiryAlertWidget from '../Components/ExpiryAlert/ExpiryAlertWidget'
 
 interface HeaderProps {
   content: Cont
@@ -14,13 +15,6 @@ export default function Header({ content, setContent }: HeaderProps) {
   return (
     <header className="Header">
        <ul className="Header__nav">
-         <button
-           className="header-button"
-           onClick={() => handleClick(null)}
-           aria-pressed={content === null}
-         >
-           Home
-         </button>
          <button
            className="header-button"
            onClick={() => handleClick("sells")}
@@ -50,6 +44,8 @@ export default function Header({ content, setContent }: HeaderProps) {
            Estadísticas
          </button>
        </ul>
+       {/* Widget de alertas de vencimiento: se posiciona a la derecha gracias a justify-content: space-between del .Header */}
+       <ExpiryAlertWidget />
     </header>
   )
 }

@@ -59,7 +59,7 @@ describe('PaymentPanel — render', () => {
 
   it('muestra el discountPct en el input de descuento', () => {
     renderPanel({ discountPct: 15 })
-    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
+    const input = screen.getByRole('textbox', { name: /descuento/i }) as HTMLInputElement
     expect(input.value).toBe('15')
   })
 })
@@ -168,7 +168,7 @@ describe('PaymentPanel — interacciones', () => {
   it('al hacer blur con número válido llama onDiscountChange', () => {
     const onDiscountChange = vi.fn()
     renderPanel({ onDiscountChange })
-    const input = screen.getByRole('spinbutton', { name: /descuento/i })
+    const input = screen.getByRole('textbox', { name: /descuento/i })
     fireEvent.change(input, { target: { value: '20' } })
     fireEvent.blur(input)
     expect(onDiscountChange).toHaveBeenCalledWith(20)
@@ -177,7 +177,7 @@ describe('PaymentPanel — interacciones', () => {
   it('al hacer blur con valor fuera de rango NO llama onDiscountChange y revierte el draft', () => {
     const onDiscountChange = vi.fn()
     renderPanel({ onDiscountChange, discountPct: 5 })
-    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
+    const input = screen.getByRole('textbox', { name: /descuento/i }) as HTMLInputElement
     fireEvent.change(input, { target: { value: '999' } })
     fireEvent.blur(input)
     expect(onDiscountChange).not.toHaveBeenCalled()
@@ -187,7 +187,7 @@ describe('PaymentPanel — interacciones', () => {
   it('borrar el 0 no bloquea la edición — el input acepta string vacío como draft', () => {
     const onDiscountChange = vi.fn()
     renderPanel({ onDiscountChange })
-    const input = screen.getByRole('spinbutton', { name: /descuento/i }) as HTMLInputElement
+    const input = screen.getByRole('textbox', { name: /descuento/i }) as HTMLInputElement
     fireEvent.change(input, { target: { value: '' } })
     expect(input.value).toBe('')
     expect(onDiscountChange).not.toHaveBeenCalled()

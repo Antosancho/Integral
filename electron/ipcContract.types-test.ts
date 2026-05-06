@@ -54,7 +54,9 @@ const bareMovement: BareStockMovementFromApi = {
   date: new Date(),
   notes: null,
   appliedDelta: null,
-  saleId: null
+  saleId: null,
+  expiryDate: null,
+  expiryDismissedAt: null
 }
 
 const movement: StockMovementFromApi = {
@@ -107,6 +109,8 @@ const api: ElectronApi = {
   listStockMovements: async (_f) => [movement],
   getStockMovementById: async (_id) => movement,
   deleteStockMovement: async (_id, _r) => bareMovement,
+  listExpiringStockMovements: async () => [movement],
+  dismissStockMovementExpiry: async (_id) => movement,
 
   createSale: async (_d) => ({} as SaleFromApi),
   listSales: async (_f) => [] as SaleFromApi[],

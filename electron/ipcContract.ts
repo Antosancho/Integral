@@ -57,6 +57,8 @@ export interface BareStockMovementFromApi {
   notes: string | null
   appliedDelta: number | null
   saleId: number | null
+  expiryDate: Date | null
+  expiryDismissedAt: Date | null
 }
 
 export interface StockMovementFromApi extends BareStockMovementFromApi {
@@ -179,6 +181,8 @@ export interface ElectronApi {
   listStockMovements: (filters?: ListStockMovementsFilters) => Promise<StockMovementFromApi[]>
   getStockMovementById: (id: number) => Promise<StockMovementFromApi | null>
   deleteStockMovement: (id: number, revertStock?: boolean) => Promise<BareStockMovementFromApi>
+  listExpiringStockMovements: () => Promise<StockMovementFromApi[]>
+  dismissStockMovementExpiry: (id: number) => Promise<StockMovementFromApi>
 
   createSale: (data: CreateSalePayload) => Promise<SaleFromApi>
   listSales: (filters?: ListSalesFiltersPayload) => Promise<SaleFromApi[]>
@@ -222,6 +226,8 @@ export function buildElectronApi(invoke: IpcInvoke): ElectronApi {
     getStockMovementById: (id) => call<StockMovementFromApi | null>("stockMovement:getById", { id }),
     deleteStockMovement: (id, revertStock) =>
       call<BareStockMovementFromApi>("stockMovement:delete", { id, revertStock }),
+    listExpiringStockMovements: () => call<StockMovementFromApi[]>("stockMovement:listExpiring", {}),
+    dismissStockMovementExpiry: (id) => call<StockMovementFromApi>("stockMovement:dismissExpiry", { id }),
 
     createSale: (data) => call<SaleFromApi>("sale:create", { data }),
     listSales: (filters) => call<SaleFromApi[]>("sale:list", { filters }),

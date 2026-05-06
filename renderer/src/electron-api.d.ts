@@ -47,6 +47,8 @@ type CreateProductInput = {
   barcode?: BarcodeInput | null
   stock?: number
   minStock?: number
+  /** Fecha de vencimiento del lote inicial. Solo aplica cuando stock > 0. */
+  expiryDate?: Date | null
 }
 
 type UpdateProductInput = {
@@ -75,6 +77,8 @@ type CreateStockMovementInput = {
   notes?: string | null
   date?: Date
   applyToStock?: boolean
+  /** Fecha de vencimiento del lote. Opcional — si no perece se omite. */
+  expiryDate?: Date | null
 }
 
 type ListStockMovementsFilters = PaginationInput & {
@@ -125,6 +129,8 @@ export type BareStockMovementFromApi = {
   notes: string | null
   appliedDelta: number | null
   saleId: number | null
+  expiryDate: Date | null
+  expiryDismissedAt: Date | null
 }
 
 export type StockMovementFromApi = BareStockMovementFromApi & {
@@ -247,6 +253,8 @@ type ElectronApi = {
   listStockMovements: (filters?: ListStockMovementsFilters) => Promise<StockMovementFromApi[]>
   getStockMovementById: (id: number) => Promise<StockMovementFromApi | null>
   deleteStockMovement: (id: number, revertStock?: boolean) => Promise<BareStockMovementFromApi>
+  listExpiringStockMovements: () => Promise<StockMovementFromApi[]>
+  dismissStockMovementExpiry: (id: number) => Promise<StockMovementFromApi>
 
   createSale: (data: CreateSalePayload) => Promise<SaleFromApi>
   listSales: (filters?: ListSalesFiltersPayload) => Promise<SaleFromApi[]>

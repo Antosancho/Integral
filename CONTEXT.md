@@ -154,8 +154,8 @@ El módulo de ventas requiere tres tablas nuevas:
 | Pantalla | Estado |
 |----------|--------|
 | Header (nav) | Implementado |
-| Home | Pantalla de bienvenida sin datos (placeholder OK por ahora) |
-| Stock (lista de productos) | Implementado — tabla solo lectura; **falta CRUD** |
+| Home | **Eliminada** — la app arranca directamente en Stock |
+| Stock (lista de productos) | Implementado — tabla con crear y cargar stock; **editar producto en curso** |
 | Sells | **Pendiente — próximo a desarrollar** |
 | Stats (estadísticas) | **Planificada — ver sección abajo** |
 
@@ -268,6 +268,24 @@ Nueva pantalla `Stats` accesible desde el Header (botón "Estadísticas"). Perí
 - Crear / editar / eliminar productos desde la UI
 - Al crear/editar, si la categoría o el proveedor no existen, el usuario puede **crearlos en el momento** via un modal/selector emergente (patrón tipo explorador de archivos de Windows: ventana que lista los existentes y permite crear uno nuevo sin salir del formulario principal)
 
+#### Iteración actual (en curso): Editar productos + eliminar pantalla Home + quitar flechas del input de descuento
+
+**Feature 1 — Editar productos:**
+- Botón "Editar" por fila en la tabla de Stock. Abre `ProductFormModal` (componente unificado que reemplaza `CreateProductModal`) en modo edición, con los campos pre-rellenos con los datos actuales del producto.
+- `ProductFormModal.tsx` reemplaza completamente `CreateProductModal.tsx`. Recibe prop opcional `product?: ProductFromApi`; si está presente = modo edición, si no = modo creación.
+- En modo edición: campo "Stock" es read-only (con nota "Para modificar el stock usá 'Cargar stock'"); todos los demás campos son editables incluyendo "Stock mínimo". No se envía `stock` en el payload de edición.
+- En modo creación: comportamiento idéntico al `CreateProductModal` original.
+- El backend ya tiene `product:update` implementado en todas las capas (repositorio, handler IPC, contrato, tipos del renderer).
+- `CreateProductModal.tsx` y su test se eliminan; `ProductFormModal.tsx` con su test unificado (Suite A: creación + Suite B: edición) los reemplaza.
+- CSS: columna "Acciones" suma una 7.ª columna al grid (`repeat(7, 1fr)`). Botón editar en amarillo (#f59e0b). Clase nueva `.create-product-modal__field-help` para el texto de ayuda del stock read-only.
+
+**Feature 2 — Eliminar pantalla Home:**
+- `Cont` ya no incluye `null`. El estado inicial de la app arranca en `'stock'` en lugar de `null`.
+- Se elimina el botón "Home" del Header, el branch `{content === null && <div>Home</div>}` de App.tsx y el archivo `HomeScreen.tsx`.
+
+**Feature 3 — Quitar flechas del input de descuento:**
+- En `PaymentPanel.tsx`, el input de descuento pasa de `type="number"` + `step="0.01"` a `type="text"` + `inputMode="decimal"`. Alinea el input con el patrón del resto del proyecto.
+
 #### Iteración anterior (completa): Crear producto desde la pantalla Stock
 
 **Feature**: botón "+ Nuevo producto" en la pantalla Stock que abre un modal con formulario completo de alta de producto.
@@ -300,6 +318,31 @@ Nueva pantalla `Stats` accesible desde el Header (botón "Estadísticas"). Perí
 
 **El backend IPC no requiere cambios**: `product:create`, `category:list`, `category:create`, `supplier:list`, `supplier:create` ya están implementados en `electron/ipcHandlers.ts` y `electron/ipcContract.ts`.
 
+#### Próxima feature (definida, pendiente de implementación): Vencimiento de lotes + alerta en header
+
+**Requerimiento del cliente:**
+- En "Cargar stock", agregar un campo para indicar el **vencimiento del lote** que se está ingresando.
+- Al abrir la aplicación, advertir si hay lotes que **vencen hoy** o están **vencidos**.
+- La advertencia aparece como una **alerta blanca con borde rojo** ubicada en el **header**, alineada a la **derecha** (donde están los botones de navegación de ventanas).
+- Cada lote alertado tiene **2 botones**:
+  - **"Ya lo saqué"** — descarta la alerta de forma permanente (no vuelve a aparecer).
+  - **"Recordame la próxima vez"** — descarta solo en la sesión actual; al reabrir la app vuelve a aparecer.
+
+**Granularidad y semántica acordadas (ver `plan.md` para detalle de implementación):**
+- El vencimiento se guarda **por lote** (= por `StockMovement` tipo `IN`), no por producto. Un mismo producto puede tener varios lotes con vencimientos distintos.
+- Campo opcional: si un producto no perece, se deja vacío y no genera alerta.
+- El campo aparece en `LoadStockModal` (siempre) y en `ProductFormModal` modo creación **solo cuando el stock inicial es > 0**.
+- Clasificación en zona horaria local: `expired` = `expiryDate < hoy 00:00`; `expiring_today` = `hoy 00:00 ≤ expiryDate ≤ hoy 23:59`.
+- "Ya lo saqué" persiste un timestamp `expiryDismissedAt` en DB. **No** ajusta stock automáticamente.
+- "Recordame luego" vive solo en estado del renderer (set de IDs en sesión).
+- Botón consolidado: solo muestra la(s) categoría(s) con count > 0. Ej: "⚠ 2 vencidos" si no hay ninguno venciendo hoy; "⚠ 3 vencen hoy" si no hay vencidos.
+- **Lotes vencidos con stock ya vendido**: la alerta igual aparece (el sistema no mira el stock residual, solo filtra por `expiryDate` y `expiryDismissedAt`).
+- **`LoadStockModal` acepta cantidades negativas** para registrar merma/baja manual de stock. Cantidad positiva → ingreso; cantidad negativa → merma. La UI valida entero ≠ 0. El backend permite `type: 'IN'` con quantity negativo.
+- **Producto nuevo con stock > 0 sin vencimiento**: siempre se crea el `StockMovement IN` para trazabilidad, aunque no tenga `expiryDate`. Así el stock inicial queda registrado como lote. Si la fecha se omitió, el campo queda `null`.
+- Componente ubicado en `renderer/src/Components/ExpiryAlert/` (no en Pages).
+
+---
+
 #### Iteración actual (en curso): Cargar stock desde la pantalla Stock
 
 **Feature**: botón "Cargar stock" al lado de "+ Nuevo producto" en la pantalla Stock. Abre un modal independiente que permite sumar unidades a un **producto existente** (no se pueden crear productos nuevos desde aquí).
@@ -325,6 +368,24 @@ Nueva pantalla `Stats` accesible desde el Header (botón "Estadísticas"). Perí
 - La cantidad solo acepta enteros positivos (`Number.isInteger(n) && n > 0`); no se usa `normalizeDecimal` porque no hay decimales.
 - `notes` vacío se envía como `undefined` (omitido del payload).
 - El `useEffect` del listener global de Escape para el paso "confirm" debe listar `[open, step, submitting, onClose]` como dependencias para evitar stale closures.
+
+#### Iteración siguiente: Vencimiento de lotes + alerta en header
+
+**Schema**:
+- `StockMovement` agrega `expiryDate DateTime?` y `expiryDismissedAt DateTime?` (ambos nullables, retrocompatible). Migración `add_expiry_to_stock_movement`. Índice `@@index([expiryDate])`.
+
+**Backend**:
+- `utilities.ts` agrega `ensureNonZeroInteger` (permite negativos, rechaza 0).
+- `createStockMovement` acepta `expiryDate?: Date | null` y permite `quantity` negativo para tipo `IN` (merma).
+- `createProduct` acepta `expiryDate?: Date | null`. **Siempre** crea StockMovement IN cuando `stock > 0`, con o sin `expiryDate` (trazabilidad del lote inicial). `appliedDelta: 0` porque el stock ya quedó persistido en `Product.create`.
+- Nuevas funciones: `listExpiringStockMovements()` y `dismissStockMovementExpiry(id)`. Nuevos canales IPC: `stockMovement:listExpiring`, `stockMovement:dismissExpiry`.
+
+**Frontend**:
+- `LoadStockModal` agrega input opcional de vencimiento en paso "confirm". La cantidad acepta negativos (merma/baja de stock): label actualizado a "Cantidad a agregar (negativo = merma) *".
+- `ProductFormModal` (modo creación) muestra el input solo cuando el stock inicial > 0. En edición no aparece.
+- Util compartido `renderer/src/utils/expiry.ts` con `parseExpiryInput` (con validación de bounds de mes/día), `formatExpiryInput`, `classifyExpiry`.
+- Componente `ExpiryAlertWidget` en `renderer/src/Components/ExpiryAlert/`, montado dentro del `<header>`. Al abrir la app pide `listExpiringStockMovements`, clasifica en `expired` vs `expiring_today`, y muestra un botón blanco con borde rojo que solo incluye los segmentos con count > 0 (`"⚠ 2 vencidos"`, `"⚠ 3 vencen hoy"` o `"⚠ 2 vencidos · 3 vencen hoy"`). Cada fila del popup tiene 2 botones: "Ya lo saqué" (persiste descarte vía `dismissStockMovementExpiry`) y "Recordame luego" (descarte solo de sesión). Si no hay items, el widget retorna `null`.
+- Las clasificaciones de "expired" y "expiring_today" se calculan en el renderer con zona local del SO; el backend solo filtra `expiryDate <= endOfToday AND expiryDismissedAt IS NULL`.
 
 ---
 
@@ -356,6 +417,9 @@ Prisma necesita la variable `DATABASE_URL` para conectarse a SQLite. Se resuelve
 2. **`backend/db/client.ts`** tiene un fallback `loadEnv()` que lee un `.env` desde la raíz del proyecto si `DATABASE_URL` no está seteada. Esto es útil para scripts standalone (`test:backend-db`, `test:ipc-bridge`) que se ejecutan via `ts-node` y no pasan por `main.ts`.
 
 **Por qué este diseño:** el código fuente se distribuye compilado al cliente final, así que un `.env` en la raíz del proyecto no llega al instalador. Hay que setear `DATABASE_URL` desde el main process con un path conocido y escribible. El `.env` de la raíz queda solo como conveniencia para desarrollo y scripts CLI.
+
+**Trampa conocida con `.env` y `DATABASE_URL`:**
+Prisma resuelve rutas relativas en `DATABASE_URL` respecto al directorio del schema (`backend/prisma/`), no respecto al CWD. Por eso, en este proyecto, el `.env` raíz debe usar `DATABASE_URL="file:./dev.db"` y no `DATABASE_URL="file:./backend/prisma/dev.db"`. El runtime de Electron resuelve el path programáticamente en `setupEnv.ts` y apunta a `backend/prisma/dev.db`. Los scripts `test:db-path-config` y `test:schema-db-sync` verifican que ambos paths coincidan y que el schema esté sincronizado con la DB.
 
 **Pendiente para producción:** la primera ejecución en una máquina nueva todavía no genera la base ni corre las migraciones automáticamente. Cuando se empaquete el instalador, hay que decidir entre (a) bundlear una `dev.db` semilla y copiarla a `userData` en el primer arranque o (b) ejecutar `prisma migrate deploy` programáticamente al iniciar.
 

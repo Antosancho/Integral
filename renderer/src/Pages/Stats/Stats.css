@@ -1,7 +1,27 @@
 .stats-page {
-  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.stats-header {
+  flex-shrink: 0;
+  padding: 24px 24px 0;
   max-width: 1200px;
+  width: 100%;
   margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.stats-scroll-area {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px 24px 24px;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
 /* ── Selector de período ─────────────────────────────────────────────────── */
@@ -41,6 +61,7 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 16px;
+  padding-bottom: 8px;
 }
 
 .stats-custom-range input[type="date"] {

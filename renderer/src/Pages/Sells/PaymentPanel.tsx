@@ -64,8 +64,8 @@ export default function PaymentPanel({
           <span className="payment-panel__box-label">DESCUENTO</span>
           <input
             className="payment-panel__discount-input"
-            type="number"
-            step="0.01"
+            type="text"
+            inputMode="decimal"
             aria-label="Descuento"
             value={discountDraft}
             onChange={e => setDiscountDraft(e.target.value)}

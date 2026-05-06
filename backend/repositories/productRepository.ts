@@ -21,6 +21,8 @@ export interface CreateProductInput {
   barcode?: BarcodeInput | null
   stock?: number
   minStock?: number
+  /** Fecha de vencimiento del lote inicial. Solo aplica cuando stock > 0. */
+  expiryDate?: Date | null
 }
 
 export interface UpdateProductInput {
@@ -57,23 +59,46 @@ function buildProductWhere(filters?: ProductFilters): Prisma.ProductWhereInput {
   }
 }
 
-// Creates a product and validates stock-related values.
+/**
+ * Crea un producto y, cuando stock > 0, genera un StockMovement IN inicial
+ * en la misma transacción para garantizar trazabilidad del lote.
+ * appliedDelta = 0 porque el stock ya quedó persistido en Product.create;
+ * el movement solo registra el lote (y opcionalmente su fecha de vencimiento).
+ */
 export async function createProduct(data: CreateProductInput) {
-  const stock = data.stock ?? 0
-  const minStock = data.minStock ?? 0
+  const stock = ensureNonNegativeInteger(data.stock ?? 0, "stock")
+  const minStock = ensureNonNegativeInteger(data.minStock ?? 0, "minStock")
 
-  return prisma.product.create({
-    data: {
-      name: normalizeRequiredString(data.name, "name"),
-      purchasePrice: toDecimal(data.purchasePrice),
-      salePrice: toDecimal(data.salePrice),
-      categoryId: data.categoryId,
-      supplierId: data.supplierId,
-      barcode: data.barcode !== undefined && data.barcode !== null ? toBigInt(data.barcode) : null,
-      stock: ensureNonNegativeInteger(stock, "stock"),
-      minStock: ensureNonNegativeInteger(minStock, "minStock")
-    },
-    include: productInclude
+  return prisma.$transaction(async (tx) => {
+    const product = await tx.product.create({
+      data: {
+        name: normalizeRequiredString(data.name, "name"),
+        purchasePrice: toDecimal(data.purchasePrice),
+        salePrice: toDecimal(data.salePrice),
+        categoryId: data.categoryId,
+        supplierId: data.supplierId,
+        barcode: data.barcode !== undefined && data.barcode !== null ? toBigInt(data.barcode) : null,
+        stock,
+        minStock
+      },
+      include: productInclude
+    })
+
+    if (stock > 0) {
+      await tx.stockMovement.create({
+        data: {
+          productId: product.id,
+          type: "IN",
+          quantity: stock,
+          // delta 0: el stock ya quedó en Product.create; este mov solo registra el lote inicial
+          appliedDelta: 0,
+          notes: "Lote inicial al crear producto",
+          ...(data.expiryDate ? { expiryDate: data.expiryDate } : {})
+        }
+      })
+    }
+
+    return product
   })
 }
 

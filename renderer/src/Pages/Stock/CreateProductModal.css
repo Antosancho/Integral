@@ -90,3 +90,9 @@
   background: #93c5fd;
   cursor: not-allowed;
 }
+
+.create-product-modal__field-help {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 4px;
+}
