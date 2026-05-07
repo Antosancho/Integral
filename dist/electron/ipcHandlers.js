@@ -50,6 +50,16 @@ function buildIpcHandlers() {
         "product:delete": withChannelError("product:delete", ({ id }) => (0, repositories_1.deleteProduct)(id)),
         "stockMovement:create": withChannelError("stockMovement:create", ({ data }) => (0, repositories_1.createStockMovement)(data)),
         "stockMovement:list": withChannelError("stockMovement:list", ({ filters }) => (0, repositories_1.listStockMovements)(filters)),
+        "stockMovement:listLotsByProductIds": withChannelError("stockMovement:listLotsByProductIds", (payload) => {
+            const productIds = payload?.productIds;
+            if (!Array.isArray(productIds)) {
+                throw new Error("productIds must be an array");
+            }
+            if (!productIds.every((id) => typeof id === "number" && Number.isInteger(id))) {
+                throw new Error("productIds must contain only integer numbers");
+            }
+            return (0, repositories_1.listLotsByProductIds)(productIds);
+        }),
         "stockMovement:getById": withChannelError("stockMovement:getById", ({ id }) => (0, repositories_1.getStockMovementById)(id)),
         "stockMovement:delete": withChannelError("stockMovement:delete", ({ id, revertStock }) => (0, repositories_1.deleteStockMovement)(id, revertStock ?? false)),
         "stockMovement:listExpiring": withChannelError("stockMovement:listExpiring", () => (0, repositories_1.listExpiringStockMovements)()),

@@ -24,6 +24,7 @@ function buildElectronApi(invoke) {
         deleteProduct: (id) => call("product:delete", { id }),
         createStockMovement: (data) => call("stockMovement:create", { data }),
         listStockMovements: (filters) => call("stockMovement:list", { filters }),
+        listLotsByProductIds: (productIds) => call("stockMovement:listLotsByProductIds", { productIds }),
         getStockMovementById: (id) => call("stockMovement:getById", { id }),
         deleteStockMovement: (id, revertStock) => call("stockMovement:delete", { id, revertStock }),
         listExpiringStockMovements: () => call("stockMovement:listExpiring", {}),

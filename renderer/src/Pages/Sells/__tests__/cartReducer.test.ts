@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { ProductFromApi } from '../../../electron-api'
 import { cartReducer, initialCart, lineTotal } from '../cartReducer'
-import type { CartState } from '../types'
+import type { ProductCartLine } from '../types'
 
 const mockProduct = (id: number, overrides: Partial<ProductFromApi> = {}): ProductFromApi => ({
   id,
@@ -26,7 +26,7 @@ describe('cartReducer', () => {
       expect(next.lines).toHaveLength(1)
       expect(next.lines[0].quantity).toBe(1)
       expect(next.lines[0].kind).toBe('product')
-      expect((next.lines[0]).productId).toBe(1)
+      expect((next.lines[0] as ProductCartLine).productId).toBe(1)
       expect(typeof next.lines[0].lineId).toBe('string')
       expect(next.lines[0].lineId.length).toBeGreaterThan(0)
     })
@@ -56,7 +56,7 @@ describe('cartReducer', () => {
       const lineIdToRemove = state.lines.find(l => l.kind === 'product' && l.productId === 1)!.lineId
       const next = cartReducer(state, { type: 'REMOVE', lineId: lineIdToRemove })
       expect(next.lines).toHaveLength(1)
-      expect(next.lines[0].productId).toBe(2)
+      expect((next.lines[0] as ProductCartLine).productId).toBe(2)
     })
 
     it('con lineId inexistente no cambia el estado', () => {
@@ -227,7 +227,7 @@ describe('ADD_GENERAL', () => {
     let state = cartReducer(initialCart, { type: 'ADD', product: mockProduct(1) })
     state = cartReducer(state, { type: 'ADD_GENERAL', amount: '500' })
     expect(state.lines).toHaveLength(2)
-    const productLine = state.lines.find(l => l.kind === 'product')!
+    const productLine = state.lines.find(l => l.kind === 'product')! as ProductCartLine
     const generalLine = state.lines.find(l => l.kind === 'general')!
     expect(productLine.productId).toBe(1)
     expect(generalLine.unitPrice).toBe('500')

@@ -179,6 +179,7 @@ export interface ElectronApi {
 
   createStockMovement: (data: CreateStockMovementInput) => Promise<StockMovementFromApi>
   listStockMovements: (filters?: ListStockMovementsFilters) => Promise<StockMovementFromApi[]>
+  listLotsByProductIds: (productIds: number[]) => Promise<StockMovementFromApi[]>
   getStockMovementById: (id: number) => Promise<StockMovementFromApi | null>
   deleteStockMovement: (id: number, revertStock?: boolean) => Promise<BareStockMovementFromApi>
   listExpiringStockMovements: () => Promise<StockMovementFromApi[]>
@@ -223,6 +224,8 @@ export function buildElectronApi(invoke: IpcInvoke): ElectronApi {
 
     createStockMovement: (data) => call<StockMovementFromApi>("stockMovement:create", { data }),
     listStockMovements: (filters) => call<StockMovementFromApi[]>("stockMovement:list", { filters }),
+    listLotsByProductIds: (productIds) =>
+      call<StockMovementFromApi[]>("stockMovement:listLotsByProductIds", { productIds }),
     getStockMovementById: (id) => call<StockMovementFromApi | null>("stockMovement:getById", { id }),
     deleteStockMovement: (id, revertStock) =>
       call<BareStockMovementFromApi>("stockMovement:delete", { id, revertStock }),

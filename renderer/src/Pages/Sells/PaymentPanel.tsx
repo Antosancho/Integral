@@ -4,9 +4,7 @@ import {
   PAYMENT_METHODS,
   PAYMENT_LABELS,
   changeAmount,
-  autoFillFor,
   paymentsCoverTotal,
-  formatPaymentAmount,
   type PaymentMethod,
   type PaymentsDraft
 } from './payments'

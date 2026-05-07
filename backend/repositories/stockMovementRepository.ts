@@ -127,6 +127,27 @@ export async function listStockMovements(filters?: ListStockMovementsFilters) {
   })
 }
 
+/**
+ * Lista los lotes vivos para un conjunto de productos en una sola consulta.
+ * Solo incluye entradas de stock positivas, no descartadas por vencimiento.
+ */
+export async function listLotsByProductIds(productIds: number[]) {
+  if (productIds.length === 0) return []
+
+  return prisma.stockMovement.findMany({
+    where: {
+      productId: { in: productIds },
+      type: "IN",
+      expiryDismissedAt: null,
+      quantity: { gt: 0 }
+    },
+    orderBy: { expiryDate: "asc" },
+    include: {
+      product: true
+    }
+  })
+}
+
 // Reads one stock movement by id.
 export async function getStockMovementById(id: number) {
   return prisma.stockMovement.findUnique({

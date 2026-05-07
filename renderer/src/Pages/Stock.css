@@ -19,6 +19,10 @@
   padding: 12px;
 }
 
+.stock-grid--with-expiry {
+  grid-template-columns: repeat(8, 1fr);
+}
+
 .stock-grid__header {
   font-weight: 700;
   background: #dde5ee;
@@ -54,6 +58,10 @@
   .stock-grid {
     grid-template-columns: repeat(3, 1fr);
   }
+
+  .stock-grid--with-expiry {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
 @media (max-width: 640px) {
@@ -66,6 +74,7 @@
 .stock-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
   padding: 8px 12px;
 }
 
@@ -95,6 +104,34 @@
 
 .stock-actions__btn-load:hover {
   background: #059669;
+}
+
+.stock-actions__btn-search {
+  background: #64748b;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.stock-actions__btn-search:hover {
+  background: #475569;
+}
+
+.stock-actions__btn-expiry {
+  background: #8b5cf6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.stock-actions__btn-expiry:hover {
+  background: #7c3aed;
 }
 
 .stock-grid__btn-edit {

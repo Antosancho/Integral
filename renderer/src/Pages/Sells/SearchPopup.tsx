@@ -1,16 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ProductFromApi } from '../../electron-api'
+import LotsList from '../../Components/LotsList/LotsList'
+import type { ProductFromApi, StockMovementFromApi } from '../../electron-api'
+import { groupLotsByProduct } from '../../utils/lots'
 import { searchProducts } from './searchProducts'
+import './SearchPopup.css'
 
 type Props = {
   open: boolean
   onClose: () => void
   onSelect: (product: ProductFromApi) => void
+  allowNumericEnter?: boolean
+  showExpiry?: boolean
 }
 
-export default function SearchPopup({ open, onClose, onSelect }: Props) {
+export default function SearchPopup({
+  open,
+  onClose,
+  onSelect,
+  allowNumericEnter = false,
+  showExpiry = false
+}: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ProductFromApi[]>([])
+  const [lotsByProduct, setLotsByProduct] = useState<Map<number, StockMovementFromApi[]>>(new Map())
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -28,6 +40,7 @@ export default function SearchPopup({ open, onClose, onSelect }: Props) {
     if (!open) {
       setQuery('')
       setResults([])
+      setLotsByProduct(new Map())
       setSelectedIndex(0)
       setError(null)
     }
@@ -57,6 +70,31 @@ export default function SearchPopup({ open, onClose, onSelect }: Props) {
     }
   }, [query])
 
+  // Carga los lotes visibles solo cuando la columna de vencimientos esta activa.
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadLots() {
+      if (!showExpiry || results.length === 0) {
+        setLotsByProduct(new Map())
+        return
+      }
+
+      try {
+        const lots = await window.api.listLotsByProductIds(results.map((product) => product.id))
+        if (!cancelled) setLotsByProduct(groupLotsByProduct(lots))
+      } catch {
+        if (!cancelled) setLotsByProduct(new Map())
+      }
+    }
+
+    loadLots()
+
+    return () => {
+      cancelled = true
+    }
+  }, [showExpiry, results])
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     switch (e.key) {
       case 'ArrowDown':
@@ -68,7 +106,7 @@ export default function SearchPopup({ open, onClose, onSelect }: Props) {
         setSelectedIndex(i => Math.max(i - 1, 0))
         break
       case 'Enter':
-        if (/^\d+$/.test(query.trim())) break
+        if (!allowNumericEnter && /^\d+$/.test(query.trim())) break
         if (results[selectedIndex]) {
           onSelect(results[selectedIndex])
           onClose()
@@ -87,7 +125,7 @@ export default function SearchPopup({ open, onClose, onSelect }: Props) {
       className="search-popup__overlay"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="search-popup__container">
+      <div className={`search-popup__container${showExpiry ? ' search-popup__container--with-expiry' : ''}`}>
         <h2>Buscador</h2>
         <input
           ref={inputRef}
@@ -105,6 +143,7 @@ export default function SearchPopup({ open, onClose, onSelect }: Props) {
               <th>Código de barras</th>
               <th>Nombre</th>
               <th>Stock</th>
+              {showExpiry && <th className="search-popup__col-expiry">Vencimientos</th>}
             </tr>
           </thead>
           <tbody>
@@ -118,6 +157,11 @@ export default function SearchPopup({ open, onClose, onSelect }: Props) {
                 <td>{product.barcode === null ? '-' : product.barcode.toString()}</td>
                 <td>{product.name}</td>
                 <td>{product.stock}</td>
+                {showExpiry && (
+                  <td className="search-popup__col-expiry">
+                    <LotsList lots={lotsByProduct.get(product.id) ?? []} />
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

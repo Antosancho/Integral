@@ -3,6 +3,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+// Guard: este script siembra y modifica datos en la DB real.
+// Para correrlo hay que definir ALLOW_INTEGRATION_TESTS=1 explícitamente.
+// El script npm run test:ipc-bridge ya lo hace; no correr a mano sobre dev.db.
+if (!process.env.ALLOW_INTEGRATION_TESTS) {
+    console.error("Este script siembra datos en la DB. Definí ALLOW_INTEGRATION_TESTS=1 para correrlo.");
+    process.exit(1);
+}
 const client_1 = __importDefault(require("./db/client"));
 const ipcContract_1 = require("../electron/ipcContract");
 const ipcHandlers_1 = require("../electron/ipcHandlers");
@@ -180,6 +187,9 @@ async function main() {
         assertProductPriceStrings(deltaDown, "changeProductStock negative");
         assert(deltaDown.stock === 25, "changeProductStock should apply negative delta");
         logStep("IPC changeProductStock");
+        // createProduct con stock>0 genera un StockMovement IN inicial ("Lote inicial al crear producto").
+        // Se limpia antes de los tests de StockMovement CRUD para no contaminar la cuenta final.
+        await client_1.default.stockMovement.deleteMany({ where: { productId } });
         const movementInResult = await api.createStockMovement({
             productId,
             type: "IN",

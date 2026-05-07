@@ -3,6 +3,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+// Guard: este script siembra y modifica datos en la DB real.
+// Para correrlo hay que definir ALLOW_INTEGRATION_TESTS=1 explícitamente.
+// El script npm run test:backend-db ya lo hace; no correr a mano sobre dev.db.
+if (!process.env.ALLOW_INTEGRATION_TESTS) {
+    console.error("Este script siembra datos en la DB. Definí ALLOW_INTEGRATION_TESTS=1 para correrlo.");
+    process.exit(1);
+}
 const client_1 = require("@prisma/client");
 const client_2 = __importDefault(require("./db/client"));
 const services_1 = require("./services");
@@ -27,6 +34,7 @@ async function main() {
     let categoryId = null;
     let supplierId = null;
     let productId = null;
+    let product2Id = null;
     try {
         const category = await (0, services_1.createCategory)({ name: categoryName });
         categoryId = category.id;
@@ -110,6 +118,9 @@ async function main() {
         const deltaDown = await (0, services_1.changeProductStock)(product.id, -10);
         assert(deltaDown.stock === 25, "changeProductStock should apply negative delta");
         logStep("changeProductStock");
+        // createProduct con stock>0 genera un StockMovement IN inicial ("Lote inicial al crear producto").
+        // Se limpia antes de los tests de StockMovement CRUD para no contaminar la cuenta final.
+        await client_2.default.stockMovement.deleteMany({ where: { productId: product.id } });
         const movementIn = await (0, services_1.createStockMovement)({
             productId: product.id,
             type: "IN",
@@ -250,7 +261,7 @@ async function main() {
             paymentMismatchError = err instanceof Error ? err : new Error(String(err));
         }
         assert(paymentMismatchError !== null, "createSale should reject when payments sum != total");
-        assert(paymentMismatchError.message.includes("must equal sale total"), `Expected payments-mismatch error, got ${paymentMismatchError.message}`);
+        assert(paymentMismatchError.message.includes("is less than sale total"), `Expected payments-mismatch error, got ${paymentMismatchError.message}`);
         const stockAfterRejectedPayments = await (0, services_1.getProductById)(product.id);
         assert(stockAfterRejectedPayments?.stock === 4, `Rejected createSale must not alter stock, got ${stockAfterRejectedPayments?.stock}`);
         logStep("createSale rejects payment sum mismatch (no side effects)");
@@ -343,6 +354,7 @@ async function main() {
             stock: 5,
             minStock: 1
         });
+        product2Id = product2.id;
         const stockProductBeforeMulti = (await (0, services_1.getProductById)(product.id)).stock;
         const sale3 = await (0, services_1.createSale)({
             items: [
@@ -380,7 +392,7 @@ async function main() {
             totalMismatchError = err instanceof Error ? err : new Error(String(err));
         }
         assert(totalMismatchError !== null, "createSale should reject when client total does not match server total");
-        assert(totalMismatchError.message.includes("does not match calculated total"), `Expected client-total-mismatch error, got ${totalMismatchError.message}`);
+        assert(totalMismatchError.message.includes("does not match expected total"), `Expected client-total-mismatch error, got ${totalMismatchError.message}`);
         logStep("createSale rejects client total mismatch");
         const salesByProduct2 = await (0, services_1.listSales)({ productId: product2.id });
         assert(salesByProduct2.some((s) => s.id === sale3.id), "listSales productId=product2 should include sale3");
@@ -413,6 +425,11 @@ async function main() {
         console.log("SUCCESS: all DB/backend integration checks passed.");
     }
     finally {
+        if (product2Id !== null) {
+            await client_2.default.sale.deleteMany({ where: { items: { some: { productId: product2Id } } } });
+            await client_2.default.stockMovement.deleteMany({ where: { productId: product2Id } });
+            await client_2.default.product.deleteMany({ where: { id: product2Id } });
+        }
         if (productId !== null) {
             await client_2.default.sale.deleteMany({ where: { items: { some: { productId } } } });
             await client_2.default.stockMovement.deleteMany({ where: { productId } });

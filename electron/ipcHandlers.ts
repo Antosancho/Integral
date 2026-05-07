@@ -15,6 +15,7 @@ import {
   getProductById,
   getStockMovementById,
   getSupplierById,
+  listLotsByProductIds,
   listCategories,
   listExpiringStockMovements,
   listProducts,
@@ -149,6 +150,20 @@ export function buildIpcHandlers(): IpcHandlerMap {
     "stockMovement:list": withChannelError<{ filters?: ListStockMovementsFilters }>(
       "stockMovement:list",
       ({ filters }) => listStockMovements(filters)
+    ),
+    "stockMovement:listLotsByProductIds": withChannelError<{ productIds?: unknown }>(
+      "stockMovement:listLotsByProductIds",
+      (payload) => {
+        const productIds = payload?.productIds
+        if (!Array.isArray(productIds)) {
+          throw new Error("productIds must be an array")
+        }
+        if (!productIds.every((id) => typeof id === "number" && Number.isInteger(id))) {
+          throw new Error("productIds must contain only integer numbers")
+        }
+
+        return listLotsByProductIds(productIds)
+      }
     ),
     "stockMovement:getById": withChannelError<{ id: number }>("stockMovement:getById", ({ id }) =>
       getStockMovementById(id)

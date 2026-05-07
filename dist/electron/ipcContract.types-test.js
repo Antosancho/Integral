@@ -79,6 +79,7 @@ const api = {
     deleteProduct: async (_id) => bareProduct,
     createStockMovement: async (_d) => movement,
     listStockMovements: async (_f) => [movement],
+    listLotsByProductIds: async (_ids) => [movement],
     getStockMovementById: async (_id) => movement,
     deleteStockMovement: async (_id, _r) => bareMovement,
     listExpiringStockMovements: async () => [movement],

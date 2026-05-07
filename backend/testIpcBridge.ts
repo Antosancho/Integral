@@ -218,6 +218,10 @@ async function main() {
     assert(deltaDown.stock === 25, "changeProductStock should apply negative delta")
     logStep("IPC changeProductStock")
 
+    // createProduct con stock>0 genera un StockMovement IN inicial ("Lote inicial al crear producto").
+    // Se limpia antes de los tests de StockMovement CRUD para no contaminar la cuenta final.
+    await prisma.stockMovement.deleteMany({ where: { productId } })
+
     const movementInResult = await api.createStockMovement({
       productId,
       type: "IN",
