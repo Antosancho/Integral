@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createStockMovement = createStockMovement;
 exports.listStockMovements = listStockMovements;
+exports.listLotsByProductIds = listLotsByProductIds;
 exports.getStockMovementById = getStockMovementById;
 exports.listExpiringStockMovements = listExpiringStockMovements;
 exports.dismissStockMovementExpiry = dismissStockMovementExpiry;
@@ -95,6 +96,26 @@ async function listStockMovements(filters) {
             product: true
         },
         ...pagination
+    });
+}
+/**
+ * Lista los lotes vivos para un conjunto de productos en una sola consulta.
+ * Solo incluye entradas de stock positivas, no descartadas por vencimiento.
+ */
+async function listLotsByProductIds(productIds) {
+    if (productIds.length === 0)
+        return [];
+    return client_1.default.stockMovement.findMany({
+        where: {
+            productId: { in: productIds },
+            type: "IN",
+            expiryDismissedAt: null,
+            quantity: { gt: 0 }
+        },
+        orderBy: { expiryDate: "asc" },
+        include: {
+            product: true
+        }
     });
 }
 // Reads one stock movement by id.

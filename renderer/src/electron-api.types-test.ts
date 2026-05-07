@@ -1,4 +1,5 @@
 // Archivo de test de tipos para el renderer. NO se usa en runtime.
+import type { ProductFromApi } from './electron-api'
 
 async function _checkWindowApi() {
   const products = await window.api.listProducts({ take: 10 })
@@ -26,6 +27,10 @@ async function _checkWindowApi() {
   const movements = await window.api.listStockMovements()
   const m = movements[0]
   const _mDate: Date = m.date
+
+  const lots = await window.api.listLotsByProductIds([first.id])
+  const _lotProductId: number = lots[0].productId
+
   // product dentro del movimiento viene desnudo.
   // @ts-expect-error - StockMovement.product es BareProductFromApi.
   const _shouldFail2 = m.product.category
@@ -33,6 +38,8 @@ async function _checkWindowApi() {
   const delMov = await window.api.deleteStockMovement(1, false)
   // @ts-expect-error - deleteStockMovement no incluye product.
   const _shouldFail3 = delMov.product
+
+  void [_id, _name, _barcode, _purchase, _sale, _created, _catName, _supName, _n, _mDate, _lotProductId, _shouldFail1, _shouldFail2, _shouldFail3]
 }
 
 void _checkWindowApi

@@ -251,6 +251,7 @@ type ElectronApi = {
 
   createStockMovement: (data: CreateStockMovementInput) => Promise<StockMovementFromApi>
   listStockMovements: (filters?: ListStockMovementsFilters) => Promise<StockMovementFromApi[]>
+  listLotsByProductIds: (productIds: number[]) => Promise<StockMovementFromApi[]>
   getStockMovementById: (id: number) => Promise<StockMovementFromApi | null>
   deleteStockMovement: (id: number, revertStock?: boolean) => Promise<BareStockMovementFromApi>
   listExpiringStockMovements: () => Promise<StockMovementFromApi[]>

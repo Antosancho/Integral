@@ -1,0 +1,28 @@
+.lots-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lots-list__item {
+  font-size: 12px;
+  line-height: 1.3;
+  color: #334155;
+}
+
+.lots-list__item--expired {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.lots-list__item--today {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.lots-list__empty {
+  color: #64748b;
+}

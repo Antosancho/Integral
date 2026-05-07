@@ -1,4 +1,4 @@
-import { filterByTime, buildApiFilters, getSaleLocalTime, type SalesHistoryFilters } from '../salesHistoryFilters'
+import { filterByTime, buildApiFilters, getSaleLocalTime } from '../salesHistoryFilters'
 
 // Helper para crear un SaleFromApi mínimo con una fecha
 function makeSale(isoDate: string): any {

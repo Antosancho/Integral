@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { validateGeneralAmount } from './amount'
+import './SearchPopup.css'
 
 type Props = {
   open: boolean

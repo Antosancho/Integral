@@ -7,8 +7,7 @@ import LoadStockModal from '../LoadStockModal'
 const mockCreateStockMovement = vi.fn()
 
 beforeAll(() => {
-  global.window = global.window || {}
-  global.window.api = {
+  ;(window as unknown as { api: unknown }).api = {
     listProducts: vi.fn().mockResolvedValue([]),
     getProductByBarcode: vi.fn().mockResolvedValue(null),
     createStockMovement: mockCreateStockMovement

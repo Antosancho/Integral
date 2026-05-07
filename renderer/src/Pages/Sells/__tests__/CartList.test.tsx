@@ -13,7 +13,7 @@ const mockProduct = (id: number, overrides: Partial<ProductFromApi> = {}): Produ
   salePrice: '100.00',
   stock: 10,
   minStock: 0,
-  createdAt: new Date() as unknown as string,
+  createdAt: new Date(),
   categoryId: 1,
   supplierId: 1,
   category: { id: 1, name: 'Cat' },

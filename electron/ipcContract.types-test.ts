@@ -107,6 +107,7 @@ const api: ElectronApi = {
 
   createStockMovement: async (_d) => movement,
   listStockMovements: async (_f) => [movement],
+  listLotsByProductIds: async (_ids) => [movement],
   getStockMovementById: async (_id) => movement,
   deleteStockMovement: async (_id, _r) => bareMovement,
   listExpiringStockMovements: async () => [movement],

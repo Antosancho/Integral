@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react"
 import type { ReactNode } from 'react'
 import "./Stock.css"
+import LotsList from "../Components/LotsList/LotsList"
+import type { StockMovementFromApi } from "../electron-api"
 import { formatMoney } from "../utils/format"
+import { groupLotsByProduct } from "../utils/lots"
 import ProductFormModal from './Stock/ProductFormModal'
 import LoadStockModal from './Stock/LoadStockModal'
+import SearchPopup from './Sells/SearchPopup'
 
 type Product = Awaited<ReturnType<Window["api"]["listProducts"]>>[number]
 
@@ -23,6 +27,11 @@ export default function Stock() {
   const [reloadKey, setReloadKey] = useState(0)
   /** Producto seleccionado para edición; null cuando no hay ninguno abierto. */
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  /** Controla el buscador que abre productos directamente en modo edicion. */
+  const [showSearchPopup, setShowSearchPopup] = useState(false)
+  /** Toggle visual para mostrar/ocultar los lotes vivos por producto. */
+  const [showExpiryColumn, setShowExpiryColumn] = useState(false)
+  const [lotsByProduct, setLotsByProduct] = useState<Map<number, StockMovementFromApi[]>>(new Map())
 
   const columns: Column[] = [
     { key: "name", label: "Producto", render: (p) => p.name },
@@ -39,6 +48,15 @@ export default function Stock() {
       label: "Informacion avanzada",
       render: (p) => `Min: ${p.minStock} | Prov: ${p.supplier.name}`
     },
+    ...(showExpiryColumn
+      ? [
+          {
+            key: "expiry",
+            label: "Vencimientos",
+            render: (p: Product) => <LotsList lots={lotsByProduct.get(p.id) ?? []} />
+          }
+        ]
+      : []),
     {
       key: 'actions',
       label: 'Acciones',
@@ -79,14 +97,58 @@ export default function Stock() {
     }
   }, [reloadKey])
 
+  // Carga lotes en lote solo cuando el usuario habilita la columna.
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadLots() {
+      if (!showExpiryColumn || products.length === 0) {
+        setLotsByProduct(new Map())
+        return
+      }
+
+      try {
+        const lots = await window.api.listLotsByProductIds(products.map((product) => product.id))
+        if (!cancelled) setLotsByProduct(groupLotsByProduct(lots))
+      } catch {
+        if (!cancelled) setLotsByProduct(new Map())
+      }
+    }
+
+    loadLots()
+
+    return () => {
+      cancelled = true
+    }
+  }, [showExpiryColumn, products, reloadKey])
+
+  /** F2 alterna el buscador de productos dentro de la pantalla Stock. */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'F2') {
+        e.preventDefault()
+        setShowSearchPopup(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   return (
     <div className="stock-page">
       <div className="stock-actions">
         <button className="stock-actions__btn-new" onClick={() => setShowCreateModal(true)}>+ Nuevo producto</button>
         <button className="stock-actions__btn-load" onClick={() => setShowLoadStockModal(true)}>Cargar stock</button>
+        <button className="stock-actions__btn-search" onClick={() => setShowSearchPopup(true)}>Buscar (F2)</button>
+        <button
+          className="stock-actions__btn-expiry"
+          onClick={() => setShowExpiryColumn((show) => !show)}
+        >
+          {showExpiryColumn ? 'Ocultar vencimientos' : 'Mostrar vencimientos'}
+        </button>
       </div>
       <div className="stock-scroll-wrapper">
-        <section className="stock-grid">
+        <section className={`stock-grid${showExpiryColumn ? ' stock-grid--with-expiry' : ''}`}>
         {columns.map((column) => (
           <div key={column.key} className="stock-grid__header">
             {column.label}
@@ -139,6 +201,17 @@ export default function Stock() {
           setShowLoadStockModal(false)
           setReloadKey((k) => k + 1)
         }}
+      />
+
+      <SearchPopup
+        open={showSearchPopup}
+        onClose={() => setShowSearchPopup(false)}
+        onSelect={(product) => {
+          setShowSearchPopup(false)
+          setEditingProduct(product)
+        }}
+        allowNumericEnter={true}
+        showExpiry={true}
       />
     </div>
   )

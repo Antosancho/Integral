@@ -63,6 +63,7 @@ async function main() {
   let categoryId: number | null = null
   let supplierId: number | null = null
   let productId: number | null = null
+  let product2Id: number | null = null
 
   try {
     const category = await createCategory({ name: categoryName })
@@ -163,6 +164,10 @@ async function main() {
     const deltaDown = await changeProductStock(product.id, -10)
     assert(deltaDown.stock === 25, "changeProductStock should apply negative delta")
     logStep("changeProductStock")
+
+    // createProduct con stock>0 genera un StockMovement IN inicial ("Lote inicial al crear producto").
+    // Se limpia antes de los tests de StockMovement CRUD para no contaminar la cuenta final.
+    await prisma.stockMovement.deleteMany({ where: { productId: product.id } })
 
     const movementIn = await createStockMovement({
       productId: product.id,
@@ -322,7 +327,7 @@ async function main() {
     }
     assert(paymentMismatchError !== null, "createSale should reject when payments sum != total")
     assert(
-      paymentMismatchError!.message.includes("must equal sale total"),
+      paymentMismatchError!.message.includes("is less than sale total"),
       `Expected payments-mismatch error, got ${paymentMismatchError!.message}`
     )
     const stockAfterRejectedPayments = await getProductById(product.id)
@@ -436,6 +441,7 @@ async function main() {
       stock: 5,
       minStock: 1
     })
+    product2Id = product2.id
 
     const stockProductBeforeMulti = (await getProductById(product.id))!.stock
     const sale3 = await createSale({
@@ -485,7 +491,7 @@ async function main() {
     }
     assert(totalMismatchError !== null, "createSale should reject when client total does not match server total")
     assert(
-      totalMismatchError!.message.includes("does not match calculated total"),
+      totalMismatchError!.message.includes("does not match expected total"),
       `Expected client-total-mismatch error, got ${totalMismatchError!.message}`
     )
     logStep("createSale rejects client total mismatch")
@@ -529,6 +535,11 @@ async function main() {
 
     console.log("SUCCESS: all DB/backend integration checks passed.")
   } finally {
+    if (product2Id !== null) {
+      await prisma.sale.deleteMany({ where: { items: { some: { productId: product2Id } } } })
+      await prisma.stockMovement.deleteMany({ where: { productId: product2Id } })
+      await prisma.product.deleteMany({ where: { id: product2Id } })
+    }
     if (productId !== null) {
       await prisma.sale.deleteMany({ where: { items: { some: { productId } } } })
       await prisma.stockMovement.deleteMany({ where: { productId } })
