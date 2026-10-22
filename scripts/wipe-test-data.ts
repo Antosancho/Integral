@@ -1,12 +1,14 @@
 /**
  * scripts/wipe-test-data.ts
  *
- * Borra todos los datos de negocio de la DB y resetea los contadores de
- * autoincrement. Útil para dejar la base limpia antes de la entrega al cliente.
+ * Borra todos los datos de negocio de la DB, resetea los contadores de
+ * autoincrement y compacta el archivo SQLite (VACUUM) para que las filas
+ * borradas no queden recuperables en páginas libres. Útil para dejar la base
+ * limpia antes de la entrega al cliente.
  *
  * Modos de uso:
- *   npx ts-node scripts/wipe-test-data.ts --dry-run   → imprime contadores, NO borra nada
- *   npx ts-node scripts/wipe-test-data.ts --confirm   → borra todo en una transacción
+ *   npx ts-node scripts/wipe-test-data.ts --dry-run   → imprime contadores, NO borra ni compacta nada
+ *   npx ts-node scripts/wipe-test-data.ts --confirm   → borra todo en una transacción y luego compacta
  *
  * Si no se pasa ningún flag el script aborta con exit code 1.
  */
@@ -59,7 +61,7 @@ async function main(): Promise<void> {
   if (!dryRun && !confirm) {
     console.error("Error: debés pasar --dry-run o --confirm para ejecutar el script.")
     console.error("  --dry-run  Muestra contadores sin borrar nada.")
-    console.error("  --confirm  Borra todos los datos y resetea autoincrement.")
+    console.error("  --confirm  Borra todos los datos, resetea autoincrement y compacta el archivo.")
     process.exit(1)
   }
 
@@ -104,11 +106,17 @@ async function main(): Promise<void> {
     }
   })
 
+  // VACUUM no puede correr dentro de una transacción. Reescribe el archivo
+  // SQLite para que las filas borradas no queden recuperables en páginas libres.
+  await prisma.$executeRawUnsafe("VACUUM")
+  console.log("VACUUM ejecutado")
+
   await printCounts(prisma, "DESPUÉS")
 
   console.log("\n✓ Wipe completo")
   console.log("✓ Todas las tablas en 0 filas")
   console.log("✓ Autoincrement reseteado")
+  console.log("✓ Archivo compactado (VACUUM)")
   console.log("DB lista para entrega.")
 
   await prisma.$disconnect()

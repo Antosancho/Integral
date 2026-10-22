@@ -1,66 +1,30 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
+/**
+ * backend/__tests__/saleService-create.test.ts
+ *
+ * Test de regresión de createSale: crea la venta, sus ítems, sus pagos y el
+ * StockMovement SALE, y descuenta el stock (sin error P2022 de columnas).
+ *
+ * Usa una DB temporal creada **vacía** desde las migraciones
+ * (helpers/testDb.ts); nunca lee ni copia dev.db.
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
-const fs_1 = __importDefault(require("fs"));
-const path_1 = __importDefault(require("path"));
-const repoRoot = path_1.default.resolve(__dirname, "..", "..");
-const schemaDir = path_1.default.join(repoRoot, "backend", "prisma");
-const testDbPath = path_1.default.join(repoRoot, "backend", "prisma", `test-saleService-create.${process.pid}.${Date.now()}.db`);
-const testDatabaseUrl = `file:${testDbPath.replace(/\\/g, "/")}`;
+const testDb_1 = require("./helpers/testDb");
 function assert(condition, message) {
     if (!condition) {
         throw new Error(message);
     }
 }
-function removeTestDbFiles() {
-    for (const candidate of [testDbPath, `${testDbPath}-journal`]) {
-        if (fs_1.default.existsSync(candidate)) {
-            fs_1.default.rmSync(candidate, { force: true });
-        }
-    }
-}
-function readConfiguredDatabasePath() {
-    const envContent = fs_1.default.readFileSync(path_1.default.join(repoRoot, ".env"), "utf-8");
-    const databaseUrlLine = envContent
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .find((line) => line.startsWith("DATABASE_URL="));
-    assert(databaseUrlLine, ".env must define DATABASE_URL");
-    const databaseUrl = databaseUrlLine
-        .slice("DATABASE_URL=".length)
-        .trim()
-        .replace(/^"(.*)"$/, "$1");
-    assert(databaseUrl.startsWith("file:"), `DATABASE_URL must be a SQLite file URL, got ${databaseUrl}`);
-    const filePath = databaseUrl.slice("file:".length);
-    return path_1.default.isAbsolute(filePath)
-        ? filePath
-        : path_1.default.resolve(schemaDir, filePath);
-}
-function prepareTestDb() {
-    // The sale service imports a singleton Prisma client, so the isolated DATABASE_URL
-    // must be set before requiring backend/db/client or backend/services/saleService.
-    const canonicalDbPath = readConfiguredDatabasePath();
-    assert(fs_1.default.existsSync(canonicalDbPath), `Configured DB does not exist: ${canonicalDbPath}`);
-    fs_1.default.copyFileSync(canonicalDbPath, testDbPath);
-    process.env.DATABASE_URL = testDatabaseUrl;
-}
 async function main() {
-    removeTestDbFiles();
-    prepareTestDb();
+    // La DB se crea antes de los require(): saleService importa el Prisma client
+    // singleton, que lee DATABASE_URL al cargarse. Por eso los require son tardíos.
+    const testDb = (0, testDb_1.createMigratedTestDb)("saleService-create");
+    process.env.DATABASE_URL = testDb.databaseUrl;
     const { createSale } = require("../services/saleService");
     const prisma = require("../db/client").default;
     try {
-        // The temp DB starts as a copy of the real dev DB so the schema matches migrations.
-        // Clean business tables to keep the regression scenario deterministic and isolated.
-        await prisma.stockMovement.deleteMany();
-        await prisma.salePayment.deleteMany();
-        await prisma.saleItem.deleteMany();
-        await prisma.sale.deleteMany();
-        await prisma.product.deleteMany();
-        await prisma.category.deleteMany();
-        await prisma.supplier.deleteMany();
+        // La DB temporal se crea vacía desde las migraciones, así que el escenario
+        // es determinístico sin necesidad de limpiar tablas antes.
         const category = await prisma.category.create({ data: { name: "Sale regression category" } });
         const supplier = await prisma.supplier.create({ data: { name: "Sale regression supplier" } });
         const product = await prisma.product.create({
@@ -98,8 +62,9 @@ async function main() {
         console.log("PASS: createSale creates sale rows and SALE stock movement without P2022");
     }
     finally {
+        // Desconectar antes de borrar: en Windows el archivo abierto da EBUSY.
         await prisma.$disconnect();
-        removeTestDbFiles();
+        testDb.cleanup();
     }
 }
 main().catch((error) => {

@@ -3,14 +3,18 @@
  * backend/__tests__/wipe-test-data.test.ts
  *
  * Tests del script scripts/wipe-test-data.ts.
- * Cada test usa su propia DB SQLite aislada (copia de dev.db) para evitar
- * interferir con la DB real ni con otros tests que corren en paralelo.
+ * Cada test usa su propia DB SQLite aislada (DB nueva creada desde migraciones
+ * con helpers/testDb.ts) para no leer ni modificar dev.db y no interferir con
+ * otros tests que corren en paralelo.
  *
  * Test 1 — Dry run no borra nada
  * Test 2 — Confirm borra todo y resetea autoincrement
  * Test 3 — Sin flags aborta con exit code != 0
  * Test 4 — El orden de borrado respeta las FK con Restrict
  * Test 5 — DB ya vacía es idempotente (sin error por sqlite_sequence)
+ * Test 6 — VACUUM elimina del archivo los residuos de las filas borradas
+ * Test 7 — El wipe conserva el historial de migraciones (_prisma_migrations)
+ * Test 8 — Dry run no compacta (el residuo sigue en el archivo)
  */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
@@ -20,12 +24,13 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const child_process_1 = require("child_process");
 const client_1 = require("@prisma/client");
+const testDb_1 = require("./helpers/testDb");
 // ---------------------------------------------------------------------------
 // Rutas base
 // ---------------------------------------------------------------------------
 const repoRoot = path_1.default.resolve(__dirname, "..", "..");
-const schemaDir = path_1.default.join(repoRoot, "backend", "prisma");
 const wipeScript = path_1.default.join(repoRoot, "scripts", "wipe-test-data.ts");
+const migrationsDir = path_1.default.join(repoRoot, "backend", "prisma", "migrations");
 // ---------------------------------------------------------------------------
 // Utilidades de assert
 // ---------------------------------------------------------------------------
@@ -37,52 +42,8 @@ function logStep(step) {
     console.log(`  PASS: ${step}`);
 }
 // ---------------------------------------------------------------------------
-// Helpers de DB (patrón copiado e inlineado de saleService-create.test.ts)
+// Helpers de DB (la creación de la DB aislada vive en helpers/testDb.ts)
 // ---------------------------------------------------------------------------
-/**
- * Genera una ruta única para la DB de test de forma que múltiples tests
- * puedan correr en el mismo proceso sin pisar sus archivos.
- */
-function makeTestDbPath() {
-    return path_1.default.join(schemaDir, `test-wipe.${process.pid}.${Date.now()}.db`);
-}
-/**
- * Elimina el archivo de DB de test y su journal si existen.
- */
-function removeTestDbFiles(dbPath) {
-    for (const candidate of [dbPath, `${dbPath}-journal`]) {
-        if (fs_1.default.existsSync(candidate))
-            fs_1.default.rmSync(candidate, { force: true });
-    }
-}
-/**
- * Lee la URL de la DB canónica desde .env (misma lógica que saleService-create.test.ts).
- */
-function readConfiguredDatabasePath() {
-    const envContent = fs_1.default.readFileSync(path_1.default.join(repoRoot, ".env"), "utf-8");
-    const databaseUrlLine = envContent
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .find((line) => line.startsWith("DATABASE_URL="));
-    assert(databaseUrlLine, ".env must define DATABASE_URL");
-    const databaseUrl = databaseUrlLine
-        .slice("DATABASE_URL=".length)
-        .trim()
-        .replace(/^"(.*)"$/, "$1");
-    assert(databaseUrl.startsWith("file:"), `DATABASE_URL must be a SQLite file URL, got ${databaseUrl}`);
-    const filePath = databaseUrl.slice("file:".length);
-    return path_1.default.isAbsolute(filePath) ? filePath : path_1.default.resolve(schemaDir, filePath);
-}
-/**
- * Copia la DB canónica a `dbPath` y devuelve la DATABASE_URL para apuntar a ella.
- * La copia garantiza que el schema y las migraciones ya están aplicadas.
- */
-function prepareTestDb(dbPath) {
-    const canonicalDbPath = readConfiguredDatabasePath();
-    assert(fs_1.default.existsSync(canonicalDbPath), `Configured DB does not exist: ${canonicalDbPath}`);
-    fs_1.default.copyFileSync(canonicalDbPath, dbPath);
-    return `file:${dbPath.replace(/\\/g, "/")}`;
-}
 /**
  * Crea un PrismaClient apuntando directamente a la URL dada.
  * Cada test instancia su propio cliente para evitar conflictos con el singleton
@@ -116,15 +77,7 @@ function runWipeScript(databaseUrl, args) {
  * Este seed cubre todos los Restrict FK del schema.
  */
 async function seedTestData(prisma) {
-    // Las tablas de datos pueden tener registros de la copia de la DB canónica;
-    // limpiamos en el orden correcto antes de seedear para garantizar aislamiento.
-    await prisma.stockMovement.deleteMany();
-    await prisma.salePayment.deleteMany();
-    await prisma.saleItem.deleteMany();
-    await prisma.sale.deleteMany();
-    await prisma.product.deleteMany();
-    await prisma.category.deleteMany();
-    await prisma.supplier.deleteMany();
+    // La DB nace vacía desde migraciones: no hace falta limpiar antes de seedear.
     const category = await prisma.category.create({ data: { name: "Wipe test category" } });
     const supplier = await prisma.supplier.create({ data: { name: "Wipe test supplier" } });
     const product = await prisma.product.create({
@@ -159,13 +112,49 @@ async function seedTestData(prisma) {
     });
     return { category, supplier, product, sale };
 }
+/**
+ * Siembra el set mínimo (seedTestData) más un producto extra cuyo nombre es
+ * un marcador único. Ese texto queda escrito en los bytes del archivo SQLite
+ * y permite comprobar si sobrevive al wipe (residuo en páginas libres).
+ */
+async function seedWithMarker(prisma, marker) {
+    const seeded = await seedTestData(prisma);
+    await prisma.product.create({
+        data: {
+            name: marker,
+            purchasePrice: "1",
+            salePrice: "2",
+            stock: 1,
+            minStock: 0,
+            categoryId: seeded.category.id,
+            supplierId: seeded.supplier.id,
+        },
+    });
+    return seeded;
+}
+/**
+ * Indica si el texto aparece literalmente en los bytes del archivo.
+ * Llamar solo con los PrismaClient desconectados, así el contenido ya está
+ * volcado a disco y Windows no bloquea la lectura.
+ */
+function fileContainsText(filePath, text) {
+    return fs_1.default.readFileSync(filePath).includes(Buffer.from(text, "utf-8"));
+}
+/**
+ * Cantidad de migraciones esperadas = cantidad de carpetas en
+ * backend/prisma/migrations/ (migration_lock.toml es un archivo y no cuenta).
+ */
+function countMigrationFolders() {
+    return fs_1.default.readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory())
+        .length;
+}
 // ---------------------------------------------------------------------------
 // Test 1 — Dry run no borra nada
 // ---------------------------------------------------------------------------
 async function test1_dryRunNoDeletes() {
     console.log("\nTest 1 — Dry run no borra nada");
-    const dbPath = makeTestDbPath();
-    const databaseUrl = prepareTestDb(dbPath);
+    const testDb = (0, testDb_1.createMigratedTestDb)("wipe");
+    const { dbPath, databaseUrl } = testDb;
     const prisma = makePrismaClient(databaseUrl);
     try {
         await seedTestData(prisma);
@@ -181,7 +170,7 @@ async function test1_dryRunNoDeletes() {
     }
     finally {
         await prisma.$disconnect();
-        removeTestDbFiles(dbPath);
+        testDb.cleanup();
     }
 }
 // ---------------------------------------------------------------------------
@@ -189,8 +178,8 @@ async function test1_dryRunNoDeletes() {
 // ---------------------------------------------------------------------------
 async function test2_confirmDeletesAll() {
     console.log("\nTest 2 — Confirm borra todo y resetea autoincrement");
-    const dbPath = makeTestDbPath();
-    const databaseUrl = prepareTestDb(dbPath);
+    const testDb = (0, testDb_1.createMigratedTestDb)("wipe");
+    const { dbPath, databaseUrl } = testDb;
     const prisma = makePrismaClient(databaseUrl);
     try {
         await seedTestData(prisma);
@@ -227,7 +216,7 @@ async function test2_confirmDeletesAll() {
     }
     finally {
         await prisma.$disconnect();
-        removeTestDbFiles(dbPath);
+        testDb.cleanup();
     }
 }
 // ---------------------------------------------------------------------------
@@ -235,8 +224,8 @@ async function test2_confirmDeletesAll() {
 // ---------------------------------------------------------------------------
 async function test3_noFlagsAborts() {
     console.log("\nTest 3 — Sin flags aborta con exit code != 0");
-    const dbPath = makeTestDbPath();
-    const databaseUrl = prepareTestDb(dbPath);
+    const testDb = (0, testDb_1.createMigratedTestDb)("wipe");
+    const { dbPath, databaseUrl } = testDb;
     try {
         // No se seedea nada porque el script debe abortar antes de tocar la DB
         const result = runWipeScript(databaseUrl, []);
@@ -247,7 +236,7 @@ async function test3_noFlagsAborts() {
         logStep("stderr menciona --dry-run / --confirm");
     }
     finally {
-        removeTestDbFiles(dbPath);
+        testDb.cleanup();
     }
 }
 // ---------------------------------------------------------------------------
@@ -255,8 +244,8 @@ async function test3_noFlagsAborts() {
 // ---------------------------------------------------------------------------
 async function test4_deleteOrderRespectsRestrictFks() {
     console.log("\nTest 4 — Orden de borrado respeta FK Restrict");
-    const dbPath = makeTestDbPath();
-    const databaseUrl = prepareTestDb(dbPath);
+    const testDb = (0, testDb_1.createMigratedTestDb)("wipe");
+    const { dbPath, databaseUrl } = testDb;
     const prisma = makePrismaClient(databaseUrl);
     try {
         // Seedear un escenario que rompe todos los Restrict en cadena:
@@ -276,7 +265,7 @@ async function test4_deleteOrderRespectsRestrictFks() {
     }
     finally {
         await prisma.$disconnect();
-        removeTestDbFiles(dbPath);
+        testDb.cleanup();
     }
 }
 // ---------------------------------------------------------------------------
@@ -284,8 +273,8 @@ async function test4_deleteOrderRespectsRestrictFks() {
 // ---------------------------------------------------------------------------
 async function test5_emptyDbIsIdempotent() {
     console.log("\nTest 5 — DB vacía es idempotente (sqlite_sequence puede no existir)");
-    const dbPath = makeTestDbPath();
-    const databaseUrl = prepareTestDb(dbPath);
+    const testDb = (0, testDb_1.createMigratedTestDb)("wipe");
+    const { dbPath, databaseUrl } = testDb;
     const prisma = makePrismaClient(databaseUrl);
     try {
         // Limpiar todo para dejar la DB vacía antes de correr el wipe
@@ -307,7 +296,83 @@ async function test5_emptyDbIsIdempotent() {
     }
     finally {
         await prisma.$disconnect();
-        removeTestDbFiles(dbPath);
+        testDb.cleanup();
+    }
+}
+// ---------------------------------------------------------------------------
+// Test 6 — VACUUM elimina del archivo los residuos de las filas borradas
+// ---------------------------------------------------------------------------
+async function test6_vacuumRemovesResidue() {
+    console.log("\nTest 6 — VACUUM elimina residuos del archivo");
+    const testDb = (0, testDb_1.createMigratedTestDb)("wipe");
+    const { dbPath, databaseUrl } = testDb;
+    const prisma = makePrismaClient(databaseUrl);
+    const marker = `WIPE-RESIDUE-MARKER-${Date.now()}`;
+    try {
+        await seedWithMarker(prisma, marker);
+        // Desconectar para que el contenido quede volcado y el archivo liberado
+        await prisma.$disconnect();
+        // Sanity check: prueba que el test es capaz de detectar el residuo
+        assert(fileContainsText(dbPath, marker), "el marcador debe estar en el archivo antes del wipe");
+        const result = runWipeScript(databaseUrl, ["--confirm"]);
+        assert(result.status === 0, `exit code debe ser 0, got ${result.status}\nstderr: ${result.stderr}`);
+        assert(!fileContainsText(dbPath, marker), "el marcador no debe quedar en el archivo tras el wipe (VACUUM)");
+        assert(result.stdout.includes("VACUUM"), `stdout debe mencionar VACUUM, got: ${result.stdout}`);
+        logStep("el marcador desaparece de los bytes del archivo");
+        logStep("stdout menciona VACUUM");
+    }
+    finally {
+        await prisma.$disconnect();
+        testDb.cleanup();
+    }
+}
+// ---------------------------------------------------------------------------
+// Test 7 — El wipe conserva el historial de migraciones
+// ---------------------------------------------------------------------------
+async function test7_keepsMigrationHistory() {
+    console.log("\nTest 7 — El wipe conserva el historial de migraciones");
+    const testDb = (0, testDb_1.createMigratedTestDb)("wipe");
+    const { databaseUrl } = testDb;
+    const prisma = makePrismaClient(databaseUrl);
+    try {
+        await seedTestData(prisma);
+        const result = runWipeScript(databaseUrl, ["--confirm"]);
+        assert(result.status === 0, `exit code debe ser 0, got ${result.status}\nstderr: ${result.stderr}`);
+        // _prisma_migrations no está en DELETE_ORDER: si el wipe la vaciara,
+        // `prisma migrate deploy` intentaría re-aplicar todo sobre tablas existentes.
+        const rows = await prisma.$queryRawUnsafe("SELECT COUNT(*) AS n FROM _prisma_migrations");
+        const migrations = Number(rows[0].n);
+        const expected = countMigrationFolders();
+        assert(migrations === expected, `_prisma_migrations debe tener ${expected} filas, got ${migrations}`);
+        logStep(`_prisma_migrations conserva sus ${expected} filas`);
+    }
+    finally {
+        await prisma.$disconnect();
+        testDb.cleanup();
+    }
+}
+// ---------------------------------------------------------------------------
+// Test 8 — Dry run no compacta
+// ---------------------------------------------------------------------------
+async function test8_dryRunDoesNotVacuum() {
+    console.log("\nTest 8 — Dry run no compacta");
+    const testDb = (0, testDb_1.createMigratedTestDb)("wipe");
+    const { dbPath, databaseUrl } = testDb;
+    const prisma = makePrismaClient(databaseUrl);
+    const marker = `WIPE-RESIDUE-MARKER-${Date.now()}`;
+    try {
+        await seedWithMarker(prisma, marker);
+        await prisma.$disconnect();
+        const result = runWipeScript(databaseUrl, ["--dry-run"]);
+        assert(result.status === 0, `exit code debe ser 0, got ${result.status}\nstderr: ${result.stderr}`);
+        assert(fileContainsText(dbPath, marker), "el marcador debe seguir en el archivo tras dry-run");
+        assert(!result.stdout.includes("VACUUM ejecutado"), `dry-run no debe ejecutar VACUUM, stdout: ${result.stdout}`);
+        logStep("dry-run deja el archivo intacto (el marcador sigue)");
+        logStep("stdout no incluye \"VACUUM ejecutado\"");
+    }
+    finally {
+        await prisma.$disconnect();
+        testDb.cleanup();
     }
 }
 // ---------------------------------------------------------------------------
@@ -320,6 +385,9 @@ async function main() {
     await test3_noFlagsAborts();
     await test4_deleteOrderRespectsRestrictFks();
     await test5_emptyDbIsIdempotent();
+    await test6_vacuumRemovesResidue();
+    await test7_keepsMigrationHistory();
+    await test8_dryRunDoesNotVacuum();
     console.log("\nSUCCESS: todos los tests del script de wipe pasaron.");
 }
 main().catch((error) => {

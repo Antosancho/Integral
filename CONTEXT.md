@@ -414,9 +414,11 @@ Prisma necesita la variable `DATABASE_URL` para conectarse a SQLite. Se resuelve
    - Las barras invertidas de Windows se convierten a `/` para el formato `file:` de Prisma.
    - No pisa la variable si ya está seteada (permite override por entorno).
 
-2. **`backend/db/client.ts`** tiene un fallback `loadEnv()` que lee un `.env` desde la raíz del proyecto si `DATABASE_URL` no está seteada. Esto es útil para scripts standalone (`test:backend-db`, `test:ipc-bridge`) que se ejecutan via `ts-node` y no pasan por `main.ts`.
+2. **`backend/db/client.ts`** tiene un fallback `loadEnv()` que lee un `.env` desde la raíz del proyecto si `DATABASE_URL` no está seteada. Esto es útil para scripts standalone (por ejemplo `wipe:test-data` o `prisma:*`) que se ejecutan via `ts-node`/CLI y no pasan por `main.ts`.
 
-**Por qué este diseño:** el código fuente se distribuye compilado al cliente final, así que un `.env` en la raíz del proyecto no llega al instalador. Hay que setear `DATABASE_URL` desde el main process con un path conocido y escribible. El `.env` de la raíz queda solo como conveniencia para desarrollo y scripts CLI.
+**Por qué este diseño:** el código fuente se distribuye compilado al cliente final, así que un `.env` en la raíz del proyecto no llega al instalador. Hay que setear `DATABASE_URL` desde el main process con un path conocido y escribible. El `.env` de la raíz queda solo como conveniencia para desarrollo y scripts CLI. El `.env` **no se versiona**: en el repo existe `.env.example` (versionado) y en la primera instalación hay que copiarlo como `.env` (`Copy-Item .env.example .env`).
+
+**Tests y DB**: ningún test toca `dev.db`. Todos crean una DB temporal desde migraciones con `backend/__tests__/helpers/testDb.ts` (`createMigratedTestDb`). Los scripts de integración (`backend/test.ts`, `backend/testIpcBridge.ts`) importan primero `useIsolatedDb.ts`. `dev.db`, `backups/` y `.claude/settings.local.json` están en `.gitignore`; `repo-hygiene.test.ts` lo verifica.
 
 **Trampa conocida con `.env` y `DATABASE_URL`:**
 Prisma resuelve rutas relativas en `DATABASE_URL` respecto al directorio del schema (`backend/prisma/`), no respecto al CWD. Por eso, en este proyecto, el `.env` raíz debe usar `DATABASE_URL="file:./dev.db"` y no `DATABASE_URL="file:./backend/prisma/dev.db"`. El runtime de Electron resuelve el path programáticamente en `setupEnv.ts` y apunta a `backend/prisma/dev.db`. Los scripts `test:db-path-config` y `test:schema-db-sync` verifican que ambos paths coincidan y que el schema esté sincronizado con la DB.

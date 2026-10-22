@@ -11,12 +11,15 @@
 ## Primera instalación
 
 ```bash
-# 1. Instalar dependencias (también genera el cliente de Prisma automáticamente)
 npm install
-
-# 2. Arrancar el sistema
+copy .env.example .env     # (en PowerShell: Copy-Item .env.example .env)
+npm run prisma:deploy      # crea backend/prisma/dev.db vacía con todas las migraciones
 npm run dev
 ```
+
+- `npm install` instala las dependencias y genera el cliente de Prisma automáticamente.
+- El `.env` le indica a los scripts dónde está la base; no se versiona en git.
+- La base de datos **no viene incluida en el repo**: `prisma:deploy` la crea vacía.
 
 ---
 
@@ -48,6 +51,10 @@ La base de datos vive en `backend/prisma/dev.db`.
 Se recomienda copiar este archivo periódicamente (por ejemplo, al final de cada día de trabajo).
 No existe un mecanismo de backup automático en esta versión.
 
+`dev.db` **no se versiona en git**: un `git pull` nunca la pisa, pero por eso mismo
+git tampoco la respalda. Es imprescindible copiarla a mano a otro lugar (pendrive,
+nube, etc.).
+
 ---
 
 ## Limitaciones conocidas de esta versión
@@ -55,6 +62,8 @@ No existe un mecanismo de backup automático en esta versión.
 1. **Sin instalador**: el sistema corre con `npm run dev`. Requiere Node.js 18+ instalado.
 2. **Sin backups automáticos**: la DB vive en `backend/prisma/dev.db`. Recomendar al
    cliente copiar este archivo periódicamente. Si se corrompe, no hay recovery.
+   La DB no se versiona en git (`git pull` no la pisa, pero tampoco la respalda),
+   así que la copia manual es la única copia de seguridad.
 3. **Sin migraciones automáticas en arranque**: si se actualiza el repo, hay que correr
    `npm run prisma:deploy` manualmente.
 4. **Sin auth / multiusuario**: cualquiera con acceso a la PC puede operar como cajero.

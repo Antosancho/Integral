@@ -17,6 +17,11 @@ Renderer (React) -> Electron/Backend -> Prisma Client -> SQLite (`backend/prisma
 - `npm run prisma:migrate`: create/apply migrations.
 - `npm run prisma:reset`: drop and recreate local database (destructive).
 - `npm run prisma:studio`: open DB explorer.
+- `npm run prisma:deploy`: crea/actualiza la DB aplicando migraciones (primera instalación).
+- `npm run wipe:test-data -- --dry-run | --confirm`: vacía todas las tablas, resetea autoincrement y compacta (VACUUM).
+
+> **Nota:** `dev.db` no se versiona; se genera desde migraciones con `npm run prisma:deploy`
+> (antes hay que copiar `.env.example` como `.env`).
 
 ## Models
 - `Category`: `id`, `name` (unique)

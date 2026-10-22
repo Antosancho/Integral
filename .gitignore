@@ -6,3 +6,11 @@ backend/prisma/dev.db-journal
 backend/prisma/test*.db
 backend/prisma/test*.db-journal
 backend/prisma/backend/
+
+# Bases de datos locales: nunca se versionan (contienen datos del negocio)
+backend/prisma/dev.db
+backups/
+*.db-journal
+
+# Configuración local de Claude Code (puede contener secretos)
+.claude/settings.local.json

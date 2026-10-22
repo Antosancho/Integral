@@ -1,13 +1,6 @@
-// Guard: este script siembra y modifica datos en la DB real.
-// Para correrlo hay que definir ALLOW_INTEGRATION_TESTS=1 explícitamente.
-// El script npm run test:backend-db ya lo hace; no correr a mano sobre dev.db.
-if (!process.env.ALLOW_INTEGRATION_TESTS) {
-  console.error(
-    "Este script siembra datos en la DB. Definí ALLOW_INTEGRATION_TESTS=1 para correrlo."
-  )
-  process.exit(1)
-}
+import "./__tests__/helpers/useIsolatedDb"
 
+// Este script corre sobre una DB temporal aislada (ver useIsolatedDb); nunca toca dev.db.
 import { Prisma } from "@prisma/client"
 import prisma from "./db/client"
 import {
