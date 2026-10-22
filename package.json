@@ -31,14 +31,14 @@
   "license": "ISC",
   "description": "",
   "devDependencies": {
-    "@types/node": "^25.2.2",
-    "cross-env": "^7.0.3",
-    "electron": "^40.2.1",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "@types/node": "25.2.2",
+    "cross-env": "7.0.3",
+    "electron": "40.2.1",
+    "ts-node": "10.9.2",
+    "typescript": "5.9.3"
   },
   "dependencies": {
-    "@prisma/client": "^5.22.0",
-    "prisma": "^5.22.0"
+    "@prisma/client": "5.22.0",
+    "prisma": "5.22.0"
   }
 }

@@ -1,375 +1,506 @@
-# Plan — Columna de vencimientos en Stock + info de lotes en el buscador
+# Plan — Limpieza total de datos residuales (DB, repo, historial y Electron)
 
 ## Contexto
 
-Agregar una nueva feature a la pantalla **Stock**:
+La app se usó con datos reales antes de estar terminada. Hay que dejarla **limpia** para seguir el desarrollo y entregarla vacía al cliente. Además, la investigación encontró que el repo de GitHub (`Antosancho/Integral`) es **público** y su historial contiene datos reales del negocio y **tokens de GitHub en texto plano**.
 
-1. Un **botón toggle** en la barra de acciones (`.stock-actions`) que muestra/oculta una nueva columna **"Vencimientos"** al final de la tabla.
-2. Esa columna muestra, **por producto**, una **lista vertical compacta** con todos sus lotes (cada lote = un `StockMovement type='IN'` con `expiryDismissedAt = null` y `quantity > 0`).
-3. **Orden dentro de la celda**: primero los lotes **con** `expiryDate` ordenados de más cercano a vencer → más lejano; al final los lotes **sin** `expiryDate` (en orden de fecha de carga descendente, los más recientes arriba).
-4. El componente compartido **`SearchPopup`** recibe una nueva prop `showExpiry` (default `false`). Cuando es `true` (solo en Stock), agrega una columna **"Vencimientos"** con la misma lista compacta que la tabla principal. En Sells la prop queda en `false` (sin cambios visuales).
-
-**Intencionalmente fuera de scope:** ningún cambio de schema Prisma, ningún cambio en el flujo de "Cargar stock" / `LoadStockModal`, ningún cambio en el `ExpiryAlertWidget` del header. Reutilizamos el dato `StockMovement.expiryDate` que ya existe.
+Este plan está pensado para que lo ejecute un modelo de menor potencia: cada paso es chico, local a 1–2 archivos y tiene su verificación. **No saltear pasos ni cambiar el orden.** Los pasos marcados con 🛑 requieren **parar y pedir confirmación al usuario** antes de seguir.
 
 ---
 
-## Decisiones tomadas (alineadas con el usuario)
+## Inventario de residuos encontrados
 
-| # | Decisión | Confirmado |
-|---|---|---|
-| D1 | La columna es **toggleable** mediante un botón en `.stock-actions` | sí |
-| D2 | Mostrar lotes **con** vencimiento ordenados ASC, y luego los **sin** vencimiento al final | sí |
-| D3 | `SearchPopup` recibe prop `showExpiry`. Solo se usa `true` desde Stock; Sells queda igual | sí |
-| D4 | Formato: lista vertical compacta (una línea por lote) tanto en la tabla como en el buscador | sí |
-| D5 | Se filtran lotes con `quantity <= 0` (merma) y con `expiryDismissedAt != null` (ya descartados) | implícita en el contrato del feature; aclarar en la descripción visible si surge duda |
+| # | Dónde | Qué contiene | Acción |
+|---|---|---|---|
+| R1 | `backend/prisma/dev.db` (versionado en git) | 260 productos reales, 2 categorías, 2 proveedores, 497 movimientos de stock, 208 ventas, 263 ítems, 210 pagos. `sqlite_sequence` con contadores altos (Product=269, Sale=225…) | Recrear vacía desde migraciones + dejar de versionar |
+| R2 | `backups/dev_2026-05-07_17-09-41.db` (versionado en git) | Copia vieja con 188 productos reales y 3 ventas | Borrar + ignorar `backups/` |
+| R3 | Historial de git (público) | 14 versiones distintas de `dev.db` + el backup | Reescribir historial con BFG + force-push |
+| R4 | `.claude/settings.local.json` (versionado en git, 13 commits) | **2 tokens de GitHub** (`ghp_ySEd…` y `ghp_nwPE…`) dentro de reglas de permisos | Revocar tokens, quitar líneas, dejar de versionar, purgar del historial |
+| R5 | `backend/test.ts` y `backend/testIpcBridge.ts` | Escriben sobre la **dev.db real**. Dejaron basura: categoría y proveedor `IT … Updated 1778189606813` (id 7) | Hacer que usen una DB temporal aislada |
+| R6 | `backend/__tests__/saleService-create.test.ts` y `wipe-test-data.test.ts` | Crean su DB temporal **copiando la dev.db real** (copian datos reales a archivos temporales) | Crear la DB temporal desde migraciones |
+| R7 | `scripts/wipe-test-data.ts` | Borra filas pero **no hace `VACUUM`**: los datos borrados quedan en páginas libres del archivo SQLite | Agregar `VACUUM` |
+| R8 | `%APPDATA%\integral\` (userData de Electron) | Cache HTTP, Code Cache, GPU cache, Local/Session Storage (solo DevTools y `localhost:5173`), Preferences | Borrar la carpeta completa |
+| R9 | `.env` | **No existe** en esta máquina → `test:backend` y `wipe:test-data` fallan hoy | Crear `.env.example` versionado + `.env` local |
 
----
-
-## Arquitectura — flujo de datos
-
-- **Backend**: una función nueva de repositorio + un canal IPC nuevo. Recibe un array de `productId` y devuelve los lotes (`StockMovement` IN, con vencimientos vivos) de **todos** esos productos en **una sola llamada**, evitando el problema N+1 si la tabla tiene 100 productos.
-- **Renderer**: cuando `showExpiryColumn` está activado, `Stock.tsx` llama a la API una vez con los IDs de los productos cargados. Cuando el `SearchPopup` se abre con `showExpiry=true`, hace lo mismo con los IDs de los resultados visibles (refrescándose cuando cambia la query).
-
----
-
-## Archivos a tocar (resumen)
-
-**Nuevos:**
-- `renderer/src/utils/lots.ts` — helper `sortLots` puro y tipado.
-- `renderer/src/Components/LotsList/LotsList.tsx` — componente visual compartido (lista vertical compacta).
-- `renderer/src/Components/LotsList/LotsList.css` — estilos de la lista.
-- `renderer/src/utils/__tests__/lots.test.ts`
-- `renderer/src/Components/LotsList/__tests__/LotsList.test.tsx`
-
-**Modificados:**
-- `backend/repositories/stockMovementRepository.ts` — nueva función `listLotsByProductIds`.
-- `backend/repositories/index.ts` — exportar la nueva función.
-- `electron/ipcHandlers.ts` — nuevo handler `stockMovement:listLotsByProductIds`.
-- `electron/ipcContract.ts` — agregar método al `ElectronApi`.
-- `renderer/src/electron-api.d.ts` — declarar el método en `window.api`.
-- `renderer/src/Pages/Stock.tsx` — estado `showExpiryColumn`, botón toggle, fetch de lotes, columna nueva.
-- `renderer/src/Pages/Stock.css` — variantes de `grid-template-columns` cuando la columna está activa, estilos del botón toggle.
-- `renderer/src/Pages/Sells/SearchPopup.tsx` — prop `showExpiry`, columna condicional, fetch de lotes para los resultados visibles.
-- `renderer/src/Pages/Sells/SearchPopup.css` — ancho de la nueva columna.
-- Tests: `Stock.test.tsx` (si existe) o test específico nuevo, `SearchPopup.test.tsx`, etc.
+**Verificado que NO hay residuos en:** código del renderer (no usa `localStorage`/`sessionStorage`/IndexedDB), datos hardcodeados (los `categoryId: 1` y barcodes que aparecen son fixtures de tests, no datos reales), `renderer/public/`, docs `.md`.
 
 ---
 
-## Plan paso a paso
+## Decisiones tomadas con el usuario
 
-### Paso 0 — Verificar el estado del repo
+| # | Decisión |
+|---|---|
+| D1 | **Borrar todo**: la DB queda con 0 filas en todas las tablas (sin sembrar `GENERAL`). |
+| D2 | **Sin respaldo** de los datos reales. Se descartan. |
+| D3 | **Reescribir el historial** de git para purgar `dev.db`, `backups/` y `.claude/settings.local.json`, y hacer `push --force`. |
+| D4 | **`dev.db` deja de versionarse**. Se genera con `npm run prisma:deploy` en la primera instalación. |
+| D5 | Herramienta de reescritura: **BFG Repo-Cleaner** (no hay Python para `git filter-repo`; sí hay Java 8). |
+| D6 | La DB local se limpia **borrando el archivo y recreándolo desde migraciones** (garantiza 0 residuos, mejor que borrar filas). El script `wipe-test-data` se mejora igual porque es la herramienta oficial de entrega. |
 
-1. Correr el test suite actual y dejarlo en verde:
+---
+
+## Fase 0 — 🛑 URGENTE: revocar los tokens (acción manual del usuario)
+
+> Esto lo tiene que hacer el **usuario**, no el modelo. El modelo debe pedirlo y **esperar confirmación** antes de seguir.
+
+1. Pedirle al usuario que entre a https://github.com/settings/tokens y **revoque** los tokens cuyo prefijo es `ghp_ySEd` y `ghp_nwPE` (y cualquier otro token clásico que no reconozca).
+2. Pedirle que revise https://github.com/settings/security-log por actividad sospechosa.
+3. **No continuar** hasta que el usuario confirme "tokens revocados". Reescribir el historial NO alcanza: el repo es público y los tokens ya pudieron ser copiados.
+
+**Regla para todo el plan:** nunca escribir un token completo en ningún archivo, commit, log ni mensaje.
+
+---
+
+## Fase 1 — Preparación
+
+### Paso 1.1 — Working tree limpio
+
+1. Correr `git status`.
+2. Hoy hay cambios **ajenos a este plan**: `package.json` (versiones fijadas sin `^`) y varios archivos de `dist/`. 🛑 Preguntar al usuario si los commitea aparte (sugerido: `chore: fijar versiones de dependencias y rebuild de dist`) o los descarta. **Es obligatorio** que el árbol quede limpio antes de la Fase 11 (que hace `git reset --hard`).
+3. Verificación: `git status` → `nothing to commit, working tree clean`.
+
+### Paso 1.2 — Crear el `.env` local
+
+1. Crear `H:\anton\Proyectos\Integral\.env` con **exactamente** esta línea:
    ```
-   npm test
+   DATABASE_URL="file:./dev.db"
    ```
-2. Si hay tests rojos preexistentes (no relacionados al feature), **anotar cuáles** antes de empezar para no atribuirlos a esta iteración.
+   (La ruta relativa se resuelve desde `backend/prisma/`, ver "Trampa conocida" en `CONTEXT.md`.)
+2. Verificación: `git status` **no** debe listar `.env` (ya está en `.gitignore`).
+
+### Paso 1.3 — Línea base de tests
+
+1. Correr `npm run test:backend` y anotar el resultado (hoy no tenía `.env`, puede que ahora pasen).
+2. Correr `cd renderer && npm test` y anotar el resultado.
+3. Si hay tests rojos **antes** de empezar, anotarlos en una lista para no atribuirlos a este plan.
 
 ---
 
-### Paso 1 — Helper puro `sortLots` en `renderer/src/utils/lots.ts`
+## Fase 2 — Helper de DB de test aislada (base para R5 y R6)
 
-**Objetivo:** una función pura que aplique la regla de ordenamiento (D2) y se pueda testear sin React ni IPC.
+### Paso 2.1 — Crear `backend/__tests__/helpers/testDb.ts`
 
-1. Crear el archivo `renderer/src/utils/lots.ts`.
-2. Definir el tipo de entrada apoyándose en `StockMovementFromApi`:
-   ```ts
-   import type { StockMovementFromApi } from '../electron-api'
-   ```
-3. Exportar la función `sortLots(lots: StockMovementFromApi[]): StockMovementFromApi[]` con esta semántica **explícita**:
-   - **Particionar** en dos arrays:
-     - `withExpiry` = `expiryDate !== null`
-     - `withoutExpiry` = `expiryDate === null`
-   - `withExpiry` se ordena por `expiryDate` **ascendente** (`a.expiryDate.getTime() - b.expiryDate.getTime()`).
-   - `withoutExpiry` se ordena por `date` **descendente** (más recientes primero).
-   - Devolver `[...withExpiry, ...withoutExpiry]` (concatenados).
-   - **No mutar** el array de entrada (usar `slice()` antes de `sort`).
-4. Exportar también un helper `groupLotsByProduct(lots: StockMovementFromApi[]): Map<number, StockMovementFromApi[]>` que agrupa por `productId` y aplica `sortLots` a cada grupo.
+**Objetivo:** que ningún test dependa de `dev.db`. Cada test obtiene una DB nueva creada con las migraciones reales.
 
-**Pseudocódigo (no implementar literal, es para guía):**
+Exportar:
+
 ```ts
-export function sortLots(lots) {
-  const withE = lots.filter(l => l.expiryDate !== null)
-                    .slice()
-                    .sort((a, b) => a.expiryDate.getTime() - b.expiryDate.getTime())
-  const noE  = lots.filter(l => l.expiryDate === null)
-                   .slice()
-                   .sort((a, b) => b.date.getTime() - a.date.getTime())
-  return [...withE, ...noE]
-}
+export type TestDb = { dbPath: string; databaseUrl: string; cleanup: () => void }
+export function createMigratedTestDb(label: string): TestDb
 ```
 
----
+Comportamiento **exacto**:
 
-### Paso 2 — Tests de `sortLots` y `groupLotsByProduct`
-
-Archivo: `renderer/src/utils/__tests__/lots.test.ts`. Incluir estos casos **explícitamente**:
-
-1. Array vacío → devuelve `[]`.
-2. Solo lotes con vencimiento → orden ASC por `expiryDate`.
-3. Solo lotes sin vencimiento → orden DESC por `date`.
-4. Mezclados → primero todos los `withExpiry` (ASC), luego los `withoutExpiry` (DESC). Verificar la **frontera** (que ningún `null` se intercale).
-5. Empate en `expiryDate` → orden estable (cualquier orden relativo aceptable; testear que ambos aparezcan contiguos).
-6. **Inmutabilidad**: que `sortLots` no mute el array de entrada (snapshot antes y después).
-7. `groupLotsByProduct` con lotes de 3 productos distintos → devuelve un Map con 3 entradas, cada una ya ordenada.
-
----
-
-### Paso 3 — Componente `LotsList` (visual)
-
-Archivos: `renderer/src/Components/LotsList/LotsList.tsx` + `LotsList.css`.
-
-1. **Props**:
+1. `repoRoot = path.resolve(__dirname, "..", "..", "..")` (el helper está un nivel más adentro que los otros tests — verificar que `repoRoot` termine en `Integral`).
+2. `schemaPath = path.join(repoRoot, "backend", "prisma", "schema.prisma")`.
+3. `dbPath = path.join(repoRoot, "backend", "prisma", \`test-${label}.${process.pid}.${Date.now()}.db\`)` → el nombre empieza con `test` para que lo cubra la regla `backend/prisma/test*.db` del `.gitignore`.
+4. `databaseUrl = \`file:${dbPath.replace(/\\/g, "/")}\``.
+5. Correr **sincrónicamente** (mismo patrón que `runWipeScript` en `wipe-test-data.test.ts`):
    ```ts
-   type Props = {
-     lots: StockMovementFromApi[]   // ya viene ordenado por sortLots
-     emptyText?: string             // default "—"
-   }
+   spawnSync(`npx prisma migrate deploy --schema "${schemaPath}"`, [], {
+     cwd: repoRoot,
+     env: { ...process.env, DATABASE_URL: databaseUrl },
+     encoding: "utf-8",
+     shell: true,
+     timeout: 120_000,
+   })
    ```
-2. **Render**:
-   - Si `lots.length === 0` → renderizar un `<span>` con `emptyText`.
-   - Si hay lotes → un `<ul className="lots-list">` con un `<li>` por lote.
-   - Cada `<li>` contiene dos partes:
-     - **Cantidad** (`{l.quantity} u.`)
-     - **Fecha** — usar `formatExpiryInput(l.expiryDate)` del util `renderer/src/utils/expiry.ts`. Si es `null` mostrar `"sin vencimiento"`.
-   - Formato sugerido por `<li>`: `{quantity} u. — {fecha o "sin vencimiento"}`.
-3. **CSS**:
-   - `.lots-list` → `list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2px;`
-   - `.lots-list__item` → `font-size: 12px; line-height: 1.3;`
-   - Variante visual para lotes vencidos / vencen hoy (opcional pero recomendado): aplicar `.lots-list__item--expired` o `--today` reutilizando `classifyExpiry` de `utils/expiry.ts`. El estilo es leve (color rojo o naranja en el texto). **No** es la alerta principal, eso lo cubre `ExpiryAlertWidget`; acá es solo realce informativo.
+6. Si `status !== 0` → `throw new Error(...)` incluyendo `stdout` y `stderr`.
+7. Si `!fs.existsSync(dbPath)` → `throw`.
+8. `cleanup()` borra `dbPath` y `${dbPath}-journal` con `fs.rmSync(..., { force: true })` **dentro de try/catch** (en Windows puede dar `EBUSY` si quedó un cliente abierto; en ese caso loguear un warning, no fallar).
 
-**Decisión clave de implementación:** `LotsList` **no** hace fetch propio. Solo renderiza lo que recibe por props. Esto lo hace reutilizable y testeable.
+Comentarios en español, mismo estilo que `wipe-test-data.test.ts`.
+
+### Paso 2.2 — Crear `backend/__tests__/helpers/useIsolatedDb.ts`
+
+Módulo de **efecto secundario** (mismo patrón que `electron/setupEnv.ts`): se importa como **primer import** y deja `DATABASE_URL` apuntando a una DB temporal antes de que cualquier otro import cargue el Prisma client.
+
+```ts
+import { createMigratedTestDb } from "./testDb"
+
+// Pisa DATABASE_URL a propósito: los tests de integración NUNCA deben tocar dev.db.
+const testDb = createMigratedTestDb("integration")
+process.env.DATABASE_URL = testDb.databaseUrl
+process.on("exit", () => testDb.cleanup())
+```
+
+Agregar además una guarda: si `process.env.DATABASE_URL` no contiene `/test-` después de setearlo → `throw`.
+
+### Paso 2.3 — Test del helper: `backend/__tests__/testDb-helper.test.ts`
+
+Mismo estilo que los otros tests de `backend/__tests__` (funciones `assert`/`logStep`, `main().catch(...)`). Casos:
+
+1. **Crea el archivo**: `createMigratedTestDb("helper")` → `fs.existsSync(dbPath) === true`.
+2. **Migraciones aplicadas**: con un `PrismaClient` apuntando a `databaseUrl`, `SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL` es igual a la cantidad de **carpetas** dentro de `backend/prisma/migrations/` (contar con `fs.readdirSync(..., { withFileTypes: true }).filter(d => d.isDirectory())`; hoy son 9).
+3. **Vacía**: `category`, `supplier`, `product`, `stockMovement`, `sale`, `saleItem`, `salePayment` → `count() === 0` las 7.
+4. **No toca dev.db**: calcular SHA-256 de `backend/prisma/dev.db` antes y después de crear la DB de test (si `dev.db` existe) → iguales.
+5. **Ignorada por git**: `git check-ignore -q <dbPath>` (con `spawnSync`) → `status === 0`.
+6. **Cleanup**: después de `$disconnect()` + `cleanup()` → `fs.existsSync(dbPath) === false`.
+
+### Paso 2.4 — Registrar el script
+
+En `package.json` raíz:
+- Agregar `"test:testdb-helper": "npx ts-node backend/__tests__/testDb-helper.test.ts"`.
+- Agregar `npm run test:testdb-helper` **al principio** de la cadena de `test:backend`.
+
+Verificación: `npm run test:testdb-helper` en verde.
 
 ---
 
-### Paso 4 — Tests del componente `LotsList`
+## Fase 3 — Tests que copiaban la dev.db real (R6)
 
-Archivo: `renderer/src/Components/LotsList/__tests__/LotsList.test.tsx` con Vitest + Testing Library.
+### Paso 3.1 — `backend/__tests__/saleService-create.test.ts`
 
-1. Sin lotes → renderiza el `emptyText` por defecto (`"—"`) y no renderiza `<ul>`.
-2. Con `emptyText` custom → respeta el override.
-3. Con 3 lotes (mix) → renderiza 3 `<li>` con texto que contiene cantidad y fecha.
-4. Lote con `expiryDate = null` → muestra `"sin vencimiento"` en lugar de fecha.
-5. Lote vencido (fecha pasada) → la fila tiene la clase `--expired` (si decidiste implementar la variante visual).
-6. Lote que vence hoy → fila con clase `--today`.
-
----
-
-### Paso 5 — Backend: función de repositorio `listLotsByProductIds`
-
-Archivo: `backend/repositories/stockMovementRepository.ts`.
-
-1. Agregar la función exportada:
+1. Borrar `readConfiguredDatabasePath`, `prepareTestDb`, `removeTestDbFiles` y las constantes `testDbPath`/`testDatabaseUrl`.
+2. Al principio de `main()`:
    ```ts
-   export async function listLotsByProductIds(productIds: number[]) {
-     if (productIds.length === 0) return []
-     return prisma.stockMovement.findMany({
-       where: {
-         productId: { in: productIds },
-         type: 'IN',
-         expiryDismissedAt: null,
-         quantity: { gt: 0 }
-       },
-       orderBy: { expiryDate: 'asc' },  // mejor esfuerzo; el sort fino vive en el renderer (sortLots)
-       include: { product: true }
-     })
-   }
+   const testDb = createMigratedTestDb("saleService-create")
+   process.env.DATABASE_URL = testDb.databaseUrl
    ```
-2. Asegurarse de **no** romper el shape de `StockMovementFromApi` — Prisma incluye el `product` en `include`, igual que `listStockMovements`.
-3. Exportar desde `backend/repositories/index.ts` (agregar línea de re-export).
+   **Antes** de los `require(...)` de `saleService` y `db/client` (el orden ya existente se mantiene: los `require` son tardíos a propósito).
+3. En el `finally`: `await prisma.$disconnect()` y luego `testDb.cleanup()`.
+4. Reemplazar el comentario "The temp DB starts as a copy of the real dev DB…" por uno que diga que la DB se crea vacía desde migraciones. Los `deleteMany()` de limpieza previa se pueden borrar (la DB ya nace vacía).
+5. Verificación: `npm run test:saleService-create` en verde.
 
-**Nota:** el ordenamiento final lo hace el renderer con `sortLots` para mantener la lógica de "sin vencimiento al final" en un solo lugar (consistente entre la tabla y el buscador). El `orderBy` del repo es solo una optimización para evitar ordenar dos veces lo mismo en queries grandes.
+### Paso 3.2 — `backend/__tests__/wipe-test-data.test.ts`
 
----
-
-### Paso 6 — Backend: tests del repositorio
-
-Si existe un test runner para repositorios (revisar `backend/__tests__/`), agregar `listLotsByProductIds.test.ts` o equivalente. Casos:
-
-1. Array vacío → devuelve `[]` sin tocar la DB.
-2. Producto con varios lotes IN → devuelve todos con su `product` incluido.
-3. Excluye lotes con `expiryDismissedAt != null`.
-4. Excluye lotes con `quantity <= 0` (merma).
-5. Excluye movimientos con `type` distinto de `'IN'`.
-6. Mezcla de productos: dos productos, cada uno con 2 lotes → devuelve 4 ítems.
-
-Si el proyecto **no** corre tests de repositorios contra una DB real, saltear este paso y cubrir la lógica solo desde el renderer / scripts integrales (`test:ipc-bridge`).
-
----
-
-### Paso 7 — IPC: handler nuevo
-
-Archivo: `electron/ipcHandlers.ts`.
-
-1. Importar `listLotsByProductIds` de `../backend/repositories`.
-2. Registrar el handler con el canal `'stockMovement:listLotsByProductIds'`. La firma del payload es `{ productIds: number[] }`. Aplicar el mismo patrón de serialización que ya usa `stockMovement:list` (pasar el resultado por `serializeForIpc` o como esté implementado).
-3. Validar el payload mínimamente: si `productIds` no es array, devolver `[]` o tirar error explicativo (alinear con el patrón de los demás handlers del archivo).
-
----
-
-### Paso 8 — IPC: contrato y tipos del renderer
-
-1. **`electron/ipcContract.ts`**:
-   - Agregar al `ElectronApi`:
-     ```ts
-     listLotsByProductIds: (productIds: number[]) => Promise<StockMovementFromApi[]>
-     ```
-   - En `buildElectronApi`:
-     ```ts
-     listLotsByProductIds: (productIds) =>
-       call<StockMovementFromApi[]>('stockMovement:listLotsByProductIds', { productIds }),
-     ```
-2. **`renderer/src/electron-api.d.ts`**:
-   - Agregar la firma del método en la interfaz expuesta por `window.api`. (Mismo nombre, mismos tipos.)
-
----
-
-### Paso 9 — `SearchPopup` recibe `showExpiry`
-
-Archivo: `renderer/src/Pages/Sells/SearchPopup.tsx`.
-
-1. Extender la prop interface:
+1. Borrar `readConfiguredDatabasePath`, `prepareTestDb`, `makeTestDbPath`, `removeTestDbFiles`.
+2. En cada test reemplazar:
    ```ts
-   type Props = {
-     open: boolean
-     onClose: () => void
-     onSelect: (product: ProductFromApi) => void
-     allowNumericEnter?: boolean
-     showExpiry?: boolean   // default false
-   }
+   const dbPath = makeTestDbPath()
+   const databaseUrl = prepareTestDb(dbPath)
    ```
-2. Cuando `showExpiry === true`, agregar un nuevo `<th>Vencimientos</th>` al final del header de la tabla y un `<td>` por fila con `<LotsList lots={lotsByProduct.get(product.id) ?? []} />`.
-3. Estado nuevo:
+   por:
    ```ts
-   const [lotsByProduct, setLotsByProduct] = useState<Map<number, StockMovementFromApi[]>>(new Map())
+   const testDb = createMigratedTestDb("wipe")
+   const { dbPath, databaseUrl } = testDb
    ```
-4. **Fetch de lotes** — un `useEffect` que se dispara cuando `showExpiry` y `results` cambian:
-   - Si `!showExpiry` o `results.length === 0` → setear el Map vacío y salir.
-   - Si hay resultados → llamar `window.api.listLotsByProductIds(results.map(r => r.id))`, pasar la respuesta por `groupLotsByProduct` (del Paso 1) y guardarla en el state.
-   - Manejar `cancelled` con el patrón habitual (variable cerrada en cleanup).
-5. **Default de la prop** en el componente: `showExpiry = false`. La firma de uso desde `Sells.tsx` no cambia (queda implícitamente `false`).
-
-**Cuidado de UX:** si la tabla tiene `showExpiry`, asegurarse de que la nueva celda no rompa el `flex` o el layout de filas seleccionadas. Verificar la clase `search-popup__row--selected` y los estilos de `td`.
+   y en el `finally` `removeTestDbFiles(dbPath)` por `testDb.cleanup()`.
+3. Actualizar el comentario de cabecera ("copia de dev.db" → "DB nueva creada desde migraciones").
+4. Verificación: `npm run test:wipe-script` en verde (los 5 tests existentes).
 
 ---
 
-### Paso 10 — `SearchPopup.css`
+## Fase 4 — Tests de integración que escribían en dev.db (R5)
 
-Agregar:
-- `.search-popup__col-expiry` (o el selector que uses) con `width: 240px;` o `max-width: 240px;` para que la columna no haga estallar la tabla cuando un producto tiene muchos lotes.
-- `overflow-y: auto; max-height: 120px;` en la celda si se decide acotar la altura.
+### Paso 4.1 — `backend/test.ts`
 
----
-
-### Paso 11 — Stock.tsx: estado, botón, fetch y columna
-
-Archivo: `renderer/src/Pages/Stock.tsx`.
-
-1. **Imports** nuevos: `LotsList`, `sortLots`, `groupLotsByProduct`, tipo `StockMovementFromApi`.
-2. **Estado nuevo**:
+1. Agregar como **primera línea del archivo** (antes que cualquier otra cosa):
    ```ts
-   const [showExpiryColumn, setShowExpiryColumn] = useState(false)
-   const [lotsByProduct, setLotsByProduct] = useState<Map<number, StockMovementFromApi[]>>(new Map())
+   import "./__tests__/helpers/useIsolatedDb"
    ```
-3. **Botón toggle** dentro de `.stock-actions`:
-   - Texto dinámico: `showExpiryColumn ? 'Ocultar vencimientos' : 'Mostrar vencimientos'`.
-   - Clase nueva `stock-actions__btn-expiry` para estilarlo.
-4. **Fetch de lotes** con un `useEffect` cuya dependencia sea `[showExpiryColumn, products]`:
-   - Si `!showExpiryColumn || products.length === 0` → `setLotsByProduct(new Map())` y salir.
-   - Si activado → llamar `window.api.listLotsByProductIds(products.map(p => p.id))`, agrupar con `groupLotsByProduct`, setear estado.
-   - Patrón `cancelled` igual que en el `useEffect` de carga de productos.
-5. **Columna nueva** condicional dentro del array `columns`:
+2. Borrar el bloque guarda `if (!process.env.ALLOW_INTEGRATION_TESTS) { ... process.exit(1) }` y su comentario. Reemplazar por un comentario corto: "Este script corre sobre una DB temporal aislada (ver useIsolatedDb); nunca toca dev.db."
+3. No cambiar nada más de la lógica del test.
+
+### Paso 4.2 — `backend/testIpcBridge.ts`
+
+Exactamente lo mismo que el Paso 4.1.
+
+### Paso 4.3 — `package.json`
+
+1. `test:backend-db` → `"npx ts-node backend/test.ts"` (sacar `cross-env ALLOW_INTEGRATION_TESTS=1`).
+2. `test:ipc-bridge` → `"npx ts-node backend/testIpcBridge.ts"`.
+3. **No** desinstalar `cross-env` (puede usarse en otro lado; fuera de alcance).
+
+### Paso 4.4 — Test de aislamiento: `backend/__tests__/integration-isolation.test.ts`
+
+1. Si `backend/prisma/dev.db` no existe → fallar con mensaje "Corré `npm run prisma:deploy` primero".
+2. Calcular SHA-256 (`crypto.createHash("sha256")`) y tamaño de `dev.db` **antes**.
+3. `spawnSync("npm run test:backend-db", [], { cwd: repoRoot, shell: true, encoding: "utf-8", timeout: 300_000 })` → `status === 0` (si falla, mostrar stdout/stderr).
+4. Lo mismo con `npm run test:ipc-bridge`.
+5. SHA-256 de `dev.db` **después** → igual al de antes.
+6. No quedan archivos `test-integration.*` en `backend/prisma/` (`fs.readdirSync(...).filter(f => f.startsWith("test-integration."))` → largo 0).
+7. Registrar `"test:integration-isolation": "npx ts-node backend/__tests__/integration-isolation.test.ts"` y agregarlo **al final** de `test:backend`.
+
+Verificación: `npm run test:integration-isolation` en verde. Si `test.ts` o `testIpcBridge.ts` fallan por depender de datos que existían en la dev.db real, arreglar el **test** (que cree sus propios datos), no sembrar datos.
+
+---
+
+## Fase 5 — `VACUUM` en el script de wipe (R7)
+
+### Paso 5.1 — `scripts/wipe-test-data.ts`
+
+1. Después del `await prisma.$transaction(...)` y **antes** de `printCounts(prisma, "DESPUÉS")`, agregar:
    ```ts
-   ...(showExpiryColumn ? [{
-     key: 'expiry',
-     label: 'Vencimientos',
-     render: (p) => <LotsList lots={lotsByProduct.get(p.id) ?? []} />
-   }] : [])
+   // VACUUM no puede correr dentro de una transacción. Reescribe el archivo
+   // SQLite para que las filas borradas no queden recuperables en páginas libres.
+   await prisma.$executeRawUnsafe("VACUUM")
+   console.log("VACUUM ejecutado")
    ```
-   Insertarla **antes** de la columna `actions` para que "Editar" siga siendo la última.
-6. **Reload key**: el `useEffect` de carga ya reacciona a `reloadKey`. Cuando se carga stock o se edita un producto, los lotes deberían recargarse también. Para eso agregar `reloadKey` a las dependencias del nuevo `useEffect` de lotes (junto a `[showExpiryColumn, products, reloadKey]`).
+2. En el bloque final de mensajes agregar `console.log("✓ Archivo compactado (VACUUM)")`.
+3. El modo `--dry-run` **no** debe ejecutar `VACUUM` (ya sale antes con `process.exit(0)`; verificar que siga así).
+4. Actualizar el comentario de cabecera: mencionar que también compacta el archivo.
+
+### Paso 5.2 — Tests nuevos en `wipe-test-data.test.ts`
+
+Agregar y registrar en `main()`:
+
+**Test 6 — VACUUM elimina residuos del archivo**
+1. `createMigratedTestDb("wipe")`, seedear con `seedTestData` pero con un producto extra cuyo nombre sea un marcador único: `const marker = \`WIPE-RESIDUE-MARKER-${Date.now()}\``.
+2. `await prisma.$disconnect()`.
+3. **Sanity check**: `fs.readFileSync(dbPath).includes(Buffer.from(marker, "utf-8")) === true` (prueba que el test es capaz de detectar el residuo).
+4. Correr `runWipeScript(databaseUrl, ["--confirm"])` → `status === 0`.
+5. `fs.readFileSync(dbPath).includes(Buffer.from(marker, "utf-8")) === false`.
+6. `stdout` incluye `"VACUUM"`.
+
+**Test 7 — El wipe conserva el historial de migraciones**
+1. DB nueva + `seedTestData` + `--confirm`.
+2. `SELECT COUNT(*) AS n FROM _prisma_migrations` → igual a la cantidad de carpetas en `backend/prisma/migrations/`.
+
+**Test 8 — Dry run no compacta**
+1. DB nueva + seed con marcador + `$disconnect()` + `--dry-run`.
+2. El marcador **sigue** en el archivo y `stdout` **no** incluye `"VACUUM ejecutado"`.
+
+Verificación: `npm run test:wipe-script` → 8 tests en verde.
 
 ---
 
-### Paso 12 — Stock.css: grid dinámico + estilo del botón
+## Fase 6 — Higiene del repo (R1, R2, R4, R9)
 
-Archivo: `renderer/src/Pages/Stock.css`.
+### Paso 6.1 — Quitar los tokens del archivo local
 
-1. La grilla pasa de `repeat(7, 1fr)` a usar una **clase modificadora**:
-   - Default (sin la columna extra): `.stock-grid { grid-template-columns: repeat(7, 1fr); }` (queda como está).
-   - Con la columna: `.stock-grid--with-expiry { grid-template-columns: repeat(8, 1fr); }`.
-2. Aplicar la clase condicionalmente en `Stock.tsx`:
-   ```tsx
-   <section className={`stock-grid ${showExpiryColumn ? 'stock-grid--with-expiry' : ''}`}>
+1. Abrir `.claude/settings.local.json`.
+2. Borrar **todas** las entradas del array `permissions.allow` que contengan `ghp_` o `GH_TOKEN=` (hoy son 7).
+3. Borrar también las 2 entradas `Remove-Item "h:\\anton\\Documents\\Music\\Intergral\\..."` (rutas de una ubicación vieja del proyecto, ya no sirven).
+4. Verificar que el JSON siga siendo válido: `node -e "JSON.parse(require('fs').readFileSync('.claude/settings.local.json','utf8'))"` sin error.
+5. `Grep` de `ghp_` en todo el proyecto (excluyendo `node_modules`) → 0 resultados.
+
+### Paso 6.2 — `.env.example`
+
+Crear `.env.example` en la raíz con:
+```
+# Copiar este archivo como .env (no se versiona).
+# La ruta es relativa a backend/prisma/ (así la resuelve Prisma).
+DATABASE_URL="file:./dev.db"
+```
+
+### Paso 6.3 — `.gitignore` raíz
+
+Agregar al final (mantener lo existente):
+```
+# Bases de datos locales: nunca se versionan (contienen datos del negocio)
+backend/prisma/dev.db
+backups/
+*.db-journal
+
+# Configuración local de Claude Code (puede contener secretos)
+.claude/settings.local.json
+```
+
+### Paso 6.4 — Dejar de versionar sin borrar del disco
+
+```
+git rm --cached backend/prisma/dev.db
+git rm --cached .claude/settings.local.json
+git rm -r --cached backups
+```
+Luego borrar del disco la carpeta `backups/` completa (D2: sin respaldo).
+
+Verificación:
+- `git ls-files | Select-String "\.db$"` → vacío.
+- `git ls-files | Select-String "settings.local.json|^backups/"` → vacío.
+- `Test-Path backend/prisma/dev.db` → `True` (el archivo local sigue, se limpia en la Fase 8).
+
+### Paso 6.5 — Test de higiene: `backend/__tests__/repo-hygiene.test.ts`
+
+Mismo estilo que los otros tests. Usa `spawnSync("git", [...], { cwd: repoRoot, encoding: "utf-8" })` (sin shell). Casos:
+
+1. **Ningún `.db` versionado**: `git ls-files` → ninguna línea termina en `.db` ni en `.db-journal`.
+2. **Nada de `backups/` versionado**: ninguna línea empieza con `backups/`.
+3. **Config local no versionada**: no aparece `.claude/settings.local.json` ni `.env`.
+4. **Sin tokens versionados**: `git grep -I -n -E "ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,}"` → `status === 1` (git grep devuelve 1 cuando no hay matches). Si es 0 → fallar listando **solo el nombre de archivo y número de línea**, nunca el contenido de la línea.
+5. **Reglas de ignore activas**: `git check-ignore -q <ruta>` → `status === 0` para `backend/prisma/dev.db`, `backups/cualquier.db`, `.claude/settings.local.json`, `.env`, `backend/prisma/test-x.db`.
+6. **`.env.example` versionable y correcto**: `git check-ignore -q .env.example` → `status === 1`; el archivo existe y contiene la línea `DATABASE_URL="file:./dev.db"`.
+
+Registrar `"test:repo-hygiene": "npx ts-node backend/__tests__/repo-hygiene.test.ts"` y agregarlo a `test:backend`.
+
+> Nota: el caso 1 recién pasa después del Paso 6.4 (con el índice ya actualizado). Correrlo después de ese paso.
+
+---
+
+## Fase 7 — Documentación
+
+### Paso 7.1 — `ENTREGA.md`
+
+1. **Primera instalación** pasa a ser:
+   ```bash
+   npm install
+   copy .env.example .env     # (en PowerShell: Copy-Item .env.example .env)
+   npm run prisma:deploy      # crea backend/prisma/dev.db vacía con todas las migraciones
+   npm run dev
    ```
-3. **Media queries**: actualizar las dos reglas existentes (`@media (max-width: 1024px)` y `@media (max-width: 640px)`) para que el modificador `--with-expiry` se reduzca proporcionalmente (ej. en 1024px usar `repeat(4, 1fr)` con la columna activa, en 640px ya colapsa a 1 columna y no hace falta tocar nada).
-4. **Botón toggle**: agregar `.stock-actions__btn-expiry` con un color distinto (sugerido: `#8b5cf6` violeta) para distinguirlo del resto y un hover correspondiente.
+2. En **Copia de seguridad**: aclarar que `dev.db` **no** se versiona en git, así que `git pull` nunca la pisa, y que por eso mismo es imprescindible copiarla a mano.
+3. En **Limitaciones**, punto 2: misma aclaración.
+
+### Paso 7.2 — `README_DB.md`
+
+En "Commands" agregar:
+- `npm run prisma:deploy`: crea/actualiza la DB aplicando migraciones (primera instalación).
+- `npm run wipe:test-data -- --dry-run | --confirm`: vacía todas las tablas, resetea autoincrement y compacta (VACUUM).
+
+Y una nota: `dev.db` no se versiona; se genera desde migraciones.
+
+### Paso 7.3 — `CONTEXT.md`
+
+En la sección "Configuración de la base de datos (DATABASE_URL)":
+1. Cambiar la frase del `.env` para indicar que existe `.env.example` versionado y que hay que copiarlo como `.env`.
+2. Agregar un párrafo: "**Tests y DB**: ningún test toca `dev.db`. Todos crean una DB temporal desde migraciones con `backend/__tests__/helpers/testDb.ts` (`createMigratedTestDb`). Los scripts de integración (`backend/test.ts`, `backend/testIpcBridge.ts`) importan primero `useIsolatedDb.ts`. `dev.db`, `backups/` y `.claude/settings.local.json` están en `.gitignore`; `repo-hygiene.test.ts` lo verifica."
 
 ---
 
-### Paso 13 — Activar `showExpiry` en el `SearchPopup` de Stock
+## Fase 8 — Limpiar la DB local (R1)
 
-En `Stock.tsx`, donde ya se renderiza `<SearchPopup ... allowNumericEnter={true} />`, agregar `showExpiry={true}`. **No tocar** el `SearchPopup` de Sells — queda con el default `false`.
+> La app **tiene que estar cerrada** (si Electron tiene la DB abierta, Windows no deja borrarla).
 
----
-
-### Paso 14 — Tests UI
-
-#### 14.a — `Stock.tsx` (test específico para esta feature)
-
-Crear `renderer/src/Pages/__tests__/Stock.expiryColumn.test.tsx` (o agregar al test de Stock si existe). Casos:
-
-1. Por defecto, **no** se renderiza ninguna celda con label "Vencimientos".
-2. Click en el botón "Mostrar vencimientos" → se renderiza la columna y el texto del botón cambia a "Ocultar vencimientos".
-3. Click otra vez → se oculta la columna.
-4. Cuando la columna está activa, **se llama** `window.api.listLotsByProductIds` con los IDs de los productos cargados.
-5. Cuando un producto tiene 2 lotes (uno con fecha, uno sin), la celda renderiza la lista en el orden correcto (con fecha primero).
-6. Cuando un producto **no** tiene lotes, la celda muestra `"—"`.
-7. La columna `Acciones` (botón Editar) sigue apareciendo como **última** (verificar orden de columnas).
-
-**Mockear** `window.api.listLotsByProductIds` y `window.api.listProducts` con datos sintéticos. No hace falta DB real.
-
-#### 14.b — `SearchPopup.test.tsx`
-
-Extender el test existente con un `describe('showExpiry')`:
-
-1. Default (sin la prop) → no renderiza la columna "Vencimientos".
-2. Con `showExpiry={true}` y resultados → renderiza la columna y llama a `window.api.listLotsByProductIds` con los IDs visibles.
-3. Cuando cambia la query (cambian los resultados) → vuelve a llamar a `listLotsByProductIds` con los IDs nuevos.
-4. Si la API responde con `[]` para un producto → la celda de ese producto muestra `"—"`.
-5. Si `showExpiry={false}` → **nunca** se llama a `listLotsByProductIds` (verificar con `expect(mock).not.toHaveBeenCalled()`).
+1. Borrar `backend/prisma/dev.db` y, si existe, `backend/prisma/dev.db-journal`.
+2. Borrar cualquier `backend/prisma/test*.db*` que haya quedado de corridas anteriores.
+3. Correr `npm run prisma:deploy`. Debe decir que aplicó **9** migraciones.
+4. Verificación con el script oficial: `npm run wipe:test-data -- --dry-run` → las 7 tablas en `0 filas`.
+5. Verificación de contadores: `node -e` (o un script en el scratchpad, **no** en el repo) que ejecute `SELECT COUNT(*) FROM sqlite_sequence` sobre `dev.db` → `0` (o error "no such table", ambos OK).
+6. Verificación de residuos en el archivo: buscar en los bytes de `dev.db` los textos `TAKIS`, `JACK DANIELS`, `IT Category`, `GENERAL` → ninguno presente (`fs.readFileSync(...).includes(Buffer.from(texto))` → `false`).
+7. `npm run test:schema-db-sync` y `npm run test:db-path-config` en verde.
 
 ---
 
-### Paso 15 — Tests de integración / smoke manual
+## Fase 9 — Limpiar el userData de Electron (R8)
 
-1. Correr `npm test` y verificar que **todos** los tests pasen, incluidos los de `ExpiryAlertWidget` y demás (no debería haber regresiones porque nada del shape de `StockMovement` cambió).
-2. Smoke manual end-to-end:
-   - Abrir la app en dev.
-   - Ir a Stock. Verificar que el botón "Mostrar vencimientos" aparezca.
-   - Click → aparece la columna; con datos reales, verificar el orden y que los lotes "merma" (cantidad negativa) no aparezcan.
-   - Buscar un producto con F2: en la tabla del popup debe aparecer la columna "Vencimientos" con la misma info.
-   - Ir a Sells, abrir F2: verificar que **no** aparece la columna nueva (solo en Stock).
-   - Toggle off: la columna desaparece y el grid vuelve a 7 columnas (no quedan huecos).
-   - Cargar un nuevo lote con `LoadStockModal` y verificar que al volver a Stock con la columna activa, el lote nuevo aparece.
-
----
-
-## Resumen de testabilidad
-
-- **Lógica pura** (`sortLots`, `groupLotsByProduct`) → tests unitarios sin React.
-- **Componente visual** (`LotsList`) → tests con Testing Library, sin IPC.
-- **Backend repo** (`listLotsByProductIds`) → tests con DB si el proyecto los soporta; si no, cubierto vía smoke + tests de UI con mock del IPC.
-- **Integración Stock + buscador** → tests de UI que mockean `window.api`.
-
-Esta separación permite que un modelo de menor potencia ejecute paso a paso sin necesidad de razonamiento global; cada paso es local a uno o dos archivos y tiene su test asociado.
+1. Confirmar que no haya procesos `electron.exe` corriendo (`Get-Process electron -ErrorAction SilentlyContinue` → vacío).
+2. Borrar **solo** la carpeta de esta app:
+   ```powershell
+   Remove-Item -Recurse -Force "$env:APPDATA\integral" -Confirm:$false
+   ```
+   **No** tocar `"$env:APPDATA\electron-from-docs"` ni ninguna otra carpeta.
+3. Verificación: `Test-Path "$env:APPDATA\integral"` → `False`.
+4. Al volver a abrir la app, Electron recrea la carpeta vacía; es esperado.
 
 ---
 
-## Notas y trampas conocidas
+## Fase 10 — Verificación completa y commit
 
-- El `SearchPopup` se importa también desde `renderer/src/Pages/Stock.tsx`. **Verificar** que la prop `showExpiry` tenga default `false` para no romper el call site de Sells.
-- Si más adelante se agrega edición de la `expiryDate` desde la UI, el `LotsList` ya queda preparado para mostrarla; la edición misma queda fuera de scope.
-- Cuidado al cambiar `grid-template-columns`: si se aplica mal la clase modificadora, el header `Acciones` puede quedar mal alineado. El test de orden de columnas (Paso 14.a punto 7) protege contra eso.
-- El `useEffect` que dispara el fetch de lotes en `Stock.tsx` debe **no** ejecutarse si `showExpiryColumn === false` (early return), para evitar IPC innecesarios.
-- En `SearchPopup`, el fetch debe respetar el debounce ya existente para `results`: como el `useEffect` de lotes depende de `results`, se va a disparar después del debounce sin trabajo extra.
+1. `npm run build` sin errores (compila los `.ts` nuevos).
+2. `npm run test:backend` → todo verde (ahora incluye: testdb-helper, db-path-config, schema-db-sync, saleService-create, wipe-script, repo-hygiene, integration-isolation).
+3. `cd renderer && npm test` → mismo resultado que la línea base (Paso 1.3).
+4. Smoke manual: `npm run dev` →
+   - Stock: tabla vacía, sin errores.
+   - Crear una categoría, un proveedor y un producto → el producto queda con **id 1** (autoincrement reseteado).
+   - Hacer una venta de prueba → historial de ventas muestra solo esa venta.
+   - Header: no aparece alerta de vencimientos.
+   - **Al terminar**, repetir la Fase 8 (pasos 1–4) para que la DB vuelva a quedar vacía.
+5. `git status`: deben aparecer como borrados `backend/prisma/dev.db`, `backups/...`, `.claude/settings.local.json` (del índice) y como nuevos/modificados los archivos de este plan. **No** debe aparecer `.env`.
+6. Commit único:
+   ```
+   chore: limpiar datos residuales y aislar tests de la DB real
+
+   - dev.db, backups/ y .claude/settings.local.json dejan de versionarse
+   - tests crean su DB desde migraciones (helpers/testDb.ts)
+   - test.ts y testIpcBridge.ts usan DB temporal aislada
+   - wipe-test-data hace VACUUM
+   - tests nuevos: testDb-helper, repo-hygiene, integration-isolation
+   ```
+   (+ la línea de co-autoría que indique el entorno.)
+7. 🛑 Pedir confirmación y hacer `git push` **normal** (todavía sin force). BFG necesita que el commit HEAD remoto ya no tenga los archivos.
+
+---
+
+## Fase 11 — 🛑 Reescribir el historial público (R3, R4)
+
+> **Destructivo e irreversible para el remoto.** Cambia los hashes de todos los commits. Confirmar con el usuario **antes del push final** (Paso 11.6). Hoy el repo tiene 0 forks, 1 sola rama (`main`) y 0 tags.
+
+### Paso 11.1 — Preparar herramientas (fuera del repo)
+
+1. Crear una carpeta de trabajo **fuera** de `Integral/`, por ejemplo `H:\anton\Proyectos\integral-cleanup\`.
+2. Descargar BFG 1.14.0 ahí:
+   ```powershell
+   Invoke-WebRequest https://repo1.maven.org/maven2/com/madgag/bfg/1.14.0/bfg-1.14.0.jar -OutFile H:\anton\Proyectos\integral-cleanup\bfg.jar
+   ```
+3. `java -jar H:\anton\Proyectos\integral-cleanup\bfg.jar --version` → imprime versión. Si da `UnsupportedClassVersionError`, parar y pedir al usuario instalar un JRE ≥ 11 (Temurin).
+
+### Paso 11.2 — Clon espejo
+
+```powershell
+cd H:\anton\Proyectos\integral-cleanup
+git clone --mirror https://github.com/Antosancho/Integral.git Integral.git
+```
+
+### Paso 11.3 — Purgar los archivos de todos los commits
+
+Correr **por separado** (uno por vez, revisando la salida de cada uno):
+```powershell
+java -jar bfg.jar --delete-files dev.db Integral.git
+java -jar bfg.jar --delete-files settings.local.json Integral.git
+java -jar bfg.jar --delete-folders backups Integral.git
+```
+- BFG protege el commit HEAD: como en la Fase 10 ya se quitaron del HEAD, no debe advertir "protected commits contain these files". Si lo advierte → **parar**: la Fase 10 no se pusheó bien.
+
+### Paso 11.4 — Eliminar los objetos viejos del espejo
+
+```powershell
+cd Integral.git
+git reflog expire --expire=now --all
+git gc --prune=now --aggressive
+```
+
+### Paso 11.5 — Verificar el espejo ANTES de pushear
+
+1. `git rev-list --all --objects | Select-String "\.db$|settings\.local\.json|backups/"` → **vacío**.
+2. `git log --all -S "ghp_" --oneline` → **vacío**.
+3. `git log --oneline | Measure-Object` → la cantidad de commits debe ser parecida a la original (BFG no borra commits, solo los reescribe).
+4. `git ls-tree -r HEAD --name-only` → contiene `schema.prisma`, `migrations/...`, `.env.example`, `backend/__tests__/repo-hygiene.test.ts`.
+
+### Paso 11.6 — 🛑 Push forzado
+
+1. Mostrarle al usuario el resultado del 11.5 y pedir confirmación explícita.
+2. `git push --force` (dentro de `Integral.git`; el clon `--mirror` empuja todas las refs).
+3. Errores `! [remote rejected] refs/pull/... (deny updating a hidden ref)` son **esperables e inofensivos** si hubo PRs; cualquier otro error → parar.
+
+### Paso 11.7 — Resincronizar el repo local de trabajo
+
+En `H:\anton\Proyectos\Integral`:
+1. `git status` → **limpio** (obligatorio; el siguiente comando descarta cambios no commiteados). Los archivos ignorados (`.env`, `dev.db`, `.claude/settings.local.json`) no se tocan.
+2. ```powershell
+   git fetch origin
+   git reset --hard origin/main
+   git reflog expire --expire=now --all
+   git gc --prune=now --aggressive
+   ```
+3. Verificación: `git rev-list --all --objects | Select-String "\.db$|settings\.local\.json|backups/"` → vacío.
+4. `npm run test:backend` → verde de nuevo.
+5. Borrar `H:\anton\Proyectos\integral-cleanup\` completa (contiene el espejo y el reporte de BFG con hashes viejos).
+
+### Paso 11.8 — Avisos finales al usuario
+
+1. GitHub puede seguir mostrando commits viejos si alguien tiene el hash exacto (caché). Para purgarlos del todo, el usuario puede abrir un ticket en GitHub Support ("Remove sensitive data / cached views"). Por eso la **Fase 0 (revocar tokens) es lo que realmente protege**.
+2. Cualquier otro clon del repo (otra PC, el cliente) debe **borrarse y clonarse de nuevo**; un `git pull` sobre un clon viejo reintroduciría los archivos.
+
+---
+
+## Checklist final (todo debe ser ✅)
+
+- [ ] Tokens revocados por el usuario (Fase 0).
+- [ ] `backend/prisma/dev.db`: 0 filas en las 7 tablas, `sqlite_sequence` vacía, sin textos residuales en el archivo.
+- [ ] `backups/` no existe.
+- [ ] `%APPDATA%\integral` no existe (o se recreó vacía al abrir la app).
+- [ ] `.claude/settings.local.json` sin tokens y fuera de git.
+- [ ] `git ls-files` sin `.db`; `.gitignore` con las reglas nuevas; `.env.example` versionado.
+- [ ] `npm run test:backend` verde (7 suites); `renderer` tests igual que la línea base.
+- [ ] Historial remoto y local sin `dev.db`, `backups/`, `settings.local.json` ni `ghp_`.
+- [ ] `ENTREGA.md`, `README_DB.md`, `CONTEXT.md` actualizados.
+
+---
+
+## Fuera de alcance (anotado para después)
+
+- `dist/` está versionado en git (código compilado, no datos). Conviene ignorarlo en una iteración aparte.
+- `renderer/.gitignore` tiene la regla `.settings.local.json` (con punto inicial, no matchea nada). Inofensivo.
+- Producción: la DB en `<userData>/integral.db` todavía no se crea ni migra sola en el primer arranque (ya anotado en `CONTEXT.md`).
+
+---
+
+## Trampas conocidas
+
+- **Orden de imports**: `useIsolatedDb` tiene que ser el **primer** import de `test.ts`/`testIpcBridge.ts`. Si otro import carga `backend/db/client` antes, Prisma se conecta a `dev.db`. El test de aislamiento (Paso 4.4) detecta este error.
+- **`VACUUM` fuera de la transacción**: dentro de `$transaction` falla con "cannot VACUUM from within a transaction".
+- **Windows y archivos abiertos**: borrar una `.db` con un `PrismaClient` conectado da `EBUSY`. Siempre `$disconnect()` antes de `cleanup()` o de leer los bytes del archivo.
+- **Rutas relativas en `DATABASE_URL`**: Prisma las resuelve desde `backend/prisma/`, no desde el CWD. El helper usa rutas **absolutas** para evitarlo.
+- **BFG y HEAD protegido**: si los archivos siguen en el commit HEAD remoto, BFG no los borra de ahí. Por eso la Fase 10 (commit + push normal) va antes de la Fase 11.
+- **Nunca** imprimir ni commitear un token completo, ni en logs de tests (el test de higiene muestra solo archivo:línea).
