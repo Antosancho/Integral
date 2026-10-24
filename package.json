@@ -1,17 +1,26 @@
 {
   "name": "integral",
+  "productName": "Integral",
   "version": "1.0.0",
-  "main": "dist/electron/main.js",
+  "main": ".vite/build/main.cjs",
   "workspaces": [
     "renderer",
     "backend"
   ],
   "scripts": {
     "postinstall": "prisma generate --schema backend/prisma/schema.prisma",
-    "build": "tsc",
-    "dev": "node scripts/dev.js",
+    "dev": "electron-forge start",
+    "start": "electron-forge start",
+    "prepackage": "prisma generate --schema backend/prisma/schema.prisma",
+    "package": "electron-forge package",
+    "premake": "prisma generate --schema backend/prisma/schema.prisma",
+    "make": "electron-forge make",
+    "typecheck": "tsc --noEmit && npm run typecheck --workspace renderer",
+    "verify:package": "node scripts/verify-package.mjs",
+    "verify:make": "node scripts/verify-package.mjs --make",
+    "test:smoke-packaged": "node scripts/smoke-packaged.mjs",
+    "test:packaging-config": "npx ts-node backend/__tests__/packaging-config.test.ts",
     "dev:renderer": "cd renderer && npm run dev",
-    "dev:electron": "npm run build && electron .",
     "prisma:generate": "npx prisma generate --schema backend/prisma/schema.prisma",
     "prisma:migrate": "npx prisma migrate dev --schema backend/prisma/schema.prisma --name init_stock_schema",
     "prisma:reset": "npx prisma migrate reset --force --schema backend/prisma/schema.prisma",
@@ -27,21 +36,36 @@
     "test:testdb-helper": "npx ts-node backend/__tests__/testDb-helper.test.ts",
     "test:repo-hygiene": "npx ts-node backend/__tests__/repo-hygiene.test.ts",
     "test:integration-isolation": "npx ts-node backend/__tests__/integration-isolation.test.ts",
-    "test:backend": "npm run test:testdb-helper && npm run test:db-path-config && npm run test:schema-db-sync && npm run test:saleService-create && npm run test:wipe-script && npm run test:repo-hygiene && npm run test:integration-isolation"
+    "test:backend": "npm run test:testdb-helper && npm run test:db-path-config && npm run test:schema-db-sync && npm run test:saleService-create && npm run test:wipe-script && npm run test:repo-hygiene && npm run test:integration-isolation && npm run test:migrator && npm run test:runtime-paths && npm run test:packaging-config && npm run test:license",
+    "test:migrator": "npx ts-node backend/__tests__/migrator.test.ts",
+    "test:runtime-paths": "npx ts-node backend/__tests__/runtime-paths.test.ts",
+    "test:license": "npx ts-node backend/__tests__/license.test.ts"
   },
   "keywords": [],
-  "author": "",
+  "author": "Antosancho",
   "license": "ISC",
-  "description": "",
+  "description": "Gestión de stock y ventas",
   "devDependencies": {
+    "@electron-forge/cli": "8.0.1",
+    "@electron-forge/maker-squirrel": "8.0.1",
+    "@electron-forge/plugin-fuses": "8.0.1",
+    "@electron-forge/plugin-vite": "8.0.1",
+    "@electron-forge/shared-types": "8.0.1",
+    "@electron/asar": "4.3.1",
+    "@electron/fuses": "2.1.3",
     "@types/node": "25.2.2",
+    "@vitejs/plugin-react": "5.2.0",
     "cross-env": "7.0.3",
     "electron": "40.2.1",
+    "electron-squirrel-startup": "1.0.1",
+    "javascript-obfuscator": "5.9.0",
+    "prisma": "5.22.0",
     "ts-node": "10.9.2",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vite": "7.3.2"
   },
   "dependencies": {
     "@prisma/client": "5.22.0",
-    "prisma": "5.22.0"
+    "bytenode": "1.7.0"
   }
 }

@@ -52,8 +52,8 @@ function resolveElectronDevDbPath(): string {
   ))
   assert(args[0] === "__dirname", "electron/setupEnv.ts DB path must start from __dirname")
 
-  // setupEnv.ts is compiled to dist/electron/setupEnv.js; runtime __dirname points there.
-  const runtimeDirname = path.join(repoRoot, "dist", "electron")
+  // setupEnv.ts se bundlea en .vite/build/main.cjs (Electron Forge + Vite); en dev __dirname apunta ahí.
+  const runtimeDirname = path.join(repoRoot, ".vite", "build")
   const pathSegments = args.slice(1)
 
   return path.join(runtimeDirname, ...pathSegments)

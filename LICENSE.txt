@@ -1,0 +1,16 @@
+Licencia de uso de Integral — versión 1
+BORRADOR: revisar con un abogado antes de distribuir (borrar esta línea en la versión final).
+
+1. Licencia, no venta. Este software no se vende: se otorga una licencia de uso no exclusiva e intransferible, para un (1) negocio del licenciatario.
+
+2. Titularidad. El software (código, diseño y documentación) es propiedad de Antosancho y está protegido por la Ley 11.723 de Propiedad Intelectual, con el software incorporado por la Ley 25.036.
+
+3. Prohibiciones. Queda prohibido copiar, redistribuir, sublicenciar, alquilar o vender el software; descompilarlo, desensamblarlo, extraer o modificar sus archivos (incluido app.asar) o aplicarle ingeniería inversa, salvo en lo que la ley permita expresamente.
+
+4. Datos. Los datos cargados en el sistema pertenecen al licenciatario, que es responsable de hacer sus copias de seguridad.
+
+5. Garantía y responsabilidad. El software se entrega "tal cual", sin garantías de ningún tipo. La responsabilidad del titular queda limitada al monto pagado por la licencia.
+
+6. Terminación. El incumplimiento de cualquiera de estas condiciones termina la licencia de forma automática.
+
+7. Ley y jurisdicción. Esta licencia se rige por las leyes de la República Argentina. Cualquier controversia se someterá a los tribunales de [COMPLETAR jurisdicción].
