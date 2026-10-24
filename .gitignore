@@ -14,3 +14,8 @@ backups/
 
 # Configuración local de Claude Code (puede contener secretos)
 .claude/settings.local.json
+
+# Build de Electron Forge
+out/
+.vite/
+dist/
