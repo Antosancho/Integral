@@ -1,13 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
-import { ScanBarcode } from 'lucide-react'
+import { CircleAlert, ScanBarcode } from 'lucide-react'
 import type { ProductFromApi } from '../../electron-api'
 import { Button } from '../../ui/Button'
 import { DateField } from '../../ui/DateField'
 import { Field } from '../../ui/Field'
-import { InlineAlert } from '../../ui/InlineAlert'
 import { Modal } from '../../ui/Modal'
 import { formatAmountInput, formatMoney } from '../../utils/format'
 import { parseDateAR, parseDecimal, parseInteger } from '../../utils/parse'
+import {
+  DEFAULT_PRICING_PREFS,
+  ROUNDING_STEPS,
+  autoSalePriceText,
+  formatMarginInput,
+  loadPricingPrefs,
+  parseMarginInput,
+  roundingStepLabel,
+  savePricingPrefs,
+  toRoundingStep,
+} from '../../utils/pricing'
+import type { RoundingStep } from '../../utils/pricing'
 import CategoryPicker from './CategoryPicker'
 import SupplierPicker from './SupplierPicker'
 import { FIELD_ORDER, marginInfo, priceToPayload, validateProductForm } from './validateProductForm'
@@ -59,6 +70,14 @@ function formatMarginPct(pct: number): string {
   return pct.toFixed(1).replace('.', ',')
 }
 
+/** Configuración vigente del cálculo automático del precio de venta. */
+type PricingConfig = { auto: boolean; margin: number; step: RoundingStep }
+
+/** Si el cálculo está activo, devuelve el draft con el precio de venta recalculado desde el costo. */
+function withAutoSale(d: ProductFormDraft, p: PricingConfig): ProductFormDraft {
+  return p.auto ? { ...d, salePrice: autoSalePriceText(d.purchasePrice, p.margin, p.step) } : d
+}
+
 /**
  * Modal de alta y edición de producto.
  *
@@ -66,6 +85,7 @@ function formatMarginPct(pct: number): string {
  * - Modo edición (`product`): el stock es solo lectura (se modifica con "Cargar stock").
  * - Ctrl+Enter guarda desde cualquier campo; Esc con cambios pide confirmación antes de descartar.
  * - Al guardar con errores se muestran todos y el foco va al primer campo inválido.
+ * - Precio con margen: el checkbox «Calcular con margen» completa el precio de venta con `utils/pricing`; tipear el precio a mano apaga el cálculo solo para ese producto; en alta arranca según la preferencia recordada y en edición apagado.
  */
 export default function ProductFormModal({ open, onClose, onSuccess, product, initialValues }: Props) {
   const isEdit = !!product
@@ -79,6 +99,11 @@ export default function ProductFormModal({ open, onClose, onSuccess, product, in
   const [expiryDate, setExpiryDate] = useState('')
   const [expiryError, setExpiryError] = useState<string | null>(null)
   const [showDiscard, setShowDiscard] = useState(false)
+  /** Cálculo automático del precio de venta (preferencias en utils/pricing). */
+  const [autoPrice, setAutoPrice] = useState(false)
+  const [marginPct, setMarginPct] = useState(DEFAULT_PRICING_PREFS.marginPct)
+  const [marginInput, setMarginInput] = useState(formatMarginInput(DEFAULT_PRICING_PREFS.marginPct))
+  const [roundingStep, setRoundingStep] = useState<RoundingStep>(DEFAULT_PRICING_PREFS.roundingStep)
 
   /** JSON del draft inicial: sirve para saber si el usuario cambió algo (`dirty`). */
   const [baseline, setBaseline] = useState('')
@@ -101,6 +126,11 @@ export default function ProductFormModal({ open, onClose, onSuccess, product, in
     setExpiryDate('')
     setExpiryError(null)
     setShowDiscard(false)
+    const prefs = loadPricingPrefs()
+    setAutoPrice(product ? false : prefs.enabled) // en edición siempre arranca apagado: no pisa el precio guardado
+    setMarginPct(prefs.marginPct)
+    setMarginInput(formatMarginInput(prefs.marginPct))
+    setRoundingStep(prefs.roundingStep)
   }, [open, product, initialName, initialBarcode])
 
   const stockCount = parseInteger(draft.stock) ?? 0
@@ -114,9 +144,20 @@ export default function ProductFormModal({ open, onClose, onSuccess, product, in
     }
   }
 
+  const pricing: PricingConfig = { auto: autoPrice, margin: marginPct, step: roundingStep }
+
   function updateField(field: keyof ProductFormDraft, value: string | number) {
-    setDraft((d) => ({ ...d, [field]: value }))
-    setErrors((e) => (e ? { ...e, [field]: undefined } : null))
+    setDraft((d) => {
+      const next: ProductFormDraft = { ...d, [field]: value }
+      // Con el cálculo activo, el precio de venta sigue al costo.
+      return field === 'purchasePrice' ? withAutoSale(next, pricing) : next
+    })
+    setErrors((e) => {
+      if (!e) return null
+      const cleared: FormErrors = { ...e, [field]: undefined }
+      if (field === 'purchasePrice' && autoPrice) cleared.salePrice = undefined
+      return cleared
+    })
     if (field === 'barcode') setBarcodeTakenError(null)
   }
 
@@ -124,6 +165,43 @@ export default function ProductFormModal({ open, onClose, onSuccess, product, in
   function formatPriceOnBlur(field: 'purchasePrice' | 'salePrice') {
     const n = parseDecimal(draft[field])
     if (n !== null) updateField(field, formatAmountInput(n))
+  }
+
+  /** Tildar/destildar "Calcular con margen". Tildar recalcula ya; destildar deja el último valor (editable). */
+  function handleAutoPriceChange(next: boolean) {
+    setAutoPrice(next)
+    if (!isEdit) savePricingPrefs({ enabled: next }) // en edición no cambia cómo arranca el alta
+    if (next) {
+      setDraft((d) => withAutoSale(d, { ...pricing, auto: true }))
+      setErrors((e) => (e ? { ...e, salePrice: undefined } : null))
+    }
+  }
+
+  /** Margen tipeado: si es válido se aplica y se recuerda en el momento; si no, se ignora hasta salir del campo. */
+  function handleMarginInputChange(text: string) {
+    setMarginInput(text)
+    const n = parseMarginInput(text)
+    if (n === null) return
+    setMarginPct(n)
+    savePricingPrefs({ marginPct: n })
+    setDraft((d) => withAutoSale(d, { ...pricing, margin: n }))
+  }
+
+  /** Al salir del margen (blur o Enter) se muestra el último margen válido, normalizado ("30,50" → "30,5"). */
+  function normalizeMarginInput() {
+    setMarginInput(formatMarginInput(marginPct))
+  }
+
+  function handleRoundingChange(step: RoundingStep) {
+    setRoundingStep(step)
+    savePricingPrefs({ roundingStep: step })
+    setDraft((d) => withAutoSale(d, { ...pricing, step }))
+  }
+
+  /** Tipear el precio de venta con el cálculo activo lo apaga SOLO para este producto (no se guarda la preferencia). */
+  function handleSaleInputChange(text: string) {
+    if (autoPrice) setAutoPrice(false)
+    updateField('salePrice', text)
   }
 
   /** Cierre pedido por el usuario (Cancelar, X, Esc): con cambios, pide confirmación. */
@@ -209,6 +287,17 @@ export default function ProductFormModal({ open, onClose, onSuccess, product, in
   const barcodeError = errors?.barcode ?? barcodeTakenError
   const lossMaking = margin !== null && margin.profit < 0
 
+  /** Ayuda bajo "Precio de venta": falta el costo (cálculo activo) · venta bajo costo · margen real. */
+  function saleHelpContent(): React.ReactNode {
+    if (autoPrice && autoSalePriceText(draft.purchasePrice, marginPct, roundingStep) === '') {
+      return 'Completá el precio de compra para calcularlo.'
+    }
+    if (!margin) return undefined
+    if (lossMaking) return <span style={{ color: 'var(--warning)' }}>Estás vendiendo por debajo del costo.</span>
+    return `Margen: ${formatMarginPct(margin.pct)} % · ganancia ${formatMoney(margin.profit)} por unidad`
+  }
+  const saleHelp = saleHelpContent()
+
   return (
     <>
       <Modal
@@ -216,6 +305,7 @@ export default function ProductFormModal({ open, onClose, onSuccess, product, in
         title={isEdit ? 'Editar producto' : 'Nuevo producto'}
         subtitle={isEdit ? product!.name : 'Los campos con * son obligatorios.'}
         size="md"
+        className="pf-modal"
         closeOnOverlay={false}
         initialFocusRef={nameRef}
         onClose={requestClose}
@@ -226,6 +316,12 @@ export default function ProductFormModal({ open, onClose, onSuccess, product, in
         ]}
         footer={
           <>
+            {saveFailed && (
+              <span className="ig-error" role="alert">
+                <CircleAlert size={16} aria-hidden="true" className="ig-icon ig-icon-sm" />
+                No se pudo guardar el producto. Probá de nuevo.
+              </span>
+            )}
             <Button variant="ghost" onClick={requestClose}>
               Cancelar
             </Button>
@@ -237,7 +333,6 @@ export default function ProductFormModal({ open, onClose, onSuccess, product, in
       >
         {/* Ctrl+Enter guarda desde cualquier campo; el div solo captura el atajo, no es interactivo. */}
         <div
-          style={{ display: 'grid', gap: 16 }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
               e.preventDefault()
@@ -245,7 +340,7 @@ export default function ProductFormModal({ open, onClose, onSuccess, product, in
             }
           }}
         >
-          <div className="ig-form-grid">
+          <div className="pf-grid">
             <Field label="Nombre" htmlFor="pf-name" required error={errors?.name} className="span-2">
               <input
                 id="pf-name"
@@ -294,21 +389,56 @@ export default function ProductFormModal({ open, onClose, onSuccess, product, in
               </div>
             </Field>
 
-            <Field
-              label="Precio de venta"
-              htmlFor="pf-sale"
-              required
-              error={errors?.salePrice}
-              help={
-                margin ? (
-                  lossMaking ? (
-                    <span style={{ color: 'var(--warning)' }}>Estás vendiendo por debajo del costo.</span>
-                  ) : (
-                    `Margen: ${formatMarginPct(margin.pct)} % · ganancia ${formatMoney(margin.profit)} por unidad`
-                  )
-                ) : undefined
-              }
-            >
+            {/* Calcular con margen + Margen (%): el checkbox hace de label del campo */}
+            <div className="ig-field">
+              <label className="pf-auto">
+                <input id="pf-auto-price" type="checkbox" checked={autoPrice} onChange={(e) => handleAutoPriceChange(e.target.checked)} />
+                Calcular con margen
+              </label>
+              <div className="ig-input-wrap">
+                <input
+                  id="pf-margin"
+                  className="ig-input ig-input-amount pf-margin-input"
+                  inputMode="decimal"
+                  aria-label="Margen (%)"
+                  aria-describedby="pf-margin-help"
+                  disabled={!autoPrice}
+                  value={marginInput}
+                  onChange={(e) => handleMarginInputChange(e.target.value)}
+                  onBlur={normalizeMarginInput}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
+                      e.preventDefault()
+                      normalizeMarginInput()
+                    }
+                  }}
+                />
+                <span className="ig-suffix" aria-hidden="true">%</span>
+              </div>
+              <span className="ig-help" id="pf-margin-help">Sobre el precio de compra.</span>
+            </div>
+
+            <Field label="Redondeo" htmlFor="pf-rounding" help="Al más cercano.">
+              <select
+                id="pf-rounding"
+                className="ig-input"
+                aria-describedby="pf-rounding-help"
+                disabled={!autoPrice}
+                value={String(roundingStep)}
+                onChange={(e) => {
+                  const step = toRoundingStep(Number(e.target.value))
+                  if (step !== null) handleRoundingChange(step)
+                }}
+              >
+                {ROUNDING_STEPS.map((s) => (
+                  <option key={s} value={String(s)}>
+                    {roundingStepLabel(s)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Precio de venta" htmlFor="pf-sale" required error={errors?.salePrice} help={saleHelp}>
               <div className="ig-input-wrap">
                 <span className="ig-prefix">$</span>
                 <input
@@ -318,9 +448,9 @@ export default function ProductFormModal({ open, onClose, onSuccess, product, in
                   inputMode="decimal"
                   placeholder="0,00"
                   aria-invalid={!!errors?.salePrice}
-                  aria-describedby={errors?.salePrice ? 'pf-sale-error' : margin ? 'pf-sale-help' : undefined}
+                  aria-describedby={errors?.salePrice ? 'pf-sale-error' : saleHelp ? 'pf-sale-help' : undefined}
                   value={draft.salePrice}
-                  onChange={(e) => updateField('salePrice', e.target.value)}
+                  onChange={(e) => handleSaleInputChange(e.target.value)}
                   onBlur={() => formatPriceOnBlur('salePrice')}
                 />
               </div>
@@ -405,7 +535,7 @@ export default function ProductFormModal({ open, onClose, onSuccess, product, in
               <DateField
                 id="pf-expiry"
                 label="Vencimiento del lote"
-                className="span-2"
+                className="pf-expiry"
                 value={expiryDate}
                 onChange={(v) => {
                   setExpiryDate(v)
@@ -418,7 +548,6 @@ export default function ProductFormModal({ open, onClose, onSuccess, product, in
             )}
           </div>
 
-          {saveFailed && <InlineAlert tone="danger" title="No se pudo guardar el producto. Probá de nuevo." />}
         </div>
       </Modal>
 

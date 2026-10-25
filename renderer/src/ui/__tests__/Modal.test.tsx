@@ -192,4 +192,22 @@ describe('Modal', () => {
     )
     expect(screen.queryByRole('button', { name: 'Cerrar' })).not.toBeInTheDocument()
   })
+
+  it('className se suma a las clases del diálogo', () => {
+    render(
+      <Modal open title="T" className="pf-modal" onClose={() => {}}>
+        x
+      </Modal>,
+    )
+    expect(screen.getByRole('dialog')).toHaveClass('ig-modal', 'pf-modal')
+  })
+
+  it('className convive con size', () => {
+    render(
+      <Modal open title="T" size="sm" className="extra" onClose={() => {}}>
+        x
+      </Modal>,
+    )
+    expect(screen.getByRole('dialog')).toHaveClass('ig-modal', 'ig-modal-sm', 'extra')
+  })
 })

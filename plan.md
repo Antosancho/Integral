@@ -1,1350 +1,1252 @@
-# Plan — Nueva UI/UX de Integral con el Design System "Integral" (Factor Integral)
+# Plan — Formulario de producto: picker sin desborde, modal sin scroll, scrollbars estilizadas y precio con margen
 
-> **Para quién es este plan:** un agente de IA (modelo de menor potencia) que lo ejecuta paso a paso. Seguí las fases **en orden**. Cada paso es chico a propósito: hacelo, verificá, seguí. No improvises diseño: todo lo visual sale del design system (DS) que está copiado en `design-system/`.
+> **Worktree:** `C:\Users\asant\Music\Integral\wt-producto` · **rama:** `fix/producto-form` · **fecha:** 2026-10-25
 >
-> **Reglas generales para el ejecutor:**
-> 1. Trabajá en una rama nueva: `git checkout -b feat/ui-design-system` (Fase 0). No hagas commit sin autorización del usuario; al final de cada fase **proponé** un commit.
-> 2. **No modifiques el backend** (`backend/`), ni `electron/ipcContract.ts`, ni `electron/preload.ts`, ni el schema de Prisma. La única excepción es el Paso 1.9 (tamaño mínimo de la ventana en `electron/main.ts`).
-> 3. **No toques** `design-system/` (es material de referencia, de solo lectura) ni `backend/prisma/dev.db`.
-> 4. `CLAUDE.md` tiene cambios locales del usuario sin commitear (sección "Diseño"): **no los reviertas**. Solo se edita en la Fase 13.
-> 5. Al terminar **cada fase** corré, desde la raíz del repo:
->    - `npm --workspace renderer test` → todo verde.
->    - `npm run typecheck` → sin errores.
->    Si algo falla, arreglalo **antes** de pasar a la fase siguiente.
-> 6. Cuando una fase cambia un componente que ya tiene tests, **actualizá esos tests en la misma fase** (el plan lista cuáles). Nunca borres un test sin reemplazar lo que cubría, salvo que el plan lo indique.
-> 7. Versiones **exactas** (sin `^` ni `~`) para toda dependencia nueva.
-> 8. Prohibido en el renderer: colores hex/rgb hardcodeados fuera de `styles/tokens.css` (usar `var(--token)`), `type="number"` en inputs, los glifos `⚠` y `✕` (usar íconos lucide `TriangleAlert` y `X`), emojis.
-> 9. Textos: copiar **literalmente** los copys indicados en este plan (vienen de `design-system/guia/03-estados-y-copy.md`). Español rioplatense con voseo.
-> 10. Si algo de este plan contradice el DS, **gana este plan** (las decisiones del usuario están en la sección 0.2).
+> **Para quién es:** un modelo de IA que ejecuta paso a paso. Seguí las fases **en orden**. Cada paso es chico a propósito:
+> hacelo, corré su **Checkpoint**, y recién ahí seguí. No improvises: lo que no está acá, no se hace.
 
 ---
 
-## 0. Contexto
+## 0. Reglas para el ejecutor (leer antes de tocar nada)
 
-### 0.1 Qué hay que hacer
+1. Trabajás **solo** en `C:\Users\asant\Music\Integral\wt-producto`. **No** leas ni escribas en `C:\Users\asant\Music\Integral\Integral` ni en `C:\Users\asant\Music\Integral\wt-stats` (otro agente trabaja ahí). `node_modules` y `renderer/node_modules` son *junctions* al repo principal: no los toques.
+2. **No** hagas commits, push, ramas ni stash.
+3. Comandos: usá la herramienta **Bash** (Git Bash) con rutas absolutas, siempre con este formato:
+   `cd /c/Users/asant/Music/Integral/wt-producto/renderer && <comando>`. No uses PowerShell para encadenar (en PowerShell 5.1 no existe `&&`).
+4. **Prohibido editar:** `renderer/src/styles/bundle.css`, `renderer/src/styles/tokens.css`, todo `design-system/`, `backend/`, `electron/`, `renderer/src/electron-api.d.ts`, schema/migraciones. **No hay cambios de DB ni de IPC.**
+5. Colores: solo `var(--token)` de tokens que ya existen en `tokens.css`. Ningún `#hex`, `rgb()`, `hsl()` nuevo. **Nada de `::-webkit-scrollbar`.**
+6. TypeScript del renderer: `verbatimModuleSyntax` → los tipos se importan con `import type { … }`; `noUnusedLocals`/`noUnusedParameters` → borrá todo import o variable que deje de usarse; `erasableSyntaxOnly` → nada de `enum` (usá uniones de literales).
+7. No cambies textos existentes (mensajes de error, labels, ayudas) salvo los que este plan indica. No cambies `FIELD_ORDER` de `validateProductForm.ts`.
+8. No modifiques expectativas de tests existentes. Solo se **agregan** tests (y un `localStorage.clear()` en un `beforeEach`, indicado en G5).
+9. Los tests corren en **happy-dom** (no jsdom): no hay layout ni se carga CSS. Lo visual se verifica a mano en el Paso H3 (lo hace una persona).
+10. Si un Checkpoint falla: leé el error, corregí **tu** cambio y volvé a correr. No sigas con un checkpoint en rojo.
+11. Para simular un `localStorage` roto en tests usá **solo** `vi.stubGlobal('localStorage', …)` + `vi.unstubAllGlobals()`. **Nunca** `vi.spyOn(Storage.prototype, …)`: en happy-dom 20.9 no intercepta de forma confiable y el mock puede quedar pegado a los tests siguientes (detalle en A4).
 
-Reemplazar toda la UI del renderer (`renderer/src/`) por la del design system "Integral": tokens de color/tipografía/espaciado, componentes (`ig-…` en `bundle.css`), pantallas y flujos de teclado. Fuente de verdad, en este orden:
+### Línea base (medida al planificar; confirmala en el Paso 0.2)
 
-1. Este plan.
-2. `design-system/README.md` (principios, color, tipografía, íconos, layout).
-3. `design-system/guia/01-flujos.md`, `02-teclado-y-foco.md`, `03-estados-y-copy.md`, `04-implementacion.md`.
-4. `design-system/components/<Componente>/README.md` y `preview.html` (markup de referencia exacto; abrilo para copiar la estructura de clases). Los previews referencian `/_blob/...` para el logo: ignoralo, en la app se usa el PNG local.
-5. `design-system/components/bundle.css` (clases `ig-…`) y `design-system/tokens.css` (variables).
-6. `design-system/lamina-de-marca.jpg` (lámina de marca: logo, tipografías, colores).
+| Comando | Resultado esperado hoy |
+|---|---|
+| `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx vitest run` | 66 archivos, 850 tests, 0 fallidos (~55 s) |
+| `cd /c/Users/asant/Music/Integral/wt-producto && npm run typecheck` | OK (sin errores) |
+| `cd /c/Users/asant/Music/Integral/wt-producto && npm run lint --workspace renderer` | **Falla con 7 errores PREEXISTENTES** (no los arregles, son de otras pantallas): `src/Pages/SalesHistory/__tests__/salesHistoryFilters.test.ts` 16:37 `no-explicit-any` · `src/Pages/SalesHistory/cajaUtils.ts` 65:39 `no-prototype-builtins` · `src/Pages/Sells/__tests__/confirmSaleItems.test.ts` 5 × `no-explicit-any` |
+| El aviso `Warning: React version not specified in eslint-plugin-react settings` | Es de configuración, se ignora |
 
-### 0.2 Decisiones tomadas con el usuario (no re-discutir)
+---
 
-| # | Tema | Decisión |
+## 1. Supuestos y preguntas abiertas
+
+Todo el plan está escrito con la **recomendación** de cada fila. Si el usuario responde distinto, se ajusta solo lo indicado en "Impacto".
+
+> **RESPUESTAS DEL USUARIO (definitivas, ya aplicadas en todo el plan):** P1 sí · **P2 CAMBIA: activado · 30 % · redondeo $ 100** · P3 recargo sobre costo · P4 0–1000 % · P5 sube a un paso · **P6 CAMBIA: el precio de venta NUNCA es de solo lectura; tipear en él con el cálculo activo apaga el cálculo SOLO para ese producto (no guarda la preferencia)** · P7, P8, P9 como dice la tabla. Donde el plan diga otra cosa sobre P2/P6, manda esta nota.
+
+| # | Pregunta | Decisión tomada (recomendación) | Impacto si cambia |
+|---|---|---|---|
+| P1 | Si en un **alta** destildo "Calcular con margen" para cargar un precio a mano, ¿el próximo alta arranca destildado? | **Sí**: el estado del checkbox se recuerda en el momento en que se toca, **solo en modo alta** (en edición siempre arranca apagado y tocarlo no cambia la preferencia). Es lo que pide "en creación arranca según la preferencia recordada". | Si se quiere "apagado solo para ese producto": en `handleAutoPriceChange` guardar solo cuando `next === true`, y ajustar el test G6-T13. |
+| P2 | Valores por defecto cuando no hay nada guardado. | **(Respondido) Activado · margen 30 % · redondeo $ 100.** `DEFAULT_PRICING_PREFS = { enabled: true, marginPct: 30, roundingStep: 100 }`. | Ya aplicado en A4, G4, G5, G6. |
+| P3 | ¿Qué es "margen"? | **Recargo sobre el costo**: `venta = costo × (1 + margen/100)`. Es la misma definición que ya usa la ayuda "Margen: 44,8 % · ganancia…" del formulario. | Margen sobre el precio de venta (`costo / (1 − m/100)`) cambia la fórmula y toda la tabla de A2. No recomendado. |
+| P4 | Rango del margen. | **0 a 1000 %**, hasta 2 decimales, coma o punto. Un valor inválido o fuera de rango no se aplica y, al salir del campo, vuelve el último válido (mismo patrón que el descuento del carrito). | Cambiar `MARGIN_MAX` y sus tests. |
+| P5 | Si el redondeo "al más cercano" deja en $ 0 un producto que cuesta algo (costo 30, margen 30 % → 39 → con paso 100 da 0). | **Sube a un paso** (queda $ 100). Nunca se genera un precio $ 0 para algo con costo > 0 (Ventas rechaza productos con precio 0). Si el redondeo deja el precio por debajo del costo, se muestra el aviso existente "Estás vendiendo por debajo del costo." (no bloquea). | Si se prefiere $ 0 o un aviso, cambiar la línea marcada en `computeSalePrice` y los casos "Nunca $ 0" de A2. |
+| P6 | ¿Se puede tipear el precio de venta con el cálculo activo? | **(Respondido) Sí: tipear apaga el cálculo solo para ese producto.** El campo nunca es `readOnly`. Si el cálculo está activo y el usuario tipea en "Precio de venta", `autoPrice` pasa a `false` **sin** llamar a `savePricingPrefs` (el próximo alta sigue arrancando según la preferencia) y el valor tipeado queda. | Ya aplicado en G4 y G6 (T1, T2, T9, T10). |
+| P7 | Desvío del DS: el DS define el modal de producto de 640 px con 2 columnas. | **1080 px y grilla de 4 columnas**, para que entre sin scroll a 1280×720 (el usuario pidió "que el pop up se agrande"). El error "No se pudo guardar el producto. Probá de nuevo." pasa del cuerpo al pie (al lado de los botones) para no agrandar el modal. | Cambiar `.ig-modal.pf-modal` y el layout (Fase F). |
+| P8 | Scrollbars. | **Finas (`scrollbar-width: thin`)** en toda la app, pulgar `var(--border-control)` y riel transparente. Además `color-scheme` sigue al tema (la flecha y la lista de los `<select>` y el checkbox se ven bien en oscuro; también mejora el select de Historial). | Si se prefieren de ancho normal: `scrollbar-width: auto`. |
+| P9 | Teclado en el picker. | Nuevo: **`Tab` en la lista del picker cierra el popover** y el foco sigue al campo siguiente (igual que el menú ⋮). Dentro del alta (Nombre/Teléfono/Notas) `Tab` sigue recorriendo esos campos. | Quitar el `if` de `Tab` en `onPopoverKeyDown` y los tests C2-E7/E8. |
+
+Supuesto de medidas: con la ventana en su mínimo (1280×720, medida exterior), el área visible del renderer queda en ≈ 1264–1278 × 680–688 px (barra de título de Windows). El layout se diseñó para **680 px de alto** con margen de sobra (ver 3.2).
+
+---
+
+## 2. Diagnóstico (causa raíz)
+
+1. **Scroll horizontal al abrir Proveedor:** el popover `.ig-picker-pop` mide **420 px fijos** (`bundle.css` línea 83) y es `position: absolute` dentro de `.ig-modal-body`, que tiene `overflow: auto` (`bundle.css` línea 165). El modal mide 640 px (contenido 592 px, columnas de 288 px); Proveedor está en la columna derecha (empieza en x≈328) → el popover termina en x≈748 > 616 → el cuerpo genera scroll horizontal. Además, `.ig-modal { max-height: 84vh; overflow: hidden }` recorta lo que sobresale hacia abajo.
+2. **Scroll vertical del modal:** a 1280×720 el modal puede medir como máximo 84vh ≈ 575 px, pero el formulario actual en alta con vencimiento mide ≈ 767 px (cabecera 90 + cuerpo 604 + pie 73).
+3. **Scrollbars sin estilo:** no hay ninguna regla de scrollbar en `app.css` ni en `bundle.css` (se ven las nativas de Windows).
+4. **Precio con margen:** no existe; hoy solo se muestra el margen resultante debajo de "Precio de venta" (`marginInfo` en `validateProductForm.ts`).
+
+---
+
+## 3. Solución elegida
+
+### 3.1 Picker: popover flotante con `position: fixed` (sin portal)
+
+- `EntityPicker` calcula la posición del popover con una función pura nueva, `computeFloatingPlacement` (`renderer/src/ui/floatingPlacement.ts`), a partir del `getBoundingClientRect()` del botón disparador y del tamaño de la ventana, y se la pone **en línea**: `position: fixed; top|bottom; left; width; max-height`.
+- Un elemento `position: fixed` (sin ancestros con `transform`/`filter`/`contain`) se posiciona respecto de la ventana: **no lo recorta** el `overflow` del cuerpo del modal ni del modal, y **no suma** al área scrolleable de sus ancestros → desaparece el scroll horizontal y nunca se corta abajo. El popover puede salir por encima y afuera del modal si hace falta (lo que pidió el usuario).
+- **No se usa portal**: el popover sigue en el mismo lugar del DOM (dentro del picker, dentro del diálogo). Por eso, sin tocar nada más, siguen funcionando: el focus trap de `ui/Modal.tsx` (busca los focusables dentro del diálogo), el "click afuera" del `EntityPicker` (`wrapperRef.contains`), el `modalStack`, y el `stopPropagation` de Enter/Esc (los eventos de React suben por el árbol de componentes).
+- Reglas de posición: ancho = máx(ancho del disparador, 420 px) sin pasar el ancho de la ventana − 16; alineado al borde izquierdo del disparador, o al derecho si no entra; abre **abajo** si hay ≥ 360 px o si abajo hay más lugar que arriba; si no, **arriba**; `max-height` = lugar disponible en ese lado (la lista se achica y scrollea). Se recalcula con `resize` y con el `scroll` de cualquier contenedor (escucha en captura), salvo el scroll de la propia lista.
+- **Descartado:** portal a `document.body` (rompe el focus trap y el click afuera, y el popover quedaría debajo del velo: `--z-popover` 40 < `--z-modal` 50); Popover API / CSS anchor positioning (happy-dom no los implementa → no se podrían testear, y son más difíciles de depurar para el ejecutor).
+- Riesgo conocido y aceptado: durante los 160 ms de la animación de entrada del modal (`ig-rise` usa `transform`) un `fixed` quedaría relativo al modal. Abrir un picker en ese lapso no es posible en la práctica.
+
+### 3.2 Modal de producto sin scroll a 1280×720
+
+- `Modal` acepta una prop nueva `className` (se suma a `.ig-modal`). `ProductFormModal` usa `className="pf-modal"`.
+- `.ig-modal.pf-modal`: `width: 1080px`, `max-width: calc(100vw - 48px)`, `max-height: calc(100vh - 32px)`; el velo de ese modal usa `padding-top: 16px` (selector `:has`). El cuerpo **mantiene** `overflow: auto` del DS solo como red de seguridad.
+- Grilla nueva `.pf-grid` de **4 columnas** (≈ 246 px cada una, separación 16 px). Orden (= orden visual = orden de Tab = mismo orden relativo que el DS):
+
+```
+┌──────────────────────────── Nuevo producto ─────────────────────────────── X ┐
+│ Los campos con * son obligatorios.                                           │
+│ Nombre * ─────────────────────────────── │ Categoría *      │ Proveedor *      │  fila 1
+│ Precio de compra * │ ☑ Calcular con margen │ Redondeo       │ Precio de venta *│  fila 2
+│ [$     1.234,00]   │ [        30 %]        │ [$ 100     ▾]  │ [$   1.600,00]   │
+│                    │ Sobre el precio de…   │ Al más cercano.│ Margen: 29,7 % · │
+│ Código de barras ──────────────────────── │ Stock inicial    │ Stock mínimo     │  fila 3
+│                                          │ Vencimiento del lote (si stock > 0) │  fila 4 (solo alta)
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Esc Cancelar  Ctrl+Enter Guardar        [error de guardado] Cancelar  Guardar │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+- En edición, la fila 3 tiene "Stock" de solo lectura en lugar de "Stock inicial", y no hay fila 4.
+- **Presupuesto de alto** (campo = label 18 + 6 + control 40 = 64 px; con ayuda o error de 1 línea = 88; de 2 líneas = 106):
+
+| Parte | Alto (px) |
+|---|---|
+| Cabecera (título + bajada) | 90 |
+| Fila 1 (sin ayudas; con errores) | 64 → 88 |
+| Fila 2 (la ayuda del precio de venta o un error largo ocupa 2 líneas) | 88 → 106 |
+| Fila 3 (error de código duplicado o de stock en 2 líneas) | 88 → 106 |
+| Fila 4 (vencimiento, solo alta con stock inicial > 0) | 88 |
+| 3 separaciones de 16 + padding inferior del cuerpo 24 | 72 |
+| Pie | 73 |
+| **Peor caso total** | **623** |
+| Disponible con ventana mínima (680 − 32) | **648** (sobran ≥ 25) |
+
+### 3.3 Scrollbars de toda la app
+
+- En `:root`: `scrollbar-width: thin; scrollbar-color: var(--border-control) transparent;`. Son propiedades **heredadas**, así que aplican a todos los contenedores con scroll (tablas, carrito, historial, popups, lista del picker…), en claro y oscuro (`--border-control` tiene contraste ≥ 3:1 en ambos temas según el DS).
+- Chromium (Electron 40 ≈ Chromium 144) soporta estas propiedades estándar desde la v121 y, cuando están seteadas, **ignora `::-webkit-scrollbar`**: no se mezclan.
+- `color-scheme: light` / `dark` según `data-theme`, para que los controles nativos (flecha y lista del `<select>`, checkbox) acompañen el tema.
+
+### 3.4 Precio con margen: reglas de comportamiento
+
+| Situación | Qué pasa |
+|---|---|
+| Fórmula | `venta = redondear(costo × (1 + margen/100), paso)`, calculado en **centavos enteros** (sin errores de punto flotante). |
+| Redondeo | Al múltiplo de `paso` **más cercano**; la mitad exacta **sube** (paso 100: 1570→1600, 1530→1500, 1550→1600). Pasos: Sin redondeo · $ 10 · $ 50 · $ 100 · $ 500 · $ 1.000. |
+| "Sin redondeo" | Precio al centavo (2 decimales, la mitad sube): 1234,56 × 1,30 = 1604,928 → **1.604,93**. |
+| Redondeo daría $ 0 con costo > 0 | Queda **un paso** (ver P5). |
+| Preferencias | Globales en `localStorage`, clave **`integral.pricing`**, JSON `{"enabled":true,"marginPct":30,"roundingStep":100}` (`enabled` booleano; `marginPct` número de 0 a 1000; `roundingStep` uno de 0, 10, 50, 100, 500 o 1000). Default `{ enabled: true, marginPct: 30, roundingStep: 100 }`. JSON corrupto / campo inválido / storage que tira error → default de ese campo, sin romper. |
+| Cuándo se guardan | **Margen:** cada vez que el texto del campo es un margen válido (en alta y en edición). **Redondeo:** al elegir una opción (alta y edición). **Activado:** al tildar/destildar, **solo en alta**. Nada depende de guardar o cancelar el producto. |
+| Al abrir **alta** | El checkbox arranca según la preferencia `enabled`; margen y redondeo con los valores recordados. |
+| Al abrir **edición** | El checkbox arranca **apagado** siempre (no pisa el precio guardado); margen y redondeo muestran los recordados (deshabilitados). |
+| Cálculo **activo** | "Precio de venta" **editable** con el valor calculado (tipear en él apaga el cálculo solo para este producto, sin guardar la preferencia, y deja lo tipeado); se recalcula al cambiar el costo (en vivo), el margen (en vivo, si el texto es válido) o el redondeo. Tildar recalcula en el momento con el costo actual. |
+| Cálculo **apagado** | Margen (%) y Redondeo **deshabilitados** (Tab los saltea). "Precio de venta" editable como hoy. Destildar **deja** el último valor calculado. |
+| Costo vacío o inválido (cálculo activo) | Precio de venta vacío y ayuda: **"Completá el precio de compra para calcularlo."** Al guardar aparecen los errores de siempre. |
+| Costo 0 (cálculo activo) | Precio de venta "0,00" (sin ayuda, como hoy cuando el costo es 0). |
+| Ayuda bajo "Precio de venta" | Igual que hoy: "Margen: X % · ganancia $ Y por unidad" (margen **real** después de redondear) o "Estás vendiendo por debajo del costo." |
+| Margen inválido (texto) | No recalcula; al salir del campo (blur o Enter) el input muestra el último margen válido. |
+| Teclado | Tab: Precio de compra → Calcular con margen → Margen (%) → Redondeo → Precio de venta (los dos del medio solo si el cálculo está activo). Espacio tilda/destilda. Enter en Margen normaliza el texto (no guarda). `Ctrl+Enter` guarda desde cualquier campo, como hoy. |
+
+---
+
+## 4. Contratos (100 % explícitos — no cambiar nombres)
+
+### 4.1 Archivos nuevos
+
+| Archivo | Contenido |
+|---|---|
+| `renderer/src/utils/pricing.ts` | Tipos, constantes, cálculo y preferencias (código completo en A1, A3 y A4) |
+| `renderer/src/utils/__tests__/pricing.test.ts` | Tests de `pricing.ts` |
+| `renderer/src/ui/floatingPlacement.ts` | `computeFloatingPlacement` (código completo en B1) |
+| `renderer/src/ui/__tests__/floatingPlacement.test.ts` | Tests de la posición |
+
+### 4.2 API de `renderer/src/utils/pricing.ts`
+
+```ts
+export type RoundingStep = 0 | 10 | 50 | 100 | 500 | 1000
+export const ROUNDING_STEPS: readonly RoundingStep[]            // [0, 10, 50, 100, 500, 1000]
+export const MARGIN_MIN = 0
+export const MARGIN_MAX = 1000
+export type PricingPrefs = { enabled: boolean; marginPct: number; roundingStep: RoundingStep }
+export const DEFAULT_PRICING_PREFS: PricingPrefs                // { enabled: true, marginPct: 30, roundingStep: 100 }
+export const PRICING_STORAGE_KEY = 'integral.pricing'
+export function isValidMarginPct(n: number): boolean
+export function toRoundingStep(value: unknown): RoundingStep | null
+export function computeSalePrice(cost: number, marginPct: number, step: RoundingStep): number | null
+export function parseMarginInput(text: string): number | null
+export function formatMarginInput(n: number): string
+export function roundingStepLabel(step: RoundingStep): string
+export function autoSalePriceText(purchaseText: string, marginPct: number, step: RoundingStep): string
+export function loadPricingPrefs(): PricingPrefs
+export function savePricingPrefs(partial: Partial<PricingPrefs>): void
+```
+
+### 4.3 API de `renderer/src/ui/floatingPlacement.ts`
+
+```ts
+export type AnchorRect = { top: number; bottom: number; left: number; right: number; width: number }
+export type Viewport = { width: number; height: number }
+export type FloatingPlacement = {
+  side: 'below' | 'above'
+  top: number | 'auto'
+  bottom: number | 'auto'
+  left: number
+  width: number
+  maxHeight: number
+}
+export const FLOATING_GAP = 4
+export const FLOATING_MARGIN = 8
+export const FLOATING_MIN_WIDTH = 420
+export const FLOATING_PREFERRED_HEIGHT = 360
+export function computeFloatingPlacement(anchor: AnchorRect, viewport: Viewport, minWidth?: number): FloatingPlacement
+```
+
+### 4.4 Cambios de API existentes
+
+- `ui/Modal.tsx`: prop nueva opcional `className?: string` (se agrega a las clases de `.ig-modal`). Nada más cambia.
+- `ui/EntityPicker.tsx`: **sin cambios de props**. Cambia el popover (flotante) y se agrega `Tab` en modo lista.
+
+### 4.5 Clases CSS nuevas (todas en `app.css`, dentro del bloque delimitado)
+
+| Clase | Dónde | Para qué |
 |---|---|---|
-| D1 | Alcance | **Todo lo que sea frontend** del DS: re-skin completo + pantalla **Stock › Movimientos** + filtros de Stock + orden de columnas + menú ⋮ + selector con alta en el momento + atajos + toasts + estados vacío/cargando/error. **Sin cambios de backend**: se omiten los datos que la API no da (columna "Stock resultante" en Movimientos, "Última venta" en Menor rotación, nota de "productos sin precio de compra", metadato "N productos" por proveedor). |
-| D2 | Líneas General (F10) | **Se pueden aprobar** (el backend ya las guarda). Se ignora la regla del DS que bloquea APROBAR y su hint "Las líneas General aún no se pueden guardar". |
-| D3 | Historial de ventas | Layout del DS (segmentado **Nueva venta \| Historial** dentro de Ventas, maestro–detalle), **conservando** filtros de hora y de monto (fila "Más filtros") y el **Resumen de caja** (debajo del detalle). Se quita la pestaña "Historial" del header y el modal de detalle. |
-| D4 | Buscador en Stock | **Ambos**: popup **F2 "Buscar producto"** (estilo DS, elegir abre Editar producto) **y** buscador inline en la toolbar que filtra la tabla (`Ctrl+F`). |
-| D5 | Columna de lotes | Se **mantiene** el toggle de vencimientos (botón "Vencimientos" en la toolbar de Stock y columna en el popup F2 de Stock). |
-| D6 | Carrito al cambiar de sección | **Store global** (Context por encima de las pantallas): carrito, descuento y pagos sobreviven al cambiar de sección o al ir al Historial. |
-| D7 | Tema | **Claro + oscuro con selector** (botón en el header, guardado en `localStorage`, default claro). |
-| D8 | Assets | Ya están copiados en `design-system/` (fuentes `.woff2`, logos PNG, CSS, guías). El ejecutor los copia al renderer en la Fase 1. |
+| `.ig-picker-pop.is-floating` | popover de `EntityPicker` | columna flex que se achica con `max-height` |
+| `.pf-modal` | diálogo de `ProductFormModal` (vía `Modal className`) | 1080 px, alto máximo de ventana − 32 |
+| `.pf-grid` | grilla del formulario | 4 columnas |
+| `.span-2` (dentro de `.pf-grid`) | Nombre y Código de barras | ocupa 2 columnas |
+| `.pf-expiry` | `DateField` del vencimiento | columnas 3–4 y input de 220 px |
+| `.pf-auto` | `<label>` del checkbox "Calcular con margen" | label con checkbox |
+| `.pf-margin-input` | input del margen | deja lugar al sufijo `%` |
 
-### 0.3 Decisiones técnicas tomadas por el arquitecto
+### 4.6 Textos nuevos (copiar tal cual)
 
-- **Íconos:** `lucide-react@0.468.0` (exacta). `size={18}` por defecto, 16 en filas/badges, 22 en el input de código. Si al compilar un nombre no existe en esa versión, usar el alias viejo: `ChartColumn`→`BarChart3`, `EllipsisVertical`→`MoreVertical`, `TriangleAlert`→`AlertTriangle`, `CircleAlert`→`AlertCircle`, `CircleCheck`→`CheckCircle2`.
-- **Sin librerías nuevas** de estado, router, modales ni fechas. Solo React + lucide.
-- **Fechas:** inputs de texto con máscara `DD/MM/AAAA` (no `<input type="date">`), como pide el DS.
-- **Montos:** texto libre + `inputMode="decimal"`, parseo es-AR con `parseDecimal` (Paso 2.2), formateo **al salir** del input.
-- **Accesibilidad de nombres existentes:** para minimizar cambios en tests, se conservan estos nombres accesibles: botón `APROBAR VENTA` (el `Kbd F12` lleva `aria-hidden`), inputs de pago con `aria-label` = `EFECTIVO`/`DÉBITO`/…, botones-etiqueta con `aria-label` = `Autocompletar EFECTIVO`…, input de descuento con `aria-label="Descuento"`.
-- **Movimientos de stock:** clasificación (Paso 8.1) basada en `type`, `quantity` y `appliedDelta` (ya existen). "Alta inicial" = `type==='IN' && appliedDelta===0 && quantity>0` (así lo crea `productRepository.createProduct`).
-- **Splash de 1 s del DS (F1):** fuera de alcance (la base se abre en el main antes de mostrar la ventana).
-- **Búsqueda sin tildes en el popup F2:** la búsqueda por nombre la hace el backend (`nameContains`), que no ignora tildes; se acepta la limitación. El **resaltado** de la coincidencia sí ignora tildes. El buscador inline de Stock filtra en el cliente e ignora tildes.
+| Elemento | Texto |
+|---|---|
+| Checkbox | `Calcular con margen` |
+| `aria-label` del input del margen | `Margen (%)` |
+| Ayuda del margen | `Sobre el precio de compra.` |
+| Label del selector | `Redondeo` |
+| Ayuda del selector | `Al más cercano.` |
+| Opciones del selector | `Sin redondeo` · `$ 10` · `$ 50` · `$ 100` · `$ 500` · `$ 1.000` |
+| Ayuda del precio de venta sin costo (cálculo activo) | `Completá el precio de compra para calcularlo.` |
+| Error de guardado (se mueve al pie, mismo texto) | `No se pudo guardar el producto. Probá de nuevo.` |
 
-### 0.4 Estado actual relevado (para ubicarte)
+### 4.7 Ids nuevos en el formulario
 
-- `renderer/src/App.tsx`: estado `content: 'sells'|'stock'|'history'|'stats'`, renderiza `Header` + página.
-- `renderer/src/Pages/Header.tsx`: botones Sells/Historial/Stock/Estadísticas + `ExpiryAlertWidget`.
-- Stock: `Pages/Stock.tsx` (grilla CSS, popup F2 con `SearchPopup`, toggle de lotes), `Pages/Stock/ProductFormModal.tsx`, `LoadStockModal.tsx`, `CategorySelector.tsx`, `SupplierSelector.tsx`, `validateProductForm.ts`.
-- Ventas: `Pages/Sells/Sells.tsx` (estado local con `useReducer(cartReducer)`), `BarcodeInput.tsx`, `CartList.tsx`, `PaymentPanel.tsx`, `SearchPopup.tsx`, `GeneralAmountPopup.tsx`, `cartReducer.ts`, `payments.ts`, `amount.ts`, `confirmSaleUtils.ts`, `searchProducts.ts`, `types.ts`, `lineId.ts`.
-- Historial: `Pages/SalesHistory/SalesHistory.tsx`, `SaleDetailModal.tsx`, `CajaSummary.tsx`, `cajaUtils.ts`, `salesHistoryFilters.ts`.
-- Estadísticas: `Pages/Stats/Stats.tsx`, `statsUtils.ts`.
-- Componentes: `Components/ExpiryAlert/ExpiryAlertWidget.tsx`, `Components/LotsList/LotsList.tsx`.
-- Utils: `utils/format.ts` (`formatMoney`), `utils/expiry.ts`, `utils/lots.ts`.
-- Tests: Vitest + Testing Library + happy-dom (`renderer/vitest.config.ts`, setup en `src/setupTests.ts`). Hoy hay ~391 tests.
-- CSP de producción (`vite.renderer.config.mts`): `font-src 'self' data:` e `img-src 'self' data:` → fuentes y PNG locales funcionan sin cambios.
-
-### 0.5 Mapa de archivos
-
-**Nuevos** (todos bajo `renderer/src/`):
-
-```
-assets/fonts/*.woff2                      (8 archivos, copiados)
-assets/brand/factor-integral-horizontal-oscuro.png
-assets/brand/factor-integral-horizontal-claro.png
-styles/tokens.css                         (copia adaptada de design-system/tokens.css)
-styles/bundle.css                         (copia exacta de design-system/components/bundle.css)
-styles/app.css                            (agregados propios del proyecto)
-utils/theme.ts                            utils/parse.ts      utils/text.ts
-utils/stock.ts                            utils/dom.ts
-ui/Kbd.tsx  ui/ShortcutBar.tsx  ui/Button.tsx  ui/Badge.tsx  ui/Segmented.tsx
-ui/Field.tsx  ui/DateField.tsx  ui/InlineAlert.tsx  ui/EmptyState.tsx
-ui/TableSkeleton.tsx  ui/Modal.tsx  ui/modalStack.ts  ui/Toast.tsx
-ui/MenuButton.tsx  ui/StepIndicator.tsx  ui/EntityPicker.tsx
-ui/useRowNavigation.ts  ui/useFlash.ts  ui/useDelayedFlag.ts
-ui/__tests__/*.test.tsx
-store/SalesContext.tsx  store/__tests__/SalesContext.test.tsx
-navigation.ts
-Components/AppHeader/AppHeader.tsx  Components/AppHeader/ThemeToggle.tsx
-Pages/Stock/StockProducts.tsx         (antes Pages/Stock.tsx)
-Pages/Stock/StockPage.tsx             (cabecera + segmentado Productos|Movimientos)
-Pages/Stock/StockMovements.tsx  Pages/Stock/movements.ts
-Pages/Stock/CategoryPicker.tsx  Pages/Stock/SupplierPicker.tsx
-Pages/Sells/SalesPage.tsx             (cabecera + segmentado Nueva venta|Historial)
-Pages/Sells/CartTable.tsx  Pages/Sells/EditableCell.tsx  Pages/Sells/ChangeIndicator.tsx
-Pages/SalesHistory/SaleDetailCard.tsx
-Pages/Stats/StatCard.tsx  Pages/Stats/RankingList.tsx
-test/renderWithProviders.tsx  test/fixtures.ts
-```
-
-**Eliminados** (en la fase indicada): `Pages/Header.tsx`, `Pages/Stock.tsx`, `Pages/Stock.css`, `Pages/Stock/CreateProductModal.css`, `Pages/Stock/LoadStockModal.css`, `Pages/Stock/CategorySelector.tsx` (+test), `Pages/Stock/SupplierSelector.tsx` (+test), `Pages/Sells/CartList.tsx` (+test), `Pages/Sells/Sells.css`, `Pages/Sells/SearchPopup.css`, `Pages/SalesHistory/SaleDetailModal.tsx` (+css, +test), `Pages/SalesHistory/*.css`, `Pages/Stats/Stats.css`, `Components/ExpiryAlert/ExpiryAlertWidget.css`, `Components/LotsList/LotsList.css`, `App.css`, contenido de `index.css`.
+`pf-auto-price` (checkbox) · `pf-margin` (input margen; ayuda `pf-margin-help`) · `pf-rounding` (select; ayuda `pf-rounding-help`). Los ids existentes (`pf-name`, `pf-category`, `pf-supplier`, `pf-purchase`, `pf-sale`, `pf-barcode`, `pf-stock`, `pf-minstock`, `pf-expiry`) **no cambian**.
 
 ---
 
-## 1. Convenciones que vas a usar en todo el plan
+## 5. Pasos
 
-### 1.1 Cómo correr cosas
+> **Validado al planificar:** las fases C, D, F y G se ejecutaron tal cual están escritas sobre una **copia** del renderer (fuera del worktree): los fragmentos compilan con el `tsconfig` estricto, ESLint no marca errores en los archivos tocados, los tests E1–E8, L1–L5 y T1–T19 pasan con los valores esperados y la suite completa queda en verde. Las tablas de A2–A4 y B2 también se corrieron contra el código de A1/A3/A4/B1, y el bloque CSS de E1 se validó con un parser. Seguí el texto **literalmente**: si algo no coincide con lo que ves en el archivo, pará y avisá en vez de improvisar.
 
-- Tests del renderer: `npm --workspace renderer test` (todos) o `npx --workspace renderer vitest run src/ui/__tests__/Modal.test.tsx` (uno).
-- Typecheck: `npm run typecheck`.
-- Lint: `npm --workspace renderer run lint` (anotá la cantidad de errores en la Fase 0; al final no puede haber **más** que al principio).
-- App real: `env -u ELECTRON_RUN_AS_NODE npm start` (Bash) o `Remove-Item Env:ELECTRON_RUN_AS_NODE; npm start` (PowerShell).
+### Mapa de cambios por archivo
 
-### 1.2 Textos con espacio duro
-
-`Intl.NumberFormat('es-AR', {style:'currency'})` produce `"$ 1.234,50"` con un **espacio duro** (U+00A0) entre `$` y el número. En tests:
-- `screen.getByText('$ 1.234,50')` funciona (el normalizador de Testing Library colapsa espacios, incluido U+00A0).
-- `expect(x).toBe('$ 1.234,50')` **no** funciona: usá `expect(x.replace(/ /g, ' ')).toBe('$ 1.234,50')`.
-
-### 1.3 Patrón de íconos
-
-```tsx
-import { Plus } from 'lucide-react'
-<Plus size={18} strokeWidth={2} aria-hidden="true" className="ig-icon" />
-```
-Siempre `aria-hidden="true"` en íconos decorativos. Botón solo-ícono → `aria-label` obligatorio.
-
-### 1.4 Helpers de tests (se crean en el Paso 3.0)
-
-- `renderWithProviders(ui)` envuelve en `ToastProvider` + `SalesProvider`.
-- `makeProduct(overrides)` devuelve un `ProductFromApi` válido.
+| Archivo | Fase |
+|---|---|
+| `renderer/src/utils/pricing.ts` (nuevo) + test | A |
+| `renderer/src/ui/floatingPlacement.ts` (nuevo) + test | B |
+| `renderer/src/ui/EntityPicker.tsx` + `ui/__tests__/EntityPicker.test.tsx` | C |
+| `renderer/src/ui/Modal.tsx` + `ui/__tests__/Modal.test.tsx` | D |
+| `renderer/src/styles/app.css` (bloque nuevo al final) | E |
+| `renderer/src/Pages/Stock/ProductFormModal.tsx` + `Pages/Stock/__tests__/ProductFormModal.test.tsx` | F y G |
+| `CLAUDE.md` (subsección nueva) | H |
 
 ---
 
-## Fase 0 — Preparación
+### Fase 0 — Preparación
 
-**0.1** `git status` → solo debe aparecer `M CLAUDE.md`, `plan.md` y `design-system/` sin trackear. Crear rama: `git checkout -b feat/ui-design-system`.
+**Paso 0.1 — Confirmar dónde estás.**
+- Comando: `cd /c/Users/asant/Music/Integral/wt-producto && git branch --show-current && git status --short`
+- Esperado: `fix/producto-form` y, como mucho, ` M plan.md`. Si la rama es otra o hay otros cambios, **pará** y avisá.
 
-**0.2** `npm install` en la raíz (el repo puede no tener `node_modules`).
+**Paso 0.2 — Línea base.** Corré los tres comandos de la tabla "Línea base" (sección 0) y anotá los resultados. Si algo difiere (más errores de lint, tests rojos), **pará** y avisá antes de cambiar código.
 
-**0.3** Línea de base. Correr y **anotar** en tu respuesta los resultados:
-- `npm --workspace renderer test` (cantidad de tests y si pasan).
-- `npm run typecheck`.
-- `npm --workspace renderer run lint` (cantidad de errores/warnings).
-Si los tests del renderer **no** pasan en la base, frená y avisale al usuario.
-
-**0.4** Leé completos: `design-system/README.md`, las 4 guías de `design-system/guia/` y `design-system/components/bundle.css`. No sigas sin haberlos leído.
+**Paso 0.3 — Leer el código que vas a tocar** (sin modificar): `renderer/src/ui/EntityPicker.tsx`, `renderer/src/ui/Modal.tsx`, `renderer/src/Pages/Stock/ProductFormModal.tsx`, `renderer/src/Pages/Stock/validateProductForm.ts`, `renderer/src/utils/parse.ts`, `renderer/src/utils/format.ts`, `renderer/src/utils/theme.ts`, `renderer/src/styles/app.css`, `renderer/src/styles/bundle.css` (líneas 47–93 y 156–167), y los tests `renderer/src/ui/__tests__/EntityPicker.test.tsx`, `renderer/src/ui/__tests__/Modal.test.tsx`, `renderer/src/Pages/Stock/__tests__/ProductFormModal.test.tsx`, `renderer/src/utils/__tests__/theme.test.ts` (de este último **no** copies el `vi.spyOn(Storage.prototype, …)`: ver regla 11).
 
 ---
 
-## Fase 1 — Fundaciones (estilos, fuentes, logos, tema)
+### Fase A — `utils/pricing.ts` (funciones puras, con tests primero)
 
-**1.1 Dependencia de íconos.** `npm install --workspace renderer --save-exact lucide-react@0.468.0`. Verificá que `renderer/package.json` tenga `"lucide-react": "0.468.0"` en `dependencies`.
+**Paso A1 — Crear `renderer/src/utils/pricing.ts` con tipos, constantes y `computeSalePrice`.**
 
-**1.2 Fuentes.** Copiá los 8 archivos `design-system/fonts/*.woff2` a `renderer/src/assets/fonts/` (mismos nombres).
-
-**1.3 Logos.** Copiá `design-system/logos/factor-integral-horizontal-oscuro.png` y `factor-integral-horizontal-claro.png` a `renderer/src/assets/brand/`.
-
-**1.4 tokens.css.** Copiá `design-system/tokens.css` a `renderer/src/styles/tokens.css` y reemplazá en las 8 reglas `@font-face` `url("fonts/` por `url("../assets/fonts/`. Nada más.
-
-**1.5 bundle.css.** Copiá `design-system/components/bundle.css` a `renderer/src/styles/bundle.css` **sin cambios**.
-
-**1.6 app.css.** Creá `renderer/src/styles/app.css` con exactamente estos agregados (son clases que el DS usa en los previews pero no define, o adaptaciones a botones en vez de `<a>`). Usá solo tokens:
-
-```css
-/* Integral — agregados propios del proyecto sobre bundle.css */
-html, body, #root { height: 100%; }
-.ig-app { height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
-.app-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.ig-page { overflow: auto; }
-
-/* Header: la nav usa <button> en vez de <a> */
-.ig-nav button { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 var(--space-4); border: 0; border-radius: var(--radius-pill);
-  background: transparent; color: var(--ink-on-header-muted); font: 700 15px/20px var(--font-display); cursor: pointer; }
-.ig-nav button:hover { color: var(--ink-on-brand); background: rgba(255,255,255,.08); }
-.ig-nav button[aria-current="page"] { color: var(--brand-night); background: var(--brand-white); }
-.ig-header .ig-brand { background: none; border: 0; padding: 0; cursor: pointer; }
-.ig-header .ig-brand img.ig-logo { width: auto; height: 30px; border-radius: 0; }
-.ig-theme-toggle { color: var(--ink-on-header-muted); }
-.ig-theme-toggle:hover { color: var(--ink-on-brand); background: rgba(255,255,255,.08); }
-
-/* Toasts */
-.ig-toast-stack { position: fixed; top: calc(var(--header-height) + var(--space-4)); right: var(--space-6); z-index: var(--z-popover); display: grid; gap: var(--space-2); }
-.ig-toast.info .tone { background: var(--info-soft); color: var(--info); }
-.ig-toast .count { margin-left: auto; font: 600 12px/16px var(--font-sans); color: var(--ink-muted); }
-
-/* Popovers anclados */
-.ig-anchor { position: relative; }
-.ig-anchor > .ig-picker-pop, .ig-anchor > .ig-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: var(--z-popover); }
-.ig-anchor > .ig-expiry-pop { position: absolute; top: calc(100% + 8px); right: 0; z-index: var(--z-popover); color: var(--ink); text-align: left; }
-.ig-menu { min-width: 240px; padding: var(--space-1) 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-md); list-style: none; margin: 0; }
-.ig-menu button { display: flex; align-items: center; gap: var(--space-2); width: 100%; height: 40px; padding: 0 var(--space-4); border: 0; background: transparent; color: var(--ink); font: 400 15px/22px var(--font-sans); text-align: left; cursor: pointer; }
-.ig-menu button:hover, .ig-menu button.is-active { background: var(--surface-selected); }
-.ig-anchor-right > .ig-menu { left: auto; right: 0; }
-
-/* Tablas */
-.ig-grid:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
-.ig-th-sort { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; padding: 0; }
-.ig-table tbody tr.ig-row-flash td { animation: ig-flash .6s ease-out; }
-@keyframes ig-flash { from { background: var(--surface-selected); } to { background: transparent; } }
-.ig-table td.is-modified-col { color: var(--info); }
-.ig-cell-orig { font-size: 12px; line-height: 16px; color: var(--ink-subtle); text-align: right; padding-right: 10px; }
-.ig-link { border: 0; background: none; padding: 0; color: var(--link); font: inherit; text-decoration: underline; cursor: pointer; }
-.ig-muted { color: var(--ink-muted); }
-.ig-sub { color: var(--ink-muted); font-size: 13px; line-height: 18px; }
-
-/* Ventas */
-.ig-scan.is-idle .ig-scan-state { color: var(--warning); }
-.ig-scan:focus-within { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
-.ig-pay-row .ig-input.is-recargo { color: var(--warning); }
-.sales-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--space-3); }
-
-/* Layouts de pantallas */
-.ig-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
-.ig-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
-.ig-master-detail { display: grid; grid-template-columns: 1.25fr 1fr; gap: var(--space-4); flex: 1; min-height: 0; }
-.ig-master-detail > * { overflow: auto; }
-.ig-bar { height: 10px; border-radius: 5px; background: var(--surface-sunken); }
-.ig-bar > i { display: block; height: 10px; border-radius: 5px; background: var(--chart-2); }
-.ig-bar > i.is-peak { background: var(--chart-1); }
-select.ig-input { appearance: auto; }
-
-/* Modal: entrada */
-.ig-overlay { animation: ig-fade .12s ease-out; }
-.ig-overlay > .ig-modal { animation: ig-rise .16s ease-out; }
-@keyframes ig-fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes ig-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .ig-overlay > .ig-modal { animation: ig-fade .12s ease-out; } .ig-table tbody tr.ig-row-flash td { animation: none; } }
-```
-
-**1.7 Entry del renderer.** En `renderer/src/main.tsx`:
-- Reemplazar `import './index.css'` por, en este orden:
-  ```ts
-  import './styles/tokens.css'
-  import './styles/bundle.css'
-  import './styles/app.css'
-  import { applyTheme, getStoredTheme } from './utils/theme'
-  applyTheme(getStoredTheme())
-  ```
-  (la llamada va antes de `createRoot`).
-- Borrar `renderer/src/index.css`. En `App.tsx` quitar `import "./App.css"` y borrar `renderer/src/App.css`.
-
-**1.8 utils/theme.ts.** Crear:
-
-```ts
-export type Theme = 'light' | 'dark'
-export const THEME_STORAGE_KEY = 'integral.theme'
-
-export function getStoredTheme(): Theme {
-  try {
-    return localStorage.getItem(THEME_STORAGE_KEY) === 'dark' ? 'dark' : 'light'
-  } catch {
-    return 'light'
-  }
-}
-
-export function applyTheme(theme: Theme): void {
-  document.documentElement.dataset.theme = theme
-}
-
-export function saveTheme(theme: Theme): void {
-  try { localStorage.setItem(THEME_STORAGE_KEY, theme) } catch { /* sin storage: solo esta sesión */ }
-  applyTheme(theme)
-}
-```
-
-Test `renderer/src/utils/__tests__/theme.test.ts`:
-- `getStoredTheme()` devuelve `'light'` sin nada guardado.
-- Con `localStorage.setItem('integral.theme','dark')` devuelve `'dark'`; con un valor raro (`'azul'`) devuelve `'light'`.
-- Si `localStorage.getItem` lanza (`vi.spyOn(Storage.prototype,'getItem').mockImplementation(()=>{throw new Error()})`) devuelve `'light'`.
-- `saveTheme('dark')` deja `document.documentElement.dataset.theme === 'dark'` y guarda en storage.
-- `beforeEach`: `localStorage.clear(); delete document.documentElement.dataset.theme`.
-
-**1.9 Ventana mínima (único cambio en electron).** En `electron/main.ts`, en `new BrowserWindow({...})`: `width: 1366, height: 768, minWidth: 1280, minHeight: 720`. No cambies nada más del archivo.
-
-**1.10 Verificación de la fase.** Tests + typecheck. Los tests existentes siguen pasando (todavía no cambió ningún componente). Corré la app y confirmá a ojo que el fondo pasó a gris claro (`--bg`) y la tipografía a IBM Plex Sans (la UI vieja se verá rara: es esperado).
-
----
-
-## Fase 2 — Utilidades puras (formato, parseo, texto, stock, DOM)
-
-> Todas son funciones puras con tests exhaustivos: son la base de todo lo demás. Escribí primero el test, después la función.
-
-**2.1 `utils/format.ts`** — reemplazar el contenido por:
-
-```ts
-const moneyFmt = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const amountFmt = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const intFmt = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 })
-const MINUS = '−' // signo menos tipográfico
-
-/** "$ 1.234,50"; negativos con "−". Si no es número devuelve el valor tal cual. */
-export function formatMoney(value: string | number): string {
-  const n = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(n)) return String(value)
-  const s = moneyFmt.format(Math.abs(n))
-  return n < 0 ? `${MINUS}${s}` : s
-}
-/** Valor para mostrar dentro de un input de monto, sin "$": "1.234,50". '' si no es número. */
-export function formatAmountInput(value: string | number | null): string { ... }
-/** Enteros con separador de miles: 1284 → "1.284"; negativos con "−". */
-export function formatInt(n: number): string { ... }
-/** Con signo explícito: 24 → "+24", -2 → "−2", 0 → "0". */
-export function formatSignedInt(n: number): string { ... }
-/** 12.4 → "+12,4 %", -2.3 → "−2,3 %", 0 → "0,0 %". null → "—". */
-export function formatPct(n: number | null): string { ... }
-/** Fecha local → "24/10/2026". */
-export function formatDate(d: Date): string { ... }
-/** Fecha local → "24/10". */
-export function formatDayMonth(d: Date): string { ... }
-/** Hora local → "18:42". */
-export function formatTime(d: Date): string { ... }
-/** "24/10 18:42". */
-export function formatDayMonthTime(d: Date): string { ... }
-```
-
-Implementación de fechas: con `getDate()/getMonth()/getFullYear()/getHours()/getMinutes()` y `padStart(2,'0')` (zona local, sin `Intl` para que los tests sean deterministas).
-
-Tests `utils/__tests__/format.test.ts` (normalizá U+00A0 a espacio antes de comparar):
-- `formatMoney(1234.5)` → `"$ 1.234,50"`; `formatMoney('1000')` → `"$ 1.000,00"`; `formatMoney(0)` → `"$ 0,00"`; `formatMoney(-3)` → `"−$ 3,00"`; `formatMoney('abc')` → `"abc"`.
-- `formatAmountInput(4890)` → `"4.890,00"`; `formatAmountInput('1450.5')` → `"1.450,50"`; `formatAmountInput(null)` → `''`; `formatAmountInput('x')` → `''`.
-- `formatInt(1284)` → `"1.284"`; `formatSignedInt(24)` → `"+24"`; `formatSignedInt(-2)` → `"−2"`; `formatSignedInt(0)` → `"0"`.
-- `formatPct(12.4)` → `"+12,4 %"`; `formatPct(-2.345)` → `"−2,3 %"`; `formatPct(0)` → `"0,0 %"`; `formatPct(null)` → `"—"`.
-- `formatDate(new Date(2026, 9, 4))` → `"04/10/2026"`; `formatDayMonthTime(new Date(2026, 9, 24, 8, 5))` → `"24/10 08:05"`.
-
-> Ojo: `formatMoney` ahora usa `−` en negativos. Buscá usos que concatenen `-` delante (`SaleDetailModal`) — se reescriben en la Fase 10. En `Pages/Stats/statsUtils.ts` seguí re-exportando `formatMoney` desde `utils/format`.
-
-**2.2 `utils/parse.ts`** — crear:
+Contenido (copiar; los comentarios en español son parte del entregable):
 
 ```ts
 /**
- * Parseo de montos es-AR.
- * "1.234,50" | "1234,50" | "1234.50" | "$ 1.234" | "−5" → número; vacío o inválido → null.
- * Regla de puntos sin coma: si el texto es /^\d{1,3}(\.\d{3})+$/ los puntos son de miles ("1.500" → 1500);
- * si no, el punto es decimal ("2.5" → 2.5).
+ * Precio de venta calculado con margen y redondeo, y las preferencias de ese cálculo.
+ *
+ * - `computeSalePrice`: venta = redondear(costo × (1 + margen / 100), paso), en centavos enteros.
+ * - Las preferencias (activado, margen, redondeo) se recuerdan en localStorage (`integral.pricing`).
+ *   Leer o guardar nunca lanza: sin storage o con datos corruptos se usan los valores por defecto.
  */
-export function parseDecimal(input: string): number | null {
-  const s = input.trim().replace(/[\s$ ]/g, '').replace(/−/g, '-')
-  if (s === '') return null
-  let norm: string
-  if (s.includes(',')) norm = s.replace(/\./g, '').replace(',', '.')
-  else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) norm = s.replace(/\./g, '')
-  else norm = s
-  if (!/^-?\d+(\.\d+)?$/.test(norm)) return null
-  const n = Number(norm)
-  return Number.isFinite(n) ? n : null
+
+/** Paso de redondeo en pesos. 0 = sin redondeo (precio al centavo). */
+export type RoundingStep = 0 | 10 | 50 | 100 | 500 | 1000
+
+/** Pasos ofrecidos, en el orden del selector "Redondeo". */
+export const ROUNDING_STEPS: readonly RoundingStep[] = [0, 10, 50, 100, 500, 1000]
+
+/** Rango válido del margen (%), extremos incluidos. */
+export const MARGIN_MIN = 0
+export const MARGIN_MAX = 1000
+
+export type PricingPrefs = {
+  /** "Calcular con margen" tildado al abrir el alta de producto. */
+  enabled: boolean
+  /** Recargo sobre el costo, en % (0–1000, hasta 2 decimales). */
+  marginPct: number
+  roundingStep: RoundingStep
 }
 
-/** Enteros: "24" → 24, "−2"/"-2" → -2, " 7 " → 7; "2,5", "abc", "" → null. */
-export function parseInteger(input: string): number | null { ... }
+export const DEFAULT_PRICING_PREFS: PricingPrefs = { enabled: true, marginPct: 30, roundingStep: 100 }
 
-/** "DD/MM/AAAA" → Date local 00:00; valida día/mes reales (31/02 → null). */
-export function parseDateAR(input: string): Date | null { ... }
+/** Clave de localStorage (mismo prefijo que `integral.theme`). */
+export const PRICING_STORAGE_KEY = 'integral.pricing'
 
-/** Máscara mientras se tipea: deja solo dígitos (máx 8) e inserta "/" → "24102026" → "24/10/2026", "241" → "24/1". */
-export function maskDateInput(raw: string): string { ... }
+/**
+ * x × 100 como entero, sin el ruido binario de los decimales (la mitad exacta sube):
+ * 1.005 → 101 (no 100), 0.1 + 0.2 → 30, 12.345 → 1235.
+ */
+function toHundredths(x: number): number {
+  return Math.round(Number((x * 100).toPrecision(15)))
+}
+
+/** true si `n` es un margen aceptado: número finito entre 0 y 1000 (inclusive). */
+export function isValidMarginPct(n: number): boolean {
+  return Number.isFinite(n) && n >= MARGIN_MIN && n <= MARGIN_MAX
+}
+
+/** Devuelve el valor como `RoundingStep` si es uno de los pasos ofrecidos; si no, null. */
+export function toRoundingStep(value: unknown): RoundingStep | null {
+  return typeof value === 'number' && (ROUNDING_STEPS as readonly number[]).includes(value) ? (value as RoundingStep) : null
+}
+
+/**
+ * Precio de venta = redondear(costo × (1 + margen / 100), paso).
+ *
+ * - Trabaja en centavos enteros: no hay errores de punto flotante.
+ * - Redondea al múltiplo de `step` MÁS CERCANO; la mitad exacta sube (paso 100: 1550 → 1600).
+ * - `step` 0 = sin redondeo: el resultado queda al centavo (2 decimales, la mitad sube).
+ * - Si el costo (en centavos) es > 0 y el redondeo daría $ 0, devuelve un paso: nunca un precio 0
+ *   para algo que tiene costo.
+ * - null si el costo no es un número finito ≥ 0, si el margen está fuera de [0, 1000] o si el paso
+ *   no es uno de `ROUNDING_STEPS`.
+ */
+export function computeSalePrice(cost: number, marginPct: number, step: RoundingStep): number | null {
+  if (!Number.isFinite(cost) || cost < 0) return null
+  if (!isValidMarginPct(marginPct)) return null
+  if (toRoundingStep(step) === null) return null
+  const costCents = Math.abs(toHundredths(cost)) // Math.abs: -0 → 0
+  const marginBasisPoints = toHundredths(marginPct) // 30 % → 3000
+  const rawCents = Math.round((costCents * (10000 + marginBasisPoints)) / 10000)
+  if (step === 0) return rawCents / 100
+  const stepCents = step * 100
+  let roundedCents = Math.round(rawCents / stepCents) * stepCents
+  if (roundedCents === 0 && rawCents > 0) roundedCents = stepCents // nunca $ 0 para algo que cuesta (P5)
+  return roundedCents / 100
+}
 ```
 
-Tests `utils/__tests__/parse.test.ts` (uno por línea, con `it.each`):
-- parseDecimal: `"1.234,50"→1234.5`, `"1234,50"→1234.5`, `"1234.50"→1234.5`, `"1.500"→1500`, `"2.5"→2.5`, `"$ 1.234"→1234`, `"−5"→-5`, `"-5,5"→-5.5`, `"0"→0`, `""→null`, `"  "→null`, `"abc"→null`, `"1,2,3"→null`, `"1..2"→null`, `"10.000,00"→10000`.
-- parseInteger: `"24"→24`, `"−2"→-2`, `"-2"→-2`, `" 7 "→7`, `"0"→0`, `"2,5"→null`, `"2.5"→null`, `"abc"→null`, `""→null`.
-- parseDateAR: `"24/10/2026"` → Date con `getFullYear()==2026, getMonth()==9, getDate()==24, getHours()==0`; `"31/02/2026"→null`; `"00/10/2026"→null`; `"24/13/2026"→null`; `"2026-10-24"→null`; `""→null`; `"1/1/2026"→null` (exige 2 dígitos).
-- maskDateInput: `"24102026"→"24/10/2026"`, `"241"→"24/1"`, `"24"→"24"`, `"24/10/2026x"→"24/10/2026"`, `"240"→"24/0"`, `"123456789"→"12/34/5678"`.
+> En A1 el archivo **no importa nada** y no tiene `roundMargin`: los imports de `./format`/`./parse` y la función `roundMargin` se agregan en A3, cuando se usan (si los agregás antes, `noUnusedLocals` y ESLint se quejan).
 
-**2.3 `utils/text.ts`** — crear:
+**Paso A2 — Crear `renderer/src/utils/__tests__/pricing.test.ts` con la tabla de `computeSalePrice`.**
+
+Encabezado del archivo **en este paso** (solo lo que ya existe):
 
 ```ts
-/** Quita tildes y pasa a minúsculas, conservando el largo (1 carácter → 1 carácter). */
-export function foldText(s: string): string {
-  return Array.from(s).map((ch) => ch.normalize('NFD')[0].toLowerCase()).join('')
-}
-/** Divide `text` en segmentos marcando la primera coincidencia de `query` (sin tildes ni mayúsculas). */
-export function splitMatch(text: string, query: string): { text: string; match: boolean }[] { ... }
-/** true si `text` contiene `query` ignorando tildes y mayúsculas. Query vacía → true. */
-export function includesFolded(text: string, query: string): boolean { ... }
+import { describe, expect, it } from 'vitest'
+import { computeSalePrice } from '../pricing'
+import type { RoundingStep } from '../pricing'
 ```
 
-`splitMatch` usa `foldText(text).indexOf(foldText(query.trim()))` y corta `text` (original) con esos índices. Query vacía o sin coincidencia → `[{ text, match: false }]`.
+En A3 y A4 ampliás estos imports a medida que creás funciones. Al final de A4 el archivo importa `afterEach, beforeEach, describe, expect, it, vi` de `vitest` y, de `../pricing`: `DEFAULT_PRICING_PREFS, PRICING_STORAGE_KEY, ROUNDING_STEPS, autoSalePriceText, computeSalePrice, formatMarginInput, isValidMarginPct, loadPricingPrefs, parseMarginInput, roundingStepLabel, savePricingPrefs, toRoundingStep`, más `import type { RoundingStep }`. Nunca importes algo que todavía no existe.
 
-Tests `utils/__tests__/text.test.ts`:
-- `foldText('Serenísima')` → `'serenisima'` y mismo largo que el original.
-- `splitMatch('Yerba Playadito', 'yer')` → `[{text:'Yer',match:true},{text:'ba Playadito',match:false}]`.
-- `splitMatch('La Serenísima', 'serenisima')` → `[{text:'La ',match:false},{text:'Serenísima',match:true}]`.
-- `splitMatch('Leche', 'xyz')` → `[{text:'Leche',match:false}]`; `splitMatch('Leche','')` igual.
-- `includesFolded('Serenísima','SERENI')` → true; `includesFolded('Leche','yerba')` → false; `includesFolded('x','')` → true.
-
-**2.4 `utils/stock.ts`** — crear:
+`describe('computeSalePrice')` con un `it.each` sobre esta tabla (todos los valores verificados numéricamente al planificar; `toBe` exacto):
 
 ```ts
-export type StockTone = 'negative' | 'low' | null
-/** negativo si stock < 0; bajo si 0 <= stock <= minStock; si no, null. */
-export function stockTone(p: { stock: number; minStock: number }): StockTone { ... }
-export function hasValidSalePrice(p: { salePrice: string }): boolean { ... } // número finito > 0 (misma regla que hoy usa Sells.hasValidPrice)
+const CASES: [number, number, RoundingStep, number | null][] = [
+  // costo, margen %, paso, esperado
+  [1000, 30, 0, 1300],
+  [1234.56, 30, 0, 1604.93], // 1604,928 → al centavo
+  [1234, 30, 0, 1604.2],
+  [1650, 45, 0, 2392.5],
+  [1000, 33.33, 0, 1333.3],
+  [1000, 12.345, 0, 1123.5], // el margen se redondea a 2 decimales (12,35 %)
+  [1000, 0, 0, 1000],
+  [1000, 1000, 0, 11000], // margen máximo
+  // Ejemplos del usuario: paso 100, al más cercano, la mitad sube
+  [1570, 0, 100, 1600],
+  [1530, 0, 100, 1500],
+  [1550, 0, 100, 1600],
+  [1549.99, 0, 100, 1500],
+  // El mismo precio crudo (1604,20) con todos los pasos
+  [1234, 30, 10, 1600],
+  [1234, 30, 50, 1600],
+  [1234, 30, 100, 1600],
+  [1234, 30, 500, 1500],
+  [1234, 30, 1000, 2000],
+  [1650, 45, 100, 2400],
+  // Mitades exactas con otros pasos
+  [1000, 25, 500, 1500], // 1250 → 1500
+  [2475, 0, 50, 2500],
+  [2490, 0, 50, 2500],
+  [2474.99, 0, 50, 2450],
+  [5, 0, 10, 10],
+  [1500, 0, 1000, 2000],
+  [1499.99, 0, 1000, 1000],
+  [1999.99, 0, 1000, 2000],
+  // Nunca $ 0 para algo que cuesta: sube a un paso
+  [30, 30, 100, 100], // 39 → 0 → 100
+  [4, 0, 10, 10],
+  [0.01, 0, 1000, 1000],
+  [0.1, 0, 10, 10],
+  // Costo 0
+  [0, 30, 0, 0],
+  [0, 30, 100, 0],
+  [-0, 30, 0, 0],
+  // Punto flotante
+  [0.1 + 0.2, 0, 0, 0.3],
+  [0.1 + 0.2, 100, 0, 0.6],
+  [1.005, 0, 0, 1.01],
+  [2.675, 0, 0, 2.68],
+  [10.235, 0, 0, 10.24],
+  [0.05, 50, 0, 0.08], // 7,5 centavos → 8
+  [1.45, 10, 0, 1.6], // 159,5 centavos → 160
+  [0.005, 0, 0, 0.01],
+  [0.004, 0, 0, 0],
+  // Números grandes
+  [99999999.99, 1000, 0, 1099999999.89],
+  [9999999.99, 30, 1000, 13000000],
+  // Inválidos → null
+  [-1, 30, 0, null],
+  [Number.NaN, 30, 0, null],
+  [Number.POSITIVE_INFINITY, 30, 0, null],
+  [1000, -1, 0, null],
+  [1000, 1000.01, 0, null],
+  [1000, Number.NaN, 0, null],
+]
+it.each(CASES)('computeSalePrice(%s, %s, %s) → %s', (cost, margin, step, expected) => {
+  expect(computeSalePrice(cost, margin, step)).toBe(expected)
+})
 ```
 
-Tests: `{stock:-3,minStock:5}→'negative'`, `{stock:0,minStock:0}→'low'`, `{stock:6,minStock:8}→'low'`, `{stock:8,minStock:8}→'low'`, `{stock:9,minStock:8}→null`. `hasValidSalePrice`: `'0'→false`, `''→false`, `'abc'→false`, `'10'→true`, `'0.5'→true`.
+Más un `it` aparte: `computeSalePrice(1000, 30, 20 as RoundingStep)` → `null` (paso no ofrecido).
 
-**2.5 `utils/dom.ts`** — crear:
+- **Checkpoint A2:** `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx vitest run src/utils/__tests__/pricing.test.ts` → todo verde.
+
+**Paso A3 — Agregar a `pricing.ts` los helpers de texto y sus tests.**
+
+1. Arriba de todo en `pricing.ts` (debajo del comentario inicial) agregá:
 
 ```ts
-/** true si el target es un campo editable (input, textarea, select o contentEditable). */
-export function isEditableTarget(t: EventTarget | null): boolean {
-  if (!(t instanceof HTMLElement)) return false
-  return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable
-}
-/** scrollIntoView seguro (happy-dom no lo implementa). */
-export function scrollIntoViewSafe(el: Element | null): void {
-  if (el && typeof (el as HTMLElement).scrollIntoView === 'function') (el as HTMLElement).scrollIntoView({ block: 'nearest' })
+import { formatAmountInput, formatInt } from './format'
+import { parseDecimal } from './parse'
+```
+
+2. Debajo de `toHundredths` agregá:
+
+```ts
+/** Margen redondeado a 2 decimales (el `Math.abs` convierte un -0 en 0). */
+function roundMargin(n: number): number {
+  return Math.abs(toHundredths(n)) / 100
 }
 ```
 
-Tests: input/textarea/select → true; div/button/null → false.
+3. Código a agregar (debajo de `computeSalePrice`):
 
-**2.6 Verificación de la fase.** Tests + typecheck. Revisá que los tests viejos que usan `formatMoney` sigan pasando (debería: solo cambia negativos).
+```ts
+/** Texto tipeado en "Margen" → número (2 decimales); null si está vacío, es inválido o está fuera de 0–1000. Acepta "%", coma o punto. */
+export function parseMarginInput(text: string): number | null {
+  const n = parseDecimal(text.replace(/%/g, ''))
+  if (n === null || !isValidMarginPct(n)) return null
+  return roundMargin(n)
+}
+
+/** Margen → texto del input, sin separador de miles: 30 → "30", 32.5 → "32,5", 12.345 → "12,35". */
+export function formatMarginInput(n: number): string {
+  return String(roundMargin(n)).replace('.', ',')
+}
+
+/** Texto de cada opción del selector "Redondeo": 0 → "Sin redondeo", 1000 → "$ 1.000". */
+export function roundingStepLabel(step: RoundingStep): string {
+  return step === 0 ? 'Sin redondeo' : `$ ${formatInt(step)}`
+}
+
+/** Precio de venta calculado como texto de input ("1.600,00"); '' si el costo no es un número ≥ 0. */
+export function autoSalePriceText(purchaseText: string, marginPct: number, step: RoundingStep): string {
+  const cost = parseDecimal(purchaseText)
+  if (cost === null) return ''
+  const sale = computeSalePrice(cost, marginPct, step)
+  return sale === null ? '' : formatAmountInput(sale)
+}
+```
+
+Tests a agregar (cada bloque con `it.each`, `toBe`):
+
+- `describe('isValidMarginPct')`: `0`→true · `1000`→true · `30.5`→true · `-0.01`→false · `1000.01`→false · `NaN`→false · `Infinity`→false.
+- `describe('toRoundingStep')`: `0`→0 · `10`→10 · `50`→50 · `100`→100 · `500`→500 · `1000`→1000 · `20`→null · `'100'`→null · `null`→null · `undefined`→null · `NaN`→null. Más: `expect(ROUNDING_STEPS).toEqual([0, 10, 50, 100, 500, 1000])`.
+- `describe('parseMarginInput')`:
+
+```ts
+[
+  ['30', 30], ['30,5', 30.5], ['30.5', 30.5], [' 45 ', 45], ['45%', 45], ['45 %', 45],
+  ['0', 0], ['-0', 0], ['1000', 1000], ['1.000', 1000], ['12,345', 12.35], ['0,1', 0.1], ['99,999', 100],
+  ['1000,01', null], ['1.001', null], ['-5', null], ['−5', null], ['', null], ['   ', null],
+  ['abc', null], ['1e3', null], ['%', null],
+]
+```
+
+- `describe('formatMarginInput')`: `30`→`'30'` · `32.5`→`'32,5'` · `0`→`'0'` · `1000`→`'1000'` · `12.35`→`'12,35'` · `0.1 + 0.2`→`'0,3'` · `33.333`→`'33,33'`.
+- `describe('roundingStepLabel')`: `0`→`'Sin redondeo'` · `10`→`'$ 10'` · `50`→`'$ 50'` · `100`→`'$ 100'` · `500`→`'$ 500'` · `1000`→`'$ 1.000'` (espacio común entre `$` y el número).
+- `describe('autoSalePriceText')` (`[texto costo, margen, paso, esperado]`):
+
+```ts
+[
+  ['1.000,00', 30, 0, '1.300,00'], ['1000', 30, 0, '1.300,00'], ['1.000', 30, 0, '1.300,00'],
+  ['1234,56', 30, 0, '1.604,93'], ['1570', 0, 100, '1.600,00'], ['1234', 30, 100, '1.600,00'],
+  ['100', 30, 0, '130,00'], ['100,00', 50, 10, '150,00'], ['0', 30, 100, '0,00'], ['0,5', 30, 0, '0,65'],
+  ['', 30, 0, ''], ['   ', 30, 0, ''], ['abc', 30, 0, ''], ['-5', 30, 0, ''], ['1000', 1001, 0, ''],
+]
+```
+
+- **Checkpoint A3:** `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx vitest run src/utils/__tests__/pricing.test.ts` → verde.
+
+**Paso A4 — Agregar a `pricing.ts` las preferencias y sus tests.**
+
+Código a agregar (al final de `pricing.ts`):
+
+```ts
+/** Lee las preferencias. Un campo ausente o inválido, JSON corrupto o un storage que lanza → valor por defecto. */
+export function loadPricingPrefs(): PricingPrefs {
+  const defaults: PricingPrefs = { ...DEFAULT_PRICING_PREFS }
+  let raw: string | null
+  try {
+    raw = localStorage.getItem(PRICING_STORAGE_KEY)
+  } catch {
+    return defaults
+  }
+  if (raw === null) return defaults
+  let data: unknown
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    return defaults
+  }
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return defaults
+  const o = data as Record<string, unknown>
+  return {
+    enabled: typeof o.enabled === 'boolean' ? o.enabled : defaults.enabled,
+    marginPct: typeof o.marginPct === 'number' && isValidMarginPct(o.marginPct) ? roundMargin(o.marginPct) : defaults.marginPct,
+    roundingStep: toRoundingStep(o.roundingStep) ?? defaults.roundingStep,
+  }
+}
+
+/**
+ * Guarda solo los campos válidos de `partial`, combinados con lo que ya estaba guardado.
+ * Nunca lanza: sin storage, el cambio vale solo mientras el modal siga abierto.
+ */
+export function savePricingPrefs(partial: Partial<PricingPrefs>): void {
+  const next = loadPricingPrefs()
+  if (typeof partial.enabled === 'boolean') next.enabled = partial.enabled
+  if (typeof partial.marginPct === 'number' && isValidMarginPct(partial.marginPct)) next.marginPct = roundMargin(partial.marginPct)
+  const step = toRoundingStep(partial.roundingStep)
+  if (step !== null) next.roundingStep = step
+  try {
+    localStorage.setItem(PRICING_STORAGE_KEY, JSON.stringify(next))
+  } catch {
+    // Sin storage: solo esta sesión del modal.
+  }
+}
+```
+
+> ⚠ **Cómo simular un storage roto (obligatorio):** en happy-dom 20.9 `localStorage` es un proxy que guarda cada método la primera vez que se usa. Por eso `vi.spyOn(Storage.prototype, 'getItem' | 'setItem')` **no sirve**: después del primer uso no intercepta (el test pasa sin probar nada) y, si intercepta, el mock **queda pegado** a los tests siguientes aunque llames `vi.restoreAllMocks()` (verificado al planificar). Usá siempre `vi.stubGlobal('localStorage', …)` y `vi.unstubAllGlobals()`. Helper para copiar en el archivo de test:
+>
+> ```ts
+> /** localStorage falso cuyos métodos lanzan (se pueden pisar algunos con `overrides`). */
+> function brokenStorage(overrides: Partial<Storage> = {}): Storage {
+>   const fail = () => {
+>     throw new Error('sin storage')
+>   }
+>   return { length: 0, clear: fail, key: fail, getItem: fail, removeItem: fail, setItem: fail, ...overrides } as Storage
+> }
+> ```
+
+Tests a agregar en `describe('preferencias de precio')` con `beforeEach(() => localStorage.clear())` y `afterEach(() => vi.unstubAllGlobals())`:
+
+1. `PRICING_STORAGE_KEY` vale `'integral.pricing'` y `DEFAULT_PRICING_PREFS` es `{ enabled: true, marginPct: 30, roundingStep: 100 }`.
+2. Sin nada guardado, `loadPricingPrefs()` → `toEqual(DEFAULT_PRICING_PREFS)`.
+3. Devuelve una copia: `const p = loadPricingPrefs(); p.marginPct = 99` → `DEFAULT_PRICING_PREFS.marginPct` sigue `30`.
+4. Lee lo guardado: `localStorage.setItem(PRICING_STORAGE_KEY, JSON.stringify({ enabled: false, marginPct: 45, roundingStep: 50 }))` → `toEqual` lo mismo.
+5. JSON corrupto (`'{no es json'`) → defaults.
+6. `it.each(['5', '"hola"', 'null', '[]', 'true'])` JSON que no es objeto → defaults.
+7. Campos inválidos se reemplazan **uno por uno**:
+   - `{ enabled: 'si', marginPct: 45, roundingStep: 20 }` → `{ enabled: true, marginPct: 45, roundingStep: 100 }`
+   - `{ enabled: false, marginPct: 5000, roundingStep: 50 }` → `{ enabled: false, marginPct: 30, roundingStep: 50 }`
+   - `{ marginPct: -1 }` → `marginPct: 30` · `{ marginPct: '45' }` → `marginPct: 30` · `{ roundingStep: '50' }` → `roundingStep: 100`
+8. Margen guardado con más decimales se normaliza: `{ marginPct: 12.345 }` → `marginPct: 12.35`.
+9. Si el storage lanza (`vi.stubGlobal('localStorage', brokenStorage())`) → `expect(() => localStorage.getItem('x')).toThrow()` (prueba que el stub está activo) y `loadPricingPrefs()` no lanza y devuelve `DEFAULT_PRICING_PREFS`.
+10. `savePricingPrefs({ enabled: false })` sin nada previo → `JSON.parse(localStorage.getItem(PRICING_STORAGE_KEY)!)` `toEqual({ enabled: false, marginPct: 30, roundingStep: 100 })`.
+11. Combina: `save({ enabled: false })`, `save({ marginPct: 45 })`, `save({ roundingStep: 50 })` → `loadPricingPrefs()` `toEqual({ enabled: false, marginPct: 45, roundingStep: 50 })`.
+12. Ignora inválidos: `save({ marginPct: 45 })`, `save({ marginPct: 5000 })`, `save({ roundingStep: 20 as RoundingStep })` → `marginPct: 45`, `roundingStep: 100`.
+13. Si `setItem` lanza (`vi.stubGlobal('localStorage', brokenStorage())`) → `expect(() => savePricingPrefs({ enabled: true })).not.toThrow()`.
+14. Si `getItem` lanza pero `setItem` funciona: `const setItem = vi.fn()`; `vi.stubGlobal('localStorage', brokenStorage({ setItem }))`; `savePricingPrefs({ marginPct: 45 })` → `setItem` llamado 1 vez, con `setItem.mock.calls[0][0]` = `PRICING_STORAGE_KEY` y `JSON.parse(setItem.mock.calls[0][1] as string)` `toEqual({ enabled: true, marginPct: 45, roundingStep: 100 })` (combina con los defaults).
+15. Después de un test con stub, el storage real vuelve: `localStorage.setItem('x', '1')` y `localStorage.getItem('x')` → `'1'` (ponelo **después** de los tests 9, 13 y 14 en el archivo).
+
+- **Checkpoint A4:**
+  - `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx vitest run src/utils/__tests__/pricing.test.ts` → verde.
+  - `cd /c/Users/asant/Music/Integral/wt-producto && npm run typecheck` → OK.
+  - `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx eslint src/utils/pricing.ts src/utils/__tests__/pricing.test.ts` → sin errores.
 
 ---
 
-## Fase 3 — Componentes base del DS (`renderer/src/ui/`)
+### Fase B — `ui/floatingPlacement.ts`
 
-> Cada componente: archivo `.tsx` + test en `ui/__tests__/`. Copiá las clases del `preview.html` correspondiente. Ningún componente de `ui/` llama a `window.api`.
+**Paso B1 — Crear `renderer/src/ui/floatingPlacement.ts`** (copiar):
 
-**3.0 Helpers de test.**
-- `renderer/src/test/fixtures.ts`: `export function makeProduct(o: Partial<ProductFromApi> = {}): ProductFromApi` con defaults: `id:1, name:'Producto 1', barcode:7790000000001n, purchasePrice:'500', salePrice:'1000', stock:10, minStock:2, createdAt:new Date(2026,0,1), categoryId:1, supplierId:1, category:{id:1,name:'Almacén'}, supplier:{id:1,name:'Distribuidora Sur',phone:null,notes:null}`.
-- `renderer/src/test/renderWithProviders.tsx`: `render(<ToastProvider><SalesProvider>{ui}</SalesProvider></ToastProvider>)` (crealo recién cuando existan ambos providers: Pasos 3.11 y 4.2; hasta ahí exportá solo `ToastProvider`).
-
-**3.1 `Kbd.tsx`.** `export function Kbd({ children }: { children: string })` → `<kbd className="ig-kbd" aria-hidden="true">{children}</kbd>`. Test: renderiza el texto con clase `ig-kbd` y `aria-hidden`.
-
-**3.2 `ShortcutBar.tsx`.** Props `{ items: { keys: string[]; label: string }[] }`. Render: `<div className="ig-shortcuts">` y por ítem `<span>{keys.map(k => <Kbd key={k}>{k}</Kbd>)} {label}</span>`. Para combinaciones (`['Ctrl','Enter']`) intercalá un `+` entre Kbds. Test: 2 ítems → 2 spans, el texto `Elegir` visible.
-
-**3.3 `Button.tsx`.**
 ```ts
-type ButtonProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'> & {
-  variant?: 'primary' | 'secondary' | 'ghost' | 'edit' | 'danger'   // default 'secondary'
-  size?: 'sm' | 'md' | 'lg' | 'xl'                                   // default 'md'
-  icon?: LucideIcon
-  iconOnly?: boolean   // agrega ig-btn-icon; exige aria-label
-  shortcut?: string    // muestra <Kbd> a la derecha
-  children?: React.ReactNode
+/**
+ * Posición de un popover flotante (`position: fixed`) respecto de su disparador, en coordenadas de
+ * la ventana. Función pura: la usa EntityPicker con el getBoundingClientRect() del disparador.
+ */
+
+/** Lo que se usa del rectángulo del disparador (un DOMRect sirve tal cual). */
+export type AnchorRect = { top: number; bottom: number; left: number; right: number; width: number }
+export type Viewport = { width: number; height: number }
+
+export type FloatingPlacement = {
+  /** 'below' = abre debajo del disparador; 'above' = encima. */
+  side: 'below' | 'above'
+  /** px desde el borde superior de la ventana ('auto' si abre hacia arriba). */
+  top: number | 'auto'
+  /** px desde el borde inferior de la ventana ('auto' si abre hacia abajo). */
+  bottom: number | 'auto'
+  left: number
+  width: number
+  /** Alto disponible en ese lado: el contenido se achica y scrollea si no entra. */
+  maxHeight: number
+}
+
+/** Separación entre disparador y popover (la misma que el `calc(100% + 4px)` anterior). */
+export const FLOATING_GAP = 4
+/** Distancia mínima a los bordes de la ventana. */
+export const FLOATING_MARGIN = 8
+/** Ancho del popover del design system (`.ig-picker-pop`). */
+export const FLOATING_MIN_WIDTH = 420
+/** Si abajo hay al menos este alto, se abre abajo sin mirar arriba. */
+export const FLOATING_PREFERRED_HEIGHT = 360
+
+export function computeFloatingPlacement(anchor: AnchorRect, viewport: Viewport, minWidth = FLOATING_MIN_WIDTH): FloatingPlacement {
+  const maxWidth = Math.max(0, viewport.width - 2 * FLOATING_MARGIN)
+  const width = Math.min(Math.max(anchor.width, minWidth), maxWidth)
+
+  // Alineado al borde izquierdo del disparador; si se sale por la derecha, al borde derecho.
+  let left = anchor.left
+  if (left + width > viewport.width - FLOATING_MARGIN) left = anchor.right - width
+  left = Math.max(FLOATING_MARGIN, Math.min(left, viewport.width - FLOATING_MARGIN - width))
+
+  const spaceBelow = viewport.height - anchor.bottom - FLOATING_GAP - FLOATING_MARGIN
+  const spaceAbove = anchor.top - FLOATING_GAP - FLOATING_MARGIN
+  const base = { left: Math.round(left), width: Math.round(width) }
+
+  if (spaceBelow >= FLOATING_PREFERRED_HEIGHT || spaceBelow >= spaceAbove) {
+    return { side: 'below', top: Math.round(anchor.bottom + FLOATING_GAP), bottom: 'auto', ...base, maxHeight: Math.max(0, Math.floor(spaceBelow)) }
+  }
+  return { side: 'above', top: 'auto', bottom: Math.round(viewport.height - anchor.top + FLOATING_GAP), ...base, maxHeight: Math.max(0, Math.floor(spaceAbove)) }
 }
 ```
-Clases: `ig-btn ig-btn-{variant}` + (`ig-btn-sm|lg|xl` si no es md) + (`ig-btn-icon` si iconOnly) + `className`. `type="button"` por defecto. Ícono: `size` 16 si sm, 22 si xl, si no 18. Usá `forwardRef`.
-Tests: clases por variante/tamaño; `shortcut="F2"` muestra `F2` y el nombre accesible del botón **no** incluye "F2" (`getByRole('button',{name:'Buscar'})`); `disabled` funciona; default `type="button"`.
 
-**3.4 `Badge.tsx`.** Props `{ tone: 'neutral'|'danger'|'warning'|'success'|'info'; icon?: LucideIcon; children; title? }` → `<span className={`ig-badge ig-badge-${tone}`}>`. Ícono 14px. Test simple.
+**Paso B2 — Crear `renderer/src/ui/__tests__/floatingPlacement.test.ts`.**
 
-**3.5 `Segmented.tsx`.**
-```ts
-type SegmentedProps<V extends string> = { options: { value: V; label: string; icon?: LucideIcon }[]; value: V; onChange: (v: V) => void; ariaLabel: string }
-```
-`<div className="ig-seg" role="tablist" aria-label>` con `<button role="tab" aria-selected>`. Tab-stop único: el seleccionado `tabIndex=0`, el resto `-1`. ←/→ cambian la selección (llaman `onChange`) y mueven el foco. Tests: click llama `onChange`; ArrowRight desde el primero llama `onChange` con el segundo; `aria-selected` correcto.
+Helper del test: `const rect = (top: number, left: number, width: number, height = 40) => ({ top, left, width, bottom: top + height, right: left + width })` y `const V = { width: 1280, height: 690 }`. Cada caso con `toEqual` del objeto completo (valores verificados al planificar):
 
-**3.6 `Field.tsx`.** Componente contenedor + inputs:
-```ts
-type FieldProps = { label: string; htmlFor: string; required?: boolean; help?: React.ReactNode; error?: string | null; className?: string; children: React.ReactNode }
-```
-Render: `<div className={`ig-field ${className??''}`}><label className="ig-label" htmlFor>{label}{required && <span className="req">*</span>}</label>{children}{error ? <span className="ig-error" id={`${htmlFor}-error`}><CircleAlert size={16}/>{error}</span> : help ? <span className="ig-help" id={`${htmlFor}-help`}>{help}</span> : null}</div>`.
-- Agregá `export const inputClass = (opts: { error?: boolean; amount?: boolean; lg?: boolean; mono?: boolean }) => string` que arma `ig-input` + `is-error` + `ig-input-amount` + `ig-input-lg`. Para mono usá `style={{ fontFamily: 'var(--font-mono)' }}` en el input (permitido: no es color).
-- El input hijo debe llevar `aria-invalid={!!error}` y `aria-describedby` apuntando al id de error/ayuda (responsabilidad del que lo usa; documentalo en un comentario).
-Tests: label asociado (`getByLabelText('Nombre')` encuentra el input hijo), muestra `*`, muestra error en lugar de ayuda.
-
-**3.7 `DateField.tsx`.** Input de texto con máscara:
-```ts
-type DateFieldProps = { id: string; label: string; value: string; onChange: (masked: string) => void; error?: string | null; help?: string; required?: boolean; className?: string; inputRef?: React.Ref<HTMLInputElement>; onKeyDown?: React.KeyboardEventHandler<HTMLInputElement> }
-```
-Usa `Field` + `<input type="text" inputMode="numeric" placeholder="DD/MM/AAAA" maxLength={10} className="ig-input" value onChange={e => onChange(maskDateInput(e.target.value))}/>`. Tests: tipear `24102026` (fireEvent.change) llama `onChange('24/10/2026')`; placeholder correcto; label asociado.
-
-**3.8 `InlineAlert.tsx`.** Props `{ tone; title?: string; children?; action?: ReactNode }`. Ícono por tono: danger `TriangleAlert`, warning `ArrowDown`, info `Info`, success `CircleCheck`. Markup: `<div className={`ig-alert ig-alert-${tone}`} role="status"><Icon/><div className="ig-alert-body">{title && <strong>{title}</strong>}{children && <span>{children}</span>}</div>{action}</div>`. Test: renderiza título, texto y acción.
-
-**3.9 `EmptyState.tsx`.** Props `{ icon: LucideIcon; title: string; description?: string; action?: ReactNode; tone?: 'neutral'|'danger' }`. Markup como `States/preview.html`: `<div className="ig-empty"><div className="ico" ...>` (tone danger → `style={{ background:'var(--danger-soft)', color:'var(--danger)' }}`). Test simple.
-
-**3.10 `useDelayedFlag.ts` + `TableSkeleton.tsx`.**
-- `useDelayedFlag(active: boolean, delayMs = 300): boolean` → devuelve `true` solo si `active` sigue `true` después de `delayMs` (para que el skeleton no parpadee).
-- `TableSkeleton({ rows = 8, cols = 4, label = 'Cargando…' })` → `<div className="ig-card" style={{padding:20, display:'grid', gap:18}} aria-busy="true">` con filas de `<i className="ig-skel"/>` en grilla y `<div className="ig-help" style={{textAlign:'center'}}>{label}</div>`.
-- Tests con `vi.useFakeTimers()`: `useDelayedFlag(true)` es false al inicio y true tras `vi.advanceTimersByTime(300)`; si pasa a false antes, queda false. `TableSkeleton rows={3}` renderiza 3 filas.
-
-**3.11 `Toast.tsx` (ToastProvider + useToast).**
-
-```ts
-export type ToastTone = 'danger' | 'warning' | 'success' | 'info'
-export type ToastOptions = { tone: ToastTone; title: string; detail?: string }
-type ToastItem = ToastOptions & { id: number; key: string; count: number; version: number }
-```
-Reglas (de `Alert/README.md`):
-- `show(opts)`: `key = tone|title|detail`. Si ya existe un toast con esa key → `count+1`, `version+1` (reinicia su timer) y lo sube arriba. Si no, lo agrega **arriba**. Máximo 3: se descartan los más viejos.
-- Duración: 4000 ms; 6000 ms si tiene `detail`. Hover pausa (onMouseEnter limpia el timer; onMouseLeave lo reinicia completo).
-- No toma foco. Contenedor `<div className="ig-toast-stack">`; cada toast `<div className={`ig-toast ${tone}`} role="status" aria-live="polite">` con `<span className="tone">` (ícono: danger `CircleAlert`, warning `TriangleAlert`, success `CircleCheck`, info `Info`, 16px), `<div>{title}{detail && <small>{detail}</small>}</div>` y `{count>1 && <span className="count">×{count}</span>}`.
-- Cada toast es un subcomponente con su propio `useEffect` que arma `setTimeout(onExpire, dur)` y depende de `version`.
-- `useToast()` lanza `Error('useToast fuera de ToastProvider')` si no hay provider.
-
-Tests `ui/__tests__/Toast.test.tsx` (fake timers; un componente de prueba con botones que llaman `show`):
-1. muestra título y detalle; `role="status"`.
-2. desaparece a los 4000 ms sin detalle y a los 6000 ms con detalle (no antes).
-3. mismo toast dos veces → un solo toast con `×2`, y el timer se reinicia (a los 4000 ms del segundo show recién desaparece).
-4. 4 toasts distintos → quedan 3, el más nuevo primero.
-5. no roba el foco: con un input enfocado, `show()` no cambia `document.activeElement`.
-6. `useToast` sin provider lanza.
-
-**3.12 `modalStack.ts` + `Modal.tsx`.**
-
-`modalStack.ts`:
-```ts
-let openCount = 0
-export function pushModal(): void { openCount += 1 }
-export function popModal(): void { openCount = Math.max(0, openCount - 1) }
-export function openModalCount(): number { return openCount }
-```
-
-`Modal.tsx`:
-```ts
-type ModalProps = {
-  open: boolean
-  title: string
-  subtitle?: React.ReactNode
-  size?: 'sm' | 'md' | 'lg'              // default 'md'
-  onClose: () => void
-  onEscape?: () => void                  // default: onClose
-  closeOnOverlay?: boolean               // default false
-  headerExtra?: React.ReactNode          // va entre el título y la X (ej. ShortcutBar "F2 cierra" o StepIndicator)
-  hideCloseButton?: boolean
-  shortcuts?: { keys: string[]; label: string }[]  // pie, a la izquierda
-  footer?: React.ReactNode               // pie, a la derecha (botones)
-  initialFocusRef?: React.RefObject<HTMLElement | null>
-  children: React.ReactNode
-}
-```
-Comportamiento (implementarlo **exactamente** así):
-1. Si `!open` → `return null`.
-2. Se renderiza con `createPortal(..., document.body)`: `<div className="ig-overlay" onMouseDown={e => { if (closeOnOverlay && e.target === e.currentTarget) onClose() }}><div className={`ig-modal ${size==='sm'?'ig-modal-sm':size==='lg'?'ig-modal-lg':''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} ref={dialogRef} onKeyDown={handleKeyDown}>`.
-3. Cabecera `ig-modal-head`: `<div><h2 id={titleId}>{title}</h2>{subtitle && <p>{subtitle}</p>}{headerExtra}</div>` + botón `Button variant="ghost" size="sm" iconOnly icon={X} aria-label="Cerrar" onClick={onClose}` (salvo `hideCloseButton`). `titleId` con `useId()`.
-4. Cuerpo `ig-modal-body`; pie `ig-modal-foot` solo si hay `shortcuts` o `footer`.
-5. Al abrir (`useEffect` con `[open]`): `pushModal()`; guardar `document.activeElement` en un ref (`returnFocus`); `setTimeout(0)` → enfocar `initialFocusRef.current` o, si no hay, el primer focusable dentro de `.ig-modal-body`, o el diálogo. Cleanup: `popModal()` y, si `returnFocus.current` sigue en el documento, `focus()`.
-6. `handleKeyDown`:
-   - `Escape` y `!e.defaultPrevented` → `e.preventDefault(); e.stopPropagation(); (onEscape ?? onClose)()`.
-   - `Tab` → focus trap: lista de focusables con el selector `'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'` dentro del diálogo; si `shiftKey` y el activo es el primero → enfocar el último y `preventDefault`; si no `shiftKey` y es el último → el primero.
-   - El `stopPropagation` en Escape es obligatorio: los eventos de React atraviesan portales, y sin esto un modal anidado cerraría también al de afuera.
-
-Tests `ui/__tests__/Modal.test.tsx`:
-1. `open=false` no renderiza nada.
-2. `open` → `role="dialog"` con nombre = title; subtitle visible.
-3. Escape llama `onClose`; con `onEscape` llama `onEscape` y **no** `onClose`.
-4. Click (mouseDown) en el overlay: con `closeOnOverlay` cierra; sin él no.
-5. Foco inicial va al primer input del cuerpo (usar `await waitFor`).
-6. Focus trap: con foco en el último botón, `Tab` lleva al primero; `Shift+Tab` desde el primero al último (`fireEvent.keyDown(dialog,{key:'Tab'})` y verificar `document.activeElement`).
-7. Al cerrar (rerender con `open=false`), el foco vuelve al botón que lo abrió.
-8. `openModalCount()` vale 1 con el modal abierto y 0 al cerrarlo.
-9. Modal anidado: Escape en el interno cierra solo el interno.
-
-**3.13 `MenuButton.tsx`** (menú ⋮ y filtro de categoría).
-```ts
-type MenuItem = { id: string; label: string; icon?: LucideIcon; checked?: boolean; onSelect: () => void }
-type MenuButtonProps = { label: string; items: MenuItem[]; iconOnly?: boolean; icon?: LucideIcon; variant?: 'secondary'|'ghost'; size?: 'sm'|'md'; align?: 'left'|'right'; buttonText?: React.ReactNode }
-```
-- Contenedor `<div className={`ig-anchor ${align==='right'?'ig-anchor-right':''}`}>`; botón con `aria-haspopup="menu"` y `aria-expanded`; si `iconOnly` → `aria-label={label}`.
-- Abierto: `<ul className="ig-menu" role="menu">` con `<li role="none"><button role="menuitem" ...>`; si `checked` mostrar ícono `Check`.
-- Abrir con click, Enter, Espacio o ↓ → foco al primer ítem. ↑/↓ mueven entre ítems; Enter/click → `onSelect()` y cerrar; Esc → cerrar, `stopPropagation`, foco vuelve al botón. Click afuera (listener `mousedown` en `document`) cierra.
-Tests: abre con click y muestra ítems; ↓ mueve foco; Enter ejecuta `onSelect` y cierra; Esc cierra y devuelve el foco; click afuera cierra.
-
-**3.14 `StepIndicator.tsx`.** Props `{ steps: string[]; current: number }` (0-based). Markup de `ScreenLoadStock/preview.html`: `ig-steps` con `step is-done` (dot con ícono `Check`), `step is-current`, `line` entre pasos. Test: con `current=1` el primero tiene `is-done` y el segundo `is-current`.
-
-**3.15 `useRowNavigation.ts`.**
-```ts
-/** Navegación por teclado de una tabla con un único tab-stop (patrón grid). */
-export function useRowNavigation<K extends string | number>(opts: {
-  keys: K[]; activeKey: K | null; setActiveKey: (k: K) => void; onActivate?: (k: K) => void; rowDomId: (k: K) => string
-}): (e: React.KeyboardEvent) => void
-```
-El handler devuelto: `ArrowDown`/`ArrowUp` → siguiente/anterior (si `activeKey` es null, el primero), `Home`/`End` → primero/último, `Enter` → `onActivate(activeKey)`. Siempre `preventDefault` en esas teclas y `scrollIntoViewSafe(document.getElementById(rowDomId(k)))`. No hace nada con listas vacías.
-Tests con un componente de prueba: ↓ desde null activa el primero; ↓ en el último se queda; End va al último; Enter llama `onActivate` con el activo.
-
-**3.16 `useFlash.ts`.** `useFlash<K>(): [K | null, (k: K) => void]` — setea la key y la limpia a los 600 ms (timer limpiado en unmount). Test con fake timers.
-
-**3.17 Verificación de la fase.** Tests + typecheck. Nada visible cambió todavía en la app.
-
----
-
-## Fase 4 — Shell de la app (navegación, header, tema, toasts, store de ventas)
-
-**4.1 `navigation.ts`** (reemplaza `renderTypes.ts`):
-
-```ts
-export type Section = 'stock' | 'sells' | 'stats'
-export type StockView = 'products' | 'movements'
-export type SalesView = 'new' | 'history'
-export type NavState = {
-  section: Section
-  stockView: StockView
-  salesView: SalesView
-  /** Producto con el que se abre Movimientos (desde ⋮ o desde Estadísticas). */
-  movementsProduct: { id: number; name: string } | null
-  /** Venta a seleccionar al abrir el Historial (desde Movimientos). */
-  historySaleId: number | null
-}
-export const initialNav: NavState = { section: 'stock', stockView: 'products', salesView: 'new', movementsProduct: null, historySaleId: null }
-export type Navigate = (patch: Partial<NavState>) => void
-```
-Borrá `renderTypes.ts` y reemplazá sus imports por `navigation.ts`.
-
-**4.2 `store/SalesContext.tsx`.**
-
-```ts
-type SalesContextValue = {
-  cart: CartState
-  dispatchCart: React.Dispatch<CartAction>
-  discountPct: number
-  setDiscountPct: (n: number) => void
-  payments: PaymentsDraft
-  setPayments: React.Dispatch<React.SetStateAction<PaymentsDraft>>
-  /** Vacía carrito, descuento a 0 y pagos a ''. */
-  resetSale: () => void
-}
-export function SalesProvider({ children }: { children: React.ReactNode }) { /* useReducer(cartReducer, initialCart) + useState */ }
-export function useSales(): SalesContextValue  // lanza Error('useSales fuera de SalesProvider')
-```
-Tests `store/__tests__/SalesContext.test.tsx`: agregar un producto vía `dispatchCart({type:'ADD',...})` y verlo reflejado; `resetSale` deja todo vacío/0/''; el estado **sobrevive** a desmontar y volver a montar un hijo (renderizar el provider con un hijo condicional, ocultarlo y mostrarlo de nuevo, y verificar que el carrito sigue con 1 línea); `useSales` sin provider lanza.
-
-Ahora completá `test/renderWithProviders.tsx` (Paso 3.0).
-
-**4.3 `Components/AppHeader/ThemeToggle.tsx`.** Botón `ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon ig-theme-toggle`; estado inicial `getStoredTheme()`; ícono `Moon` cuando el tema es claro (aria-label `"Activar tema oscuro"`) y `Sun` cuando es oscuro (aria-label `"Activar tema claro"`); click → `saveTheme(next)`. Test: click cambia `document.documentElement.dataset.theme` a `dark` y el aria-label; segundo click vuelve a `light`.
-
-**4.4 `Components/AppHeader/AppHeader.tsx`.** Props `{ section: Section; onNavigate: (s: Section) => void }`. Markup (de `AppHeader/preview.html`):
-```tsx
-<header className="ig-header">
-  <button type="button" className="ig-brand" aria-label="Factor Integral — ir a Stock" onClick={() => onNavigate('stock')}>
-    <img className="ig-logo" src={logoDark} alt="Factor Integral" />
-  </button>
-  <nav className="ig-nav" aria-label="Secciones">
-    {/* 3 botones: Stock (Package) · Ventas (ShoppingCart) · Estadísticas (ChartColumn); ícono 16px; aria-current="page" en el activo; title con el atajo ("Ctrl+1") */}
-  </nav>
-  <div className="ig-spacer" />
-  <ExpiryAlertWidget />
-  <ThemeToggle />
-</header>
-```
-`logoDark` = `import logoDark from '../../assets/brand/factor-integral-horizontal-oscuro.png'`.
-Tests `Components/AppHeader/__tests__/AppHeader.test.tsx` (mockeá `window.api.listExpiringStockMovements` → `[]`): muestra botones Stock/Ventas/Estadísticas; el activo tiene `aria-current="page"`; click en "Ventas" llama `onNavigate('sells')`; click en el logo llama `onNavigate('stock')`; **no** existe botón "Historial".
-
-**4.5 `ExpiryAlertWidget` (re-skin).** Archivo `Components/ExpiryAlert/ExpiryAlertWidget.tsx`. Mantener toda la lógica de datos (carga, `sessionDismissed`, `dismissStockMovementExpiry`, clasificación con `classifyExpiry`). Cambia solo el render:
-- Si `loading || error || visible.length === 0` → `null` (igual que hoy).
-- Contenedor `<div className="ig-anchor" ref={wrapperRef}>`.
-- Botón `<button type="button" className="ig-expiry" aria-haspopup="dialog" aria-expanded={popupOpen}>` con `<TriangleAlert size={16}/>` y los segmentos: `"{n} vencido(s)"` y `"{n} vence(n) hoy"` separados por `<span className="sep">·</span>` (singular/plural correcto: "1 vencido", "2 vencidos", "1 vence hoy", "3 vencen hoy"). **Sin** `aria-label` (el texto visible es el nombre). **Sin** el glifo ⚠.
-- Popup `<div className="ig-expiry-pop" role="dialog" aria-label="Lotes a revisar">` con cabecera `ig-modal-head` (`<h2>Lotes a revisar</h2><p>Sacalos de la góndola o recordalos más tarde.</p>` + botón cerrar `X`), grupos `<div className="ig-expiry-group">Vencidos · {n}</div>` y `Vencen hoy · {n}`, y filas:
-  ```tsx
-  <div className="ig-expiry-row">
-    <div className="what"><strong>{m.product.name}</strong><span>{detalle}</span></div>
-    <Button size="sm" variant="secondary" onClick={...}>Recordame luego</Button>
-    <Button size="sm" variant="primary" icon={Check} onClick={...}>Ya lo saqué</Button>
-  </div>
-  ```
-  Detalle: vencido → `Venció el {formatDate(expiryDate)} · lote cargado el {formatDayMonth(m.date)} · {m.quantity} u.`; vence hoy → `Vence hoy · {m.quantity} u.`.
-- Esc con el popup abierto lo cierra y devuelve el foco al botón (`onKeyDown` en el popup). Click afuera cierra (ya existe).
-- Cuando `visible` queda vacío el componente devuelve `null` (el popup desaparece solo).
-- Borrar `ExpiryAlertWidget.css` y su import.
-
-Actualizar `Components/ExpiryAlert/__tests__/ExpiryAlertWidget.test.tsx`: reemplazar `getByRole('button', { name: /Ver lotes vencidos/i })` por `getByRole('button', { name: /vencid|vence/i })`; ajustar los textos de fila al nuevo detalle; agregar tests: (a) "1 vencido" en singular y "2 vencidos · 3 vencen hoy" combinado; (b) Esc cierra el popup; (c) no aparece el carácter `⚠` (`expect(container.textContent).not.toContain('⚠')`).
-
-**4.6 `App.tsx`.** Reescribir:
-```tsx
-export default function App() {
-  const [nav, setNav] = useState<NavState>(initialNav)
-  const navigate: Navigate = useCallback((patch) => setNav((n) => ({ ...n, ...patch })), [])
-
-  // Ctrl+1/2/3 → secciones (ignorar si hay un modal abierto)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.altKey || e.metaKey || openModalCount() > 0) return
-      const map: Record<string, Section> = { '1': 'stock', '2': 'sells', '3': 'stats' }
-      const s = map[e.key]
-      if (s) { e.preventDefault(); navigate({ section: s }) }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [navigate])
-
-  return (
-    <ToastProvider>
-      <SalesProvider>
-        <div className="ig-app">
-          <AppHeader section={nav.section} onNavigate={(section) => navigate({ section })} />
-          <div className="app-body">
-            {nav.section === 'stock' && <StockPage nav={nav} navigate={navigate} />}
-            {nav.section === 'sells' && <SalesPage nav={nav} navigate={navigate} />}
-            {nav.section === 'stats' && <Stats navigate={navigate} />}
-          </div>
-        </div>
-      </SalesProvider>
-    </ToastProvider>
-  )
-}
-```
-Hasta que existan `StockPage`/`SalesPage` (Fases 5 y 9), creá versiones mínimas temporales que rendericen lo viejo: `StockPage` → `<Stock />` y `SalesPage` → `nav.salesView==='history' ? <SalesHistory/> : <Sells/>` + un `Segmented` Nueva venta|Historial. **`Sells` ahora debe usar `useSales()`** en lugar de su `useReducer`/`useState` locales para carrito, descuento y pagos (cambio mínimo: reemplazar esas 3 declaraciones por `const { cart, dispatchCart: dispatch, discountPct, setDiscountPct, payments, setPayments, resetSale } = useSales()` y en el éxito de la venta usar `resetSale()`).
-Borrar `Pages/Header.tsx`.
-
-Tests:
-- `src/__tests__/App.test.tsx` (nuevo; mockeá todo `window.api` que usan las pantallas con arrays vacíos): arranca en Stock (botón Stock con `aria-current`); `Ctrl+2` cambia a Ventas; `Ctrl+3` a Estadísticas; con un modal abierto (abrí "Nuevo producto" si ya existe, o simulá con `pushModal()`/`popModal()` en el test) `Ctrl+2` no navega.
-- Actualizar `Pages/Sells/__tests__/Sells.confirm.test.tsx` para renderizar con `renderWithProviders`.
-
-**4.7 Verificación de la fase.** Tests + typecheck. Corré la app: header azul noche con logo, nav con píldora blanca, widget de vencimientos (si hay datos), botón luna/sol que cambia el tema.
-
----
-
-## Fase 5 — Stock › Productos
-
-**5.1 `Pages/Stock/StockPage.tsx`.** Props `{ nav: NavState; navigate: Navigate }`. Renderiza `<main className="ig-page">` con:
-- Cabecera `<div className="ig-page-head"><h1>Stock</h1><Segmented ariaLabel="Vista de stock" options=[{value:'products',label:'Productos'},{value:'movements',label:'Movimientos'}] value={nav.stockView} onChange={(v)=>navigate({stockView:v, movementsProduct: null})}/><div className="ig-spacer"/>{acciones}</div>`.
-- Las acciones (Buscar F2 / Cargar stock / Nuevo producto) son de la vista Productos: `StockProducts` las recibe por un slot. Implementación simple: `StockPage` renderiza la cabecera y le pasa a `StockProducts` un prop `renderHeadActions` **o** (más simple) `StockProducts` renderiza su propia cabecera completa recibiendo el `Segmented` como prop `viewSwitcher`. **Usá la segunda opción**: `StockPage` solo decide qué vista montar y le pasa `viewSwitcher` (el `<Segmented>` ya armado) a ambas vistas; cada vista arma su `ig-page-head`.
-- `nav.stockView==='products'` → `<StockProducts viewSwitcher navigate />`; `'movements'` → `<StockMovements viewSwitcher navigate product={nav.movementsProduct} />` (Fase 8; hasta entonces un placeholder `<EmptyState icon={History} title="Próximamente" />`).
-
-**5.2 Mover y reescribir `Pages/Stock.tsx` → `Pages/Stock/StockProducts.tsx`.** Borrá `Pages/Stock.tsx` y `Pages/Stock.css`. Estado:
-```ts
-products: ProductFromApi[]; loading: boolean; error: boolean; reloadKey: number
-query: string                 // buscador inline
-categoryId: number | null     // null = Todas
-onlyLow: boolean
-showLots: boolean             // toggle "Vencimientos" (D5)
-sort: { key: 'name' | 'salePrice' | 'stock'; dir: 'asc' | 'desc' }  // default name asc
-activeId: number | null       // fila seleccionada
-modal: { kind: 'none' } | { kind: 'create'; initial?: { name?: string; barcode?: string } } | { kind: 'edit'; product: ProductFromApi } | { kind: 'load'; product?: ProductFromApi } | { kind: 'search' }
-lotsByProduct: Map<number, StockMovementFromApi[]>
-```
-Carga: `window.api.listProducts({ take: 5000 })` (antes 100: ahora el filtrado es en cliente). Manejo de error: `error=true` y `console.error`.
-
-**5.3 Filtrado y orden (función pura).** Crear `Pages/Stock/productFilters.ts`:
-```ts
-export function filterProducts(list: ProductFromApi[], f: { query: string; categoryId: number | null; onlyLow: boolean }): ProductFromApi[]
-export function sortProducts(list: ProductFromApi[], s: { key: 'name'|'salePrice'|'stock'; dir: 'asc'|'desc' }): ProductFromApi[]
-```
-- query: `includesFolded(p.name, q)` **o** el barcode (`p.barcode?.toString()`) contiene `q.trim()`.
-- onlyLow: `stockTone(p) !== null` (incluye negativos).
-- Orden por nombre con `localeCompare(b, 'es', { sensitivity: 'base' })`; precio con `Number(salePrice)`; no mutar el array original.
-Tests `Pages/Stock/__tests__/productFilters.test.ts`: query por nombre sin tildes ("serenisima" encuentra "Serenísima"); query por parte del código; filtro de categoría; onlyLow incluye bajos y negativos y excluye normales; orden por nombre asc/desc con tildes; orden por stock; no muta el input.
-
-**5.4 Cabecera de Productos.** Dentro de `StockProducts`:
-```tsx
-<div className="ig-page-head">
-  <h1>Stock</h1>{viewSwitcher}<div className="ig-spacer" />
-  <Button size="sm" variant="ghost" icon={Search} shortcut="F2" onClick={openSearch}>Buscar</Button>
-  <Button variant="secondary" icon={PackagePlus} onClick={() => openLoad()}>Cargar stock</Button>
-  <Button variant="primary" icon={Plus} onClick={() => openCreate()}>Nuevo producto</Button>
-</div>
-```
-
-**5.5 Toolbar.**
-```tsx
-<div className="ig-toolbar">
-  <div className="ig-input-wrap" style={{ width: 380 }}>
-    <Search className="ig-icon" size={18} aria-hidden="true" />
-    <input ref={searchRef} className="ig-input" placeholder="Buscar por nombre o código (Ctrl+F)" aria-label="Buscar productos" value={query} onChange=... onKeyDown={onSearchKeyDown} />
-  </div>
-  <MenuButton label="Filtrar por categoría" buttonText={`Categoría: ${nombre ?? 'Todas'}`} icon={ListFilter} size="sm" items={[{id:'all',label:'Todas',checked:categoryId===null,...}, ...categorías únicas de products ordenadas]} />
-  <Button size="sm" variant="secondary" icon={ArrowDown} aria-pressed={onlyLow} onClick={toggle}>Solo stock bajo</Button>
-  <Button size="sm" variant="secondary" icon={CalendarClock} aria-pressed={showLots} onClick={toggle}>Vencimientos</Button>
-  <div style={{ flex: 1 }} />
-  <span className="ig-help">{visibles.length} {visibles.length === 1 ? 'producto' : 'productos'}</span>
-</div>
-```
-Para que el estado "presionado" se vea: en `app.css` agregá `.ig-btn[aria-pressed="true"] { background: var(--primary-soft); color: var(--on-primary-soft); border-color: var(--primary); }`.
-`onSearchKeyDown`: Enter con query solo dígitos → buscar `products.find(p => p.barcode?.toString() === q)`; si existe, `setActiveId(p.id)` y hacer scroll a su fila; si no, toast danger `Producto no encontrado` / `Código {q}`.
-
-**5.6 Alertas inline.**
-- Si hay ≥1 negativo: `InlineAlert tone="danger"` con título `Hay 1 producto con stock negativo` / `Hay {n} productos con stock negativo`; texto (1) `«{nombre}» tiene {formatInt(stock)} unidades. Revisá las ventas o cargá stock.` o (n) `Revisá las ventas o cargá stock.`; acción `Button size="sm" icon={PackagePlus}` "Cargar stock" → `openLoad(primerNegativo)` (abre el modal directo en el paso 2).
-- Si hay ≥1 bajo (no negativo) y `!onlyLow`: `InlineAlert tone="warning"` título `{n} producto(s) por debajo del stock mínimo` + acción "Filtrar" → `setOnlyLow(true)`.
-
-**5.7 Tabla.** Markup de `ScreenStock/preview.html` + `Table/README.md`:
-```tsx
-<div className="ig-table-wrap ig-grid" style={{ flex: 1, overflow: 'auto' }} tabIndex={0} role="grid"
-     aria-label="Productos" aria-activedescendant={activeId ? `stock-row-${activeId}` : undefined} onKeyDown={onGridKeyDown}>
-  <table className="ig-table">
-    <thead><tr>
-      <th>Código de barras</th>
-      <th aria-sort=...><button className="ig-th-sort" onClick={() => toggleSort('name')}>Nombre {flecha}</button></th>
-      <th className="r" aria-sort=...><button className="ig-th-sort" ...>Precio</button></th>
-      <th className="r" aria-sort=...><button className="ig-th-sort" ...>Stock</button></th>
-      <th className="r">Stock mín.</th>
-      <th>Categoría / Proveedor</th>
-      {showLots && <th>Vencimientos</th>}
-      <th className="actions">Acciones</th>
-    </tr></thead>
-    <tbody>{filas}</tbody>
-  </table>
-  <div className="ig-table-foot">...</div>
-</div>
-```
-Fila:
-- `<tr id={`stock-row-${p.id}`} className={[activeId===p.id&&'is-selected', flashId===p.id&&'ig-row-flash'].filter(Boolean).join(' ')} onClick={() => setActiveId(p.id)} onDoubleClick={() => openEdit(p)} aria-selected={activeId===p.id}>`
-- `td.code` barcode o `—`; `td.name` nombre; `td.r` `formatMoney(p.salePrice)`; stock: tono `negative` → `td.r.is-negative` con `<span className="ig-stock"><TriangleAlert size={16}/>{formatInt(stock)}</span>`, `low` → `td.r.is-low` con `ArrowDown`, normal → `td.r`; `td.r` con `className="r ig-muted"` para mínimo; categoría + `<div className="ig-sub">{proveedor}</div>`; lotes → `<LotsList lots=.../>` (si `showLots`); acciones → `Button variant="edit" size="sm" icon={Pencil}` "Editar" (con `e.stopPropagation()`) + `MenuButton iconOnly icon={EllipsisVertical} label={`Más acciones para ${p.name}`} variant="ghost" size="sm" align="right" items=[{id:'mov',label:'Ver movimientos',icon:History,onSelect:()=>navigate({stockView:'movements', movementsProduct:{id:p.id,name:p.name}})},{id:'load',label:'Cargar stock de este producto',icon:PackagePlus,onSelect:()=>openLoad(p)}]`.
-- Flecha de orden: `ArrowUp`/`ArrowDown` de 14px solo en la columna activa; `aria-sort="ascending|descending|none"`.
-- `onGridKeyDown` = `useRowNavigation({ keys: visibles.map(p=>p.id), activeKey: activeId, setActiveKey: setActiveId, onActivate: id => openEdit(byId(id)), rowDomId: id => `stock-row-${id}` })`. Ignorá eventos cuyo `target` no sea el contenedor del grid (para no interferir con los botones de la fila): `if (e.target !== e.currentTarget) return`.
-- Pie: `<span>{n} productos{neg>0 && <> · <b style={{color:'var(--danger)'}}>{neg} con stock negativo</b></>}{low>0 && <> · <b style={{color:'var(--warning)'}}>{low} con stock bajo</b></>}</span>` + `<ShortcutBar items={[{keys:['↑','↓'],label:'Moverse'},{keys:['Enter'],label:'Editar'},{keys:['Ctrl','N'],label:'Nuevo'},{keys:['Ctrl','L'],label:'Cargar stock'}]} />`.
-
-**5.8 Estados.**
-- Cargando: si `useDelayedFlag(loading)` → `<TableSkeleton rows={8} cols={4} label="Cargando productos…" />`; antes de los 300 ms, nada.
-- Error: `EmptyState tone="danger" icon={CircleAlert} title="No pudimos leer los productos" description="Revisá que la base de datos esté disponible y probá de nuevo." action={<Button icon={RotateCcw} onClick={reload}>Reintentar</Button>}`.
-- Vacío (sin productos en la base): `EmptyState icon={Package} title="Todavía no hay productos" description="Cargá el primero para empezar a vender." action={<Button variant="primary" icon={Plus} onClick={openCreate}>Nuevo producto</Button>}` dentro de `div.ig-card`.
-- Sin resultados de filtro: una fila `<tr><td colSpan={n} className="c ig-muted">No encontramos «{query}»</td></tr>` (si no hay query: `Ningún producto coincide con los filtros`).
-
-**5.9 Atajos de la vista** (un `useEffect` con listener en `window`):
-- `F2` → si `openModalCount() > (modal.kind==='search' ? 1 : 0)` no hacer nada; si no, alternar el popup de búsqueda.
-- Con `openModalCount() > 0` ignorar todo lo siguiente.
-- `Ctrl+N` → `openCreate()`; `Ctrl+L` → `openLoad()`; `Ctrl+F` → `searchRef.current.focus(); select()`. Todos con `preventDefault`.
-- Dígito (`/^\d$/`), sin Ctrl/Alt, con target **no** editable (`isEditableTarget`) → `setQuery('')` y `searchRef.current.focus()` (sin `preventDefault`, así el dígito entra al input). Esto implementa "escanear estando en Stock filtra la tabla".
-
-**5.10 Integración con modales.**
-- `ProductFormModal` crear: `open={modal.kind==='create'}`, `initialValues={modal.initial}`; edición: `product={modal.product}`. `onSuccess(product)` → cerrar, `reloadKey++`, `setActiveId(product.id)`, `flash(product.id)`; después de recargar, scroll a la fila (un `useEffect` que, cuando cambia `products` y hay `activeId`, llama `scrollIntoViewSafe`).
-- `LoadStockModal`: `open={modal.kind==='load'}`, `initialProduct={modal.product}`, `onSuccess(productId)` → igual que arriba; `onRequestCreate(query)` → `setModal({kind:'create', initial: /^\d+$/.test(query) ? {barcode:query} : {name:query}})`.
-- `SearchPopup` (F2): `open={modal.kind==='search'}`, `allowNumericEnter`, `showExpiry`, `onSelect={(p) => setModal({kind:'edit', product:p})}`.
-
-**5.11 `LotsList` (re-skin).** En `Components/LotsList/LotsList.tsx` cambiar el render a badges: cada lote `<Badge tone={vencido?'danger':venceHoy?'info':'neutral'} icon={vencido?CalendarX:venceHoy?Clock:undefined}>{qty} u. · {fecha DD/MM/AAAA o 'sin vencimiento'}</Badge>` dentro de un `<div style={{display:'flex',flexWrap:'wrap',gap:4}}>`; vacío → `<span className="ig-muted">—</span>`. Borrar `LotsList.css`. Actualizar `LotsList.test.tsx`: la fecha ahora es `01/05/2026` (no `2026-05-01`); las clases `lots-list__item--expired` pasan a `ig-badge-danger`, `--today` a `ig-badge-info`.
-
-**5.12 Tests de Stock.** Reescribir `Pages/Stock/__tests__/Stock.search.test.tsx` y `Pages/__tests__/Stock.expiryColumn.test.tsx` contra `StockProducts` (render con `renderWithProviders`, props `viewSwitcher={null}` y `navigate={vi.fn()}`). Casos mínimos:
-1. Muestra skeleton solo después de 300 ms de carga (fake timers con una promesa que no resuelve).
-2. Lista productos con precio `$ 1.000,00` y la columna Categoría/Proveedor.
-3. Stock negativo: celda con clase `is-negative` + alerta "Hay 1 producto con stock negativo"; su botón "Cargar stock" abre el modal "Cargar stock" con el producto ya elegido (paso 2: aparece el label "Cantidad a agregar (negativo = merma)").
-4. Stock bajo: clase `is-low` + alerta warning; "Filtrar" activa "Solo stock bajo" (`aria-pressed="true"`) y oculta los productos normales.
-5. Buscador inline: tipear "serenisima" deja solo "Leche La Serenísima"; contador "1 producto".
-6. Enter en el buscador con un código exacto selecciona la fila (`aria-selected="true"`).
-7. Orden: click en "Precio" ordena ascendente; segundo click descendente (`aria-sort`).
-8. Teclado: foco en el grid, ↓ selecciona la primera fila, Enter abre "Editar producto".
-9. Doble click en una fila abre "Editar producto".
-10. Menú ⋮ → "Ver movimientos" llama `navigate({ stockView: 'movements', movementsProduct: { id, name } })`.
-11. F2 abre el popup de búsqueda (mantené el `vi.mock('../../Sells/SearchPopup', …)` existente ajustando la ruta); elegir un producto abre Editar producto.
-12. `Ctrl+N` abre "Nuevo producto"; `Ctrl+F` enfoca el buscador.
-13. Toggle "Vencimientos" agrega la columna y llama `listLotsByProductIds` con los ids (portar los casos de `Stock.expiryColumn.test.tsx`).
-14. Error de carga → "No pudimos leer los productos"; "Reintentar" vuelve a llamar `listProducts`.
-15. Base vacía → "Todavía no hay productos".
-
-**5.13 Verificación de la fase.** Tests + typecheck + revisión visual contra `design-system/components/ScreenStock/preview.html`.
-
----
-
-## Fase 6 — Selector con alta en el momento + modal de Producto
-
-**6.1 `ui/EntityPicker.tsx`** (de `Picker/README.md` y `preview.html`):
-```ts
-type Entity = { id: number; name: string }
-type EntityPickerProps = {
-  id: string; label: string; required?: boolean
-  entityName: 'categoría' | 'proveedor'          // plural: categorías / proveedores
-  items: Entity[]; loading?: boolean
-  valueId: number                                // 0 = sin selección
-  onChange: (id: number) => void
-  onCreate: (name: string, extra?: { phone?: string; notes?: string }) => Promise<Entity>
-  withExtraFields?: boolean                      // proveedor: teléfono y notas
-  error?: string | null
-  triggerRef?: React.Ref<HTMLButtonElement>
-}
-```
-Comportamiento:
-1. Cerrado: `<div className="ig-field"><label className="ig-label" htmlFor={id}>…</label><div className="ig-anchor"><button id={id} type="button" className="ig-picker" aria-haspopup="listbox" aria-expanded={open} aria-invalid={!!error}>{seleccionado ? <span>{nombre}</span> : <span className="placeholder">Elegí o creá {entityName === 'categoría' ? 'una categoría' : 'un proveedor'}</span>}<ChevronsUpDown size={16}/></button>{popover}</div>{error}</div>`.
-2. Abre con click, Enter, Espacio o ↓. Foco al buscador interno (`ig-pop-search` con `ig-input-wrap` + `Search`).
-3. Lista `ul.ig-picker-list role="listbox"`: ítems filtrados con `includesFolded`, nombre resaltado con `splitMatch` (`<b>`), `li.is-active role="option" aria-selected`. Ícono por ítem: `Tag` (categoría) o `Building2` (proveedor).
-4. Botón fijo final `button.ig-picker-create` con `Plus` y texto `Crear «{query}»` — solo si `query.trim()!==''`. Si no hay coincidencias: `li` informativo `No hay categorías con «x»` / `No hay proveedores con «x»` y el botón crear queda activo (Enter crea).
-5. ↑/↓ mueven el activo (incluyendo el botón crear como último elemento); Enter elige (llama `onChange(id)`, cierra, foco al trigger) o abre el formulario de alta.
-6. Formulario de alta `div.ig-picker-new`: `<div className="ig-overline">Nueva categoría|Nuevo proveedor</div>`, campo Nombre* (precargado con la query), y si `withExtraFields` una grilla 2 columnas con Teléfono y Notas (placeholder "Opcional"); botones `Cancelar` (ghost sm, vuelve a la lista) y `Crear y elegir` (primary sm). Validación: nombre vacío → `Ingresá un nombre.`; nombre repetido (comparar `foldText(trim)` contra `items`) → `Ya existe «{nombre existente}». Elegilo de la lista.`. Error de `onCreate` → mostrar `No se pudo crear. Probá de nuevo.` (y `console.error`).
-7. Éxito de `onCreate` → `onChange(created.id)`, cerrar, foco al trigger.
-8. Esc: si está el formulario de alta → volver a la lista; si no → cerrar y foco al trigger. **Siempre** `e.preventDefault(); e.stopPropagation()` (que no cierre el modal de producto).
-9. Click afuera cierra (listener `mousedown` en `document`).
-10. Enter dentro del picker nunca debe propagarse al formulario (`stopPropagation`).
-
-Tests `ui/__tests__/EntityPicker.test.tsx` (props mock, sin `window.api`):
-1. Placeholder "Elegí o creá una categoría" sin selección; con `valueId` muestra el nombre.
-2. Click abre, el buscador recibe foco, la lista muestra todos los ítems.
-3. Tipear "alm" filtra y resalta (`<b>` con "Alm").
-4. ↓ + Enter elige el segundo ítem → `onChange(id)` y se cierra.
-5. Sin coincidencias → "No hay categorías con «xyz»"; Enter abre el formulario con el nombre precargado.
-6. "Crear y elegir" llama `onCreate('Bebidas', undefined)` y luego `onChange(nuevoId)`.
-7. Nombre repetido ("almacén" vs "Almacén") → "Ya existe «Almacén». Elegilo de la lista." y **no** llama `onCreate`.
-8. Proveedor con `withExtraFields`: completa Teléfono y Notas → `onCreate('Distri', { phone: '123', notes: 'x' })`.
-9. Esc cierra el popover y devuelve el foco al trigger; un `onKeyDown` espía en un contenedor padre **no** recibe el Escape.
-10. Click afuera cierra.
-
-**6.2 `Pages/Stock/CategoryPicker.tsx` y `SupplierPicker.tsx`.** Wrappers que cargan con `window.api.listCategories()` / `listSuppliers()` al montar, y pasan `onCreate` = `createCategory({name})` / `createSupplier({name, phone: phone||null, notes: notes||null})` (agregando el creado a su lista local). Props: `{ id, valueId, onChange, error, triggerRef }`. Error de carga → `<span className="ig-error">No pudimos cargar las categorías.</span>` (o "los proveedores").
-Tests `CategoryPicker.test.tsx` y `SupplierPicker.test.tsx`: llaman a la API al montar; crear agrega y selecciona; error de carga muestra el mensaje.
-Borrar `CategorySelector.tsx`, `SupplierSelector.tsx` y sus tests.
-
-**6.3 `validateProductForm.ts`.** Cambios:
-- Precios: usar `parseDecimal` (acepta `1.650,00`). Vacío o inválido o `< 0` → `Ingresá un precio mayor o igual a 0.`
-- Nombre vacío → `Ingresá el nombre del producto.`
-- Categoría 0 → `Elegí o creá una categoría.`; proveedor 0 → `Elegí o creá un proveedor.`
-- Barcode con no-dígitos **o** > 20 → `El código solo puede tener números (hasta 20).`
-- Stock / stock mínimo inválidos → `Ingresá un número entero, 0 o mayor.` (usar `parseInteger`).
-- Agregar `export function priceToPayload(raw: string): string` → `String(parseDecimal(raw))` (lanza si es null; solo se llama después de validar).
-- Agregar `export const FIELD_ORDER = ['name','categoryId','supplierId','purchasePrice','salePrice','barcode','stock','minStock'] as const`.
-- Agregar `export function marginInfo(purchase: string, sale: string): { pct: number; profit: number } | null` → null si alguno no parsea o `purchase <= 0`; `pct = (sale - purchase) / purchase * 100`.
-Actualizar `validateProductForm.test.ts` a los mensajes nuevos y agregar: `"1.650,00"` es válido; `marginInfo('1650','2390')` → `{ pct ≈ 44.85, profit: 740 }`; `marginInfo('0','10')` → null; `priceToPayload('1.650,50')` → `'1650.5'`.
-
-**6.4 `ProductFormModal.tsx` (reescritura del render, misma lógica de submit).** Props nuevas: `initialValues?: { name?: string; barcode?: string }`. Usar `Modal` con:
-- `title` = `Nuevo producto` / `Editar producto`; `subtitle` = `Los campos con * son obligatorios.` (crear) / nombre actual (editar); `size="md"`; `closeOnOverlay={false}`.
-- `onEscape` → si hay cambios (`dirty`) abrir confirmación; si no, `onClose()`.
-- `shortcuts=[{keys:['Esc'],label:'Cancelar'},{keys:['Ctrl','Enter'],label:'Guardar'}]`.
-- `footer` = `<Button variant="ghost" onClick={requestClose}>Cancelar</Button><Button variant="primary" onClick={handleSubmit} disabled={submitting}>{submitting ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Guardar producto'}</Button>`.
-- Cuerpo `div.ig-form-grid` con este orden (orden de Tab):
-  1. Nombre* (`span-2`, `initialFocusRef`).
-  2. Categoría* (`CategoryPicker`) · 3. Proveedor* (`SupplierPicker`).
-  4. Precio de compra* · 5. Precio de venta* — ambos `ig-input-wrap` con `<span className="ig-prefix">$</span>` + `input.ig-input.ig-input-amount inputMode="decimal"`; en blur reformatear con `formatAmountInput(parseDecimal(v))` si parsea. Bajo venta: si `marginInfo` → ayuda `Margen: {pct con 1 decimal y coma} % · ganancia {formatMoney(profit)} por unidad`; si `profit < 0` → ayuda en warning (`style={{color:'var(--warning)'}}`) `Estás vendiendo por debajo del costo.` (no bloquea).
-  6. Código de barras (`span-2`): `ig-input-wrap` con `ScanBarcode` + input mono `inputMode="numeric"`; ayuda `Podés escanearlo con el lector. Solo números, hasta 20.`; **Enter** en este input → `preventDefault` y foco al siguiente campo (Stock inicial en crear, Stock mínimo en editar).
-  7. Stock inicial (crear) / Stock (editar, `readOnly`, clase `is-readonly`, ayuda `Para modificar el stock usá «Cargar stock».`).
-  8. Stock mínimo — ayuda `Avisamos cuando quede igual o menos.`
-  9. Vencimiento del lote (`span-2`, solo crear y si `parseInteger(stock) > 0`): `DateField` con ayuda `Opcional. Aparece porque cargaste stock inicial.`; validar con `parseDateAR`; inválido → `Revisá la fecha (DD/MM/AAAA).`
-- Edición: precargar precios con `formatAmountInput(p.purchasePrice)`.
-- `Ctrl+Enter` en cualquier parte del modal → `handleSubmit()` (handler `onKeyDown` en un `div` que envuelve el cuerpo).
-- Validación al guardar: mostrar **todos** los errores; foco al primer campo con error según `FIELD_ORDER` (mapa de refs; para categoría/proveedor el ref es el trigger del picker).
-- Payload: `purchasePrice: priceToPayload(...)`, `salePrice: priceToPayload(...)`, `minStock: parseInteger(...) ?? 0`, `stock` (crear) `parseInteger(...) ?? 0`, `expiryDate` solo si corresponde.
-- Error del backend: si hay barcode y el mensaje matchea `/unique|barcode/i` → `const other = await window.api.getProductByBarcode(barcode)`; si `other && other.id !== product?.id` → error en el campo barcode `Ese código ya lo usa «{other.name}». Usá otro o dejalo vacío.` y foco al campo. En cualquier otro caso → `InlineAlert tone="danger"` arriba del pie: `No se pudo guardar el producto. Probá de nuevo.` + `console.error(e)`. El modal **no** se cierra.
-- Confirmación de descarte: un segundo `Modal size="sm" title="¿Descartar los cambios?" subtitle="Lo que tipeaste se va a perder."` con footer `Seguir editando` (primary, cierra la confirmación) y `Descartar` (ghost, cierra todo).
-- `dirty` = el draft difiere del inicial o hay fecha tipeada.
-- Borrar `CreateProductModal.css` y su import.
-
-**6.5 Tests de `ProductFormModal.test.tsx`.** Reescribir sobre los mismos escenarios (Suite A crear, Suite B editar) adaptando consultas:
-- Los selects de categoría/proveedor ahora son pickers: abrir con `getByRole('button', { name: /categoría/i })` y elegir con `getByRole('option', { name: 'Almacén' })`.
-- Botón crear: `Guardar producto` (antes `Crear producto`).
-- El vencimiento se tipea como `01052026` (máscara) y se espera `expiryDate` = `new Date(2026, 4, 1)`.
-Casos obligatorios (además de portar los existentes):
-1. Guardar vacío muestra los 5 errores obligatorios con los copys nuevos y el foco queda en "Nombre".
-2. Precios con coma y puntos (`1.650,00`) se envían como `'1650'`.
-3. Margen en vivo: compra 1650, venta 2390 → "Margen: 44,8 % · ganancia $ 740,00 por unidad"; venta < compra → "Estás vendiendo por debajo del costo." y **igual** permite guardar.
-4. Vencimiento: no aparece con stock 0; aparece con stock 12; fecha inválida `31022026` → "Revisá la fecha (DD/MM/AAAA)." y no llama a la API.
-5. Enter en "Código de barras" no guarda y mueve el foco a "Stock inicial".
-6. `Ctrl+Enter` guarda.
-7. Código duplicado: `createProduct` rechaza con `Error('Unique constraint failed on barcode')` y `getProductByBarcode` devuelve "Yerba" → error "Ese código ya lo usa «Yerba». Usá otro o dejalo vacío." y el modal sigue abierto.
-8. Otro error del backend → "No se pudo guardar el producto. Probá de nuevo."
-9. Esc sin cambios cierra; Esc con cambios muestra "¿Descartar los cambios?"; "Seguir editando" vuelve; "Descartar" llama `onClose`.
-10. Edición: subtítulo con el nombre, Stock solo lectura con la ayuda, botón "Guardar cambios", el payload **no** incluye `stock`, precios precargados `1.000,00`.
-11. `initialValues={{ barcode: '779123' }}` precarga el código.
-
-**6.6 Verificación de la fase.** Tests + typecheck + revisión visual contra `ScreenProductNew` y `ScreenProductEdit`.
-
----
-
-## Fase 7 — Modal Cargar stock
-
-**7.1 Props nuevas de `LoadStockModal`:** `initialProduct?: ProductFromApi` (si viene, abre directo en el paso 2), `onSuccess: (productId: number) => void` (antes sin argumento), `onRequestCreate?: (query: string) => void`.
-
-**7.2 Render con `Modal`** (`size="md"`, `title="Cargar stock"`, `headerExtra={<StepIndicator steps={['Buscar producto','Cantidad']} current={step==='search'?0:1} />}`, `closeOnOverlay={false}`):
-- `onEscape`: en `search` → `onClose()`; en `confirm` → volver a `search` (si `initialProduct` vino de afuera, Esc en confirm **también** vuelve a search). Quitar el listener global de Escape que existe hoy (lo reemplaza `onEscape`).
-- **Paso 1:** input grande con ícono (`ig-input-wrap` + `Search` + `input.ig-input.ig-input-lg`, placeholder `Buscá por nombre o escaneá el código`) y tabla (`ig-table-wrap` con `boxShadow:none`) Código de barras | Nombre (coincidencia en `<b>` con `splitMatch`) | Stock actual (con tonos `is-low`/`is-negative` e íconos como en Stock). Fila seleccionada `is-selected`. Teclado igual que hoy (↑/↓/Enter). **Escaneo:** Enter con query solo dígitos → `await window.api.getProductByBarcode(q)`; si existe → paso 2 con ese producto; si no, seguir con la lógica normal (resultados). Estados: skeleton de 3 filas tras 300 ms; sin resultados → `EmptyState icon={SearchX} title="No encontramos «{q}»" description="¿Es un producto nuevo?" action={onRequestCreate && <Button variant="primary" icon={Plus} onClick={() => onRequestCreate(q)}>Crear producto</Button>}`. Pie: `shortcuts=[↑↓ Elegir, Enter Continuar, Esc Cerrar]`.
-- **Paso 2:** `ig-form-grid`:
-  - Producto (`span-2`, readonly `is-readonly`, valor `{nombre} · stock actual {stock}`).
-  - Cantidad* (label exacto `Cantidad a agregar (negativo = merma)`, `ig-input ig-input-amount ig-input-lg`, `inputMode="numeric"`, foco inicial). Vista previa debajo (calcular con `parseInteger`, aceptando `−`):
-    - `n > 0` → ayuda success con `ArrowUp`: `Reposición: el stock queda en {stock+n}`.
-    - `n < 0` y resultado ≥ 0 → warning con `ArrowDown`: `Merma: el stock queda en {stock+n}` (el texto del input también en warning).
-    - resultado < 0 → danger con `TriangleAlert`: `El stock quedará en {formatInt(stock+n)}` (no bloquea).
-  - Vencimiento del lote (`DateField`, ayuda `Opcional`).
-  - Notas (`span-2`, opcional).
-  - Error de cantidad: `Ingresá una cantidad distinta de 0, sin decimales.` Fecha inválida: `Revisá la fecha (DD/MM/AAAA).` Error del backend: `InlineAlert danger` `No se pudo cargar el stock. Probá de nuevo.`
-  - **Enter** en cualquier input del paso 2 → `handleSubmit()`.
-  - Pie: `shortcuts=[Esc Volver, Enter Confirmar]`, footer `Button variant="secondary" icon={ArrowLeft}` Volver + `Button variant="primary"` `Cargar stock` (`Cargando…` mientras envía).
-- Envío: igual que hoy (`createStockMovement` tipo `IN`), con `expiryDate` de `parseDateAR`. Éxito → `onSuccess(product.id)`.
-- Borrar `LoadStockModal.css`.
-
-**7.3 Tests `LoadStockModal.test.tsx`** (portar los existentes y agregar):
-1. Paso 1: busca con debounce y lista resultados con la coincidencia en negrita.
-2. Escaneo: query `7790001` + Enter con `getProductByBarcode` → producto ⇒ salta al paso 2.
-3. Sin resultados: "No encontramos «xyz»" + "Crear producto" llama `onRequestCreate('xyz')`.
-4. `initialProduct` abre directo en el paso 2 con "Leche · stock actual 24".
-5. Vista previa: `24` → "Reposición: el stock queda en 48"; `-2` → "Merma: el stock queda en 22"; `-30` → "El stock quedará en −6".
-6. `0` o `2,5` → "Ingresá una cantidad distinta de 0, sin decimales." y no llama la API.
-7. Enter en Cantidad envía con `{ productId, type:'IN', quantity:24 }`; con fecha `30062027` envía `expiryDate: new Date(2027,5,30)`.
-8. Esc en paso 2 vuelve al paso 1; Esc en paso 1 llama `onClose`.
-9. Éxito llama `onSuccess(productId)`.
-10. Indicador de pasos: en paso 2 el primer paso tiene `is-done`.
-
-**7.4 Verificación de la fase.** Tests + typecheck + revisión visual contra `ScreenLoadStock`.
-
----
-
-## Fase 8 — Stock › Movimientos (pantalla nueva)
-
-**8.1 `Pages/Stock/movements.ts`** (puro):
-```ts
-export type MovementKind = 'sale' | 'restock' | 'shrink' | 'initial' | 'adjustment'
-export type MovementInfo = { kind: MovementKind; label: string; tone: 'neutral'|'success'|'warning'|'info'; delta: number | null }
-export function classifyMovement(m: { type: string; quantity: number; appliedDelta: number | null }): MovementInfo {
-  if (m.type === 'SALE') return { kind: 'sale', label: 'Venta', tone: 'neutral', delta: -m.quantity }
-  if (m.type === 'IN' && m.appliedDelta === 0 && m.quantity > 0) return { kind: 'initial', label: 'Alta inicial', tone: 'info', delta: m.quantity }
-  if (m.type === 'IN' && m.quantity < 0) return { kind: 'shrink', label: 'Merma', tone: 'warning', delta: m.quantity }
-  if (m.type === 'IN') return { kind: 'restock', label: 'Reposición', tone: 'success', delta: m.quantity }
-  return { kind: 'adjustment', label: 'Ajuste', tone: 'neutral', delta: m.appliedDelta }
-}
-export type MovementTypeFilter = 'all' | 'sale' | 'restock' | 'shrink' | 'adjustment'
-/** 'restock' incluye también 'initial'. */
-export function matchesTypeFilter(info: MovementInfo, f: MovementTypeFilter): boolean
-/** Últimos 7 días: desde hoy-6 00:00 hasta hoy 23:59:59.999 (zona local). */
-export function lastSevenDays(now?: Date): { from: Date; to: Date }
-```
-Tests `Pages/Stock/__tests__/movements.test.ts`: los 5 casos de `classifyMovement` (incluido `IN` con `appliedDelta: null` → restock y `ADJUSTMENT` con `appliedDelta: null` → delta null); `matchesTypeFilter` (`initial` matchea `restock`; `all` matchea todo); `lastSevenDays(new Date(2026,9,24,15))` → from `18/10/2026 00:00`, to `24/10/2026 23:59:59.999`.
-
-**8.2 `Pages/Stock/StockMovements.tsx`.** Props `{ viewSwitcher: ReactNode; navigate: Navigate; product: { id: number; name: string } | null }`. Layout de `ScreenStockMovements/preview.html`:
-- `ig-page-head`: `<h1>Stock</h1>{viewSwitcher}`.
-- `div.ig-filters`:
-  - Producto: `Field` + `ig-input-wrap` con `Search`, placeholder `Nombre o código`; si `product` viene por navegación, el input arranca con su nombre y se filtra por `productId` en la API; al tipear se descarta el `productId` y se filtra en el cliente (`includesFolded` sobre nombre o barcode contiene).
-  - Tipo: `Segmented` Todos / Ventas / Reposiciones / Mermas / Ajustes.
-  - Período: dos `DateField` "Desde" y "Hasta" (default `lastSevenDays()`, formateados con `formatDate`). Solo se recarga cuando ambas fechas parsean y desde ≤ hasta.
-- Carga: `window.api.listStockMovements({ fromDate, toDate, productId?, take: 500 })` con debounce 250 ms al cambiar filtros de API.
-- Tabla: Fecha (`formatDayMonthTime`) · Tipo (`Badge` con tono/label de `classifyMovement`) · Producto (`td.name`) · Cantidad (`td.r`, `formatSignedInt(delta)`; color: success si `delta>0`, warning si `shrink`, `var(--ink)` bold si venta; `delta===null` → `<span className="ig-muted">ajuste a {quantity}</span>`) · Detalle (`ig-muted`): venta con `saleId` → `<button className="ig-link" onClick={() => navigate({ section:'sells', salesView:'history', historySaleId: m.saleId })}>Venta #{saleId}</button>`; si no, `notes`; si tiene `expiryDate` agregar `Lote vence {formatDate}` (unir partes con ` · `).
-- **No** hay columna "Stock resultante" (D1).
-- Orden: el backend ya devuelve más reciente primero.
-- Estados: skeleton (300 ms); error → `EmptyState danger` "No pudimos leer los movimientos" + Reintentar; vacío → `EmptyState icon={History} title="Todavía no hay movimientos" description="Cambiá el período o el producto para ver otros movimientos."`.
-
-**8.3 Conectar en `StockPage`** (reemplazar el placeholder del Paso 5.1).
-
-**8.4 Tests `StockMovements.test.tsx`:**
-1. Llama `listStockMovements` con el rango de 7 días por defecto.
-2. Con `product={{id:5,name:'Leche'}}` llama con `productId: 5` y el input muestra "Leche".
-3. Badges: Venta / Reposición / Merma / Alta inicial con sus clases (`ig-badge-neutral`, `-success`, `-warning`, `-info`).
-4. Cantidades `−4`, `+24`, `−2`.
-5. Click en "Venta #1282" llama `navigate({ section:'sells', salesView:'history', historySaleId:1282 })`.
-6. Segmentado "Mermas" deja solo las mermas.
-7. Tipear en Producto filtra en el cliente.
-8. Detalle "Lote vence 08/11/2026".
-9. Vacío y error.
-
-**8.5 Verificación.** Tests + typecheck + visual contra `ScreenStockMovements`.
-
----
-
-## Fase 9 — Ventas › Nueva venta
-
-**9.1 `payments.ts`.** Cambios:
-- `parsePaymentAmount(raw)` → usa `parseDecimal`; `null` o negativo → 0. (**Crítico:** hoy `"10.000,00"` da 0.)
-- `PAYMENT_EPSILON = 0.005`.
-- Nueva `fillRemaining(state, method, total): PaymentsDraft` → `remaining = total - sumPayments(state)`; si `remaining <= PAYMENT_EPSILON` devuelve `state` sin cambios; si no, `state[method] = formatAmountInput(parsePaymentAmount(state[method]) + remaining)`.
-- Nueva `formatPaymentOnBlur(raw: string): string` → `''` si no parsea o es ≤ 0; si no, `formatAmountInput(n)`.
-- Nueva `export type ChangeState = { kind: 'due' | 'exact' | 'return'; amount: number }` y `changeState(paid: number, total: number): ChangeState` → `diff = paid - total`; `diff < -0.005` → `{kind:'due', amount: -diff}`; `|diff| <= 0.005` → `{kind:'exact', amount: 0}`; si no `{kind:'return', amount: diff}`.
-- Nuevo `PAYMENT_TITLE_LABELS: Record<PaymentMethod,string>` = Efectivo, Débito, Crédito, Transferencia, Otros.
-- Nuevo `PAYMENT_ICONS: Record<PaymentMethod, LucideIcon>` = CASH `Banknote`, DEBIT `CreditCard`, CREDIT `CreditCard`, TRANSFER `ArrowLeftRight`, OTHER `Wallet`.
-- Mantené `autoFillFor` solo si algún test lo usa; si no, borralo (Sells usará `fillRemaining`).
-Actualizar `payments.test.ts` y agregar: `parsePaymentAmount('10.000,00') === 10000`; `fillRemaining` con total 1500 y CASH `'1000'` en TRANSFER → TRANSFER `'500,00'`; con todo cubierto no cambia nada; sumando a un método que ya tenía monto (`CASH '1000'`, total 1500 → CASH `'1.500,00'`); `changeState` en los 3 casos y en el borde (diff = −0.004 → exact); `formatPaymentOnBlur('20000') === '20.000,00'`, `('abc') === ''`.
-
-**9.2 `amount.ts`.** `validateGeneralAmount` usa `parseDecimal` (acepta `1.500,50`); mensajes: vacío o ≤ 0 o inválido → `Ingresá un monto mayor a 0.`; el `value` devuelto es `String(n)` con punto. Actualizar `amount.test.ts` (los textos viejos "Ingresá un monto" / "Ingresá un monto positivo" pasan al nuevo copy) y agregar `'1.500,50'` → `'1500.5'`.
-
-**9.3 `BarcodeInput.tsx`.** Nueva API:
-```ts
-type Props = { onScan: (code: string) => Promise<boolean>; onArrowDown: () => void }
-export type BarcodeInputHandle = { focus: () => void }
-```
-Markup (de `ScreenSales/preview.html`): `<div className={`ig-scan ${focused ? 'is-focus' : 'is-idle'}`}><ScanBarcode size={22}/><input ref aria-label="Código de barras" placeholder="Escaneá o escribí un código de barras" autoFocus .../><span className="ig-scan-state">{focused ? <><CircleCheck size={16}/>Listo para escanear</> : <><TriangleAlert size={16}/>Hacé click acá o tocá Esc para escanear</>}</span></div>`.
-- Enter con valor → `const ok = await onScan(v)`; `ok` → limpiar; `!ok` → conservar el texto y `input.select()`.
-- ↓ → `preventDefault(); onArrowDown()`.
-- Debajo del `ig-scan`, en `Sells`, va la `ShortcutBar` (no dentro de este componente).
-- Quitar el botón "F2" viejo (ahora está en la cabecera).
-Test `BarcodeInput.test.tsx` (nuevo): Enter con `onScan`→true limpia; →false conserva y selecciona; muestra "Listo para escanear" con foco y "Hacé click acá o tocá Esc para escanear" sin foco; ↓ llama `onArrowDown`.
-
-**9.4 `EditableCell.tsx`.**
-```ts
-type Props = {
-  kind: 'int' | 'money'
-  value: string | number          // valor confirmado (precio con punto, ej. "1450.5")
-  ariaLabel: string
-  modified?: boolean              // precio distinto al de lista → clase is-modified
-  onCommit: (n: number) => void   // solo con valor válido y distinto
-  onNavigate?: (dir: -1 | 1) => void  // ↑/↓ dentro de la celda
-  onExit?: () => void             // Enter/Esc: devolver foco a la fila
-  inputRef?: (el: HTMLInputElement | null) => void
-}
-```
-- Muestra: sin edición → `kind==='money' ? formatAmountInput(value) : String(value)`.
-- `onFocus` → `draft = display` y `select()`. `onChange` → draft. Clase `ig-cell-edit` + `is-editing` mientras `draft !== null` + `is-modified`.
-- Commit (blur, Enter, ↑/↓): `int` → `parseInteger(draft)` válido si `>= 1`; `money` → `parseDecimal(draft)` válido si `>= 0`. Inválido o vacío → descartar **en silencio**. Válido y distinto → `onCommit(n)`. Siempre `draft = null`.
-- Enter → commit + `onExit()`. Esc → descartar + `onExit()` + `preventDefault()` + `stopPropagation()`. ↑/↓ → commit + `onNavigate(dir)` + `preventDefault()`.
-- `type="text"`, `inputMode` `numeric`/`decimal`.
-Tests `EditableCell.test.tsx` (portar la lógica de `CartList.test.tsx`): valor inicial `1.450,00`; tipear `1.200,00` + Enter → `onCommit(1200)` y `onExit`; vacío → no commit; `0` en int → no commit; letras → no commit y vuelve al valor; Esc descarta y no propaga; ↓ hace commit y llama `onNavigate(1)`; blur hace commit.
-
-**9.5 `CartTable.tsx`** (reemplaza `CartList.tsx`; borrar `CartList.tsx` y su test cuando este esté verde):
-```ts
-type Props = {
-  lines: CartLine[]
-  flashLineId: string | null
-  onQuantityChange: (lineId: string, q: number) => void
-  onUnitPriceChange: (lineId: string, price: string) => void
-  onRemove: (lineId: string) => void
-  onExit: () => void              // foco al input de código
-}
-export type CartTableHandle = { focusFirstRow: () => void }
-```
-Markup de `Cart/preview.html` (`ig-table-wrap` > `table.ig-table.ig-cart`), columnas Producto · Cantidad (`th.r`) · Precio unit. (`th.r`) · Total (`th.r`) · `th.actions` con `<span className="ig-sr">Quitar</span>`.
-- Fila `tr tabIndex={-1} data-line-id` con `is-selected` cuando tiene el foco (estado `activeId` actualizado en `onFocus` de la fila o de cualquier hijo) y `ig-row-flash` si `flashLineId`.
-- Producto: `td.name` nombre; si `quantity > product.stock` → `<Badge tone="warning" icon={TriangleAlert} title="Sin stock suficiente">Sin stock</Badge>`. Línea general: `<span className="general"><Receipt size={16}/>General <Badge tone="neutral">F10</Badge></span>`.
-- Cantidad: `EditableCell kind="int"`. Precio: `EditableCell kind="money"` con `modified` si es línea de producto y `Number(unitPrice) !== Number(product.salePrice)`; en ese caso, debajo `<div className="ig-cell-orig"><s>{formatMoney(product.salePrice)}</s></div>`. `onCommit` de precio → `onUnitPriceChange(lineId, String(n))`.
-- Total: `td.r.line-total` `formatMoney(lineTotal(line))`.
-- Quitar: `Button variant="ghost" size="sm" iconOnly icon={X} aria-label={`Quitar ${nombre}`}`.
-- Teclado en la fila (solo si `e.target === e.currentTarget`): ↓/↑ → foco a la fila siguiente/anterior; Enter → foco al input de cantidad; `Delete` → `onRemove` y foco a la siguiente fila (o la anterior si era la última; si el carrito queda vacío, `onExit()`); `Escape` → `onExit()`.
-- En las celdas: `onNavigate(dir)` → foco a la misma celda de la fila de arriba/abajo; `onExit` → foco a su fila.
-- Para manejar foco tras borrar, guardá el índice antes de `onRemove` y usá un `useEffect` sobre `lines.length` para enfocar la fila en ese índice (o la anterior).
-- Vacío (`lines.length===0`): no se renderiza la tabla; en su lugar (lo hace `Sells`) el estado vacío del Paso 9.9.
-Tests `CartTable.test.tsx`: columnas; badge "Sin stock" cuando cantidad > stock; precio modificado con `is-modified` y el precio original tachado; línea General con "General" y "F10"; ✕ llama `onRemove`; Delete en una fila llama `onRemove` y el foco pasa a la siguiente; Delete con foco en un input **no** borra la línea; Esc en una fila llama `onExit`; ↓ en la fila mueve el foco a la siguiente; Enter en la fila enfoca el input de cantidad; `focusFirstRow()` enfoca la primera fila.
-
-**9.6 `ChangeIndicator.tsx`.** Props `{ paid: number; total: number }`. Usa `changeState`. Markup de `ChangeIndicator/preview.html`:
-- due → `ig-change is-due`, ícono `CircleAlert`, `Falta cubrir`, monto `formatMoney(amount)`.
-- exact → `is-exact`, `Equal`, `Pago exacto`, `$ 0,00`.
-- return → `is-return`, `HandCoins`, `Vuelto`, monto.
-- Accesibilidad: el bloque visible sin `aria-live`; aparte `<span className="ig-sr" aria-live="polite">{label}</span>` cuyo texto es solo la etiqueta (cambia solo al cambiar de categoría).
-Test: los 3 estados con su clase, etiqueta e ícono (verificar por clase y texto); sin pagos y total 100 → "Falta cubrir $ 100,00".
-
-**9.7 `PaymentPanel.tsx` (reescritura).**
-```ts
-type Props = {
-  subtotal: number; total: number
-  discountPct: number; onDiscountChange: (pct: number) => void
-  payments: PaymentsDraft
-  onPaymentChange: (m: PaymentMethod, value: string) => void
-  onPaymentBlur: (m: PaymentMethod) => void
-  onFillRemaining: (m: PaymentMethod) => void
-  canApprove: boolean; disabledReason: string | null
-  onApprove: () => void; saving: boolean
-}
-export type PaymentPanelHandle = { focusMethod: (m: PaymentMethod) => void }
-```
-Markup exacto de `PaymentPanel/preview.html`:
-- `<section className="ig-pay" aria-label="Pago">` → `div.ig-pay-left` y `div.ig-pay-sum`.
-- Izquierda, línea 1 (`ig-pay-line`): `ig-pay-row` Subtotal con `span.v formatMoney(subtotal)`; `ig-pay-row` con `<label htmlFor="discount-input">{discountPct < 0 ? 'Recargo' : 'Descuento'}</label>` + `ig-input-wrap` con `input#discount-input.ig-input aria-label="Descuento" inputMode="decimal" style={{paddingRight:28}}` (+ `is-recargo` si negativo) y `<span className="ig-suffix">%</span>` + `<span className="ig-help">positivo = descuento · negativo = recargo</span>`. Mantener el patrón de draft actual (commit en blur/Enter, Esc restaura, rango [−200, 200], fuera de rango vuelve al último válido) pero parseando con `parseDecimal`.
-- Izquierda, línea 2: `<div className="ig-overline" style={{marginBottom:8}}>Medios de pago</div>` + `div.ig-pay-methods` con 5 `div.ig-pay-method` (+ `is-filled` si `parsePaymentAmount(value) > 0`): `<button type="button" className="ig-pay-tag" aria-label={`Autocompletar ${PAYMENT_LABELS[m]}`} title="Completar con lo que falta">{icono 16}{PAYMENT_LABELS[m]}</button>` y `<input className="ig-input" aria-label={PAYMENT_LABELS[m]} placeholder="0,00" inputMode="decimal" value onChange onBlur={() => onPaymentBlur(m)} ref/>`.
-- Click en la etiqueta → `onFillRemaining(m)` y luego `setTimeout(0)` → foco al input de ese medio y `select()`.
-- Derecha: `div.ig-pay-total` (`span.k` TOTAL, `span.v` `formatMoney(total)`); `<ChangeIndicator paid={sumPayments(payments)} total={total} />`; botón `Button variant="primary" size="xl" icon={Check} shortcut="F12" disabled={!canApprove || saving}` con texto `saving ? 'Guardando…' : 'APROBAR VENTA'`; si `disabledReason && !saving` → `<div className="ig-hint" style={{justifyContent:'center'}}><Info size={16}/>{disabledReason}</div>`.
-- **No** hay hint de líneas General (D2).
-Actualizar `PaymentPanel.test.tsx`: reemplazar `getByText('VUELTO')` por los estados del `ChangeIndicator`; mantener consultas por `aria-label` (`EFECTIVO`, `Autocompletar EFECTIVO`, `Descuento`, botón `APROBAR VENTA`). Agregar: label cambia a "Recargo" con descuento negativo; `is-filled` con monto; hint visible con `disabledReason`; "Guardando…" con `saving`; click en etiqueta enfoca y selecciona su input (`await waitFor` sobre `document.activeElement`); `onPaymentBlur` se llama en blur.
-
-**9.8 `SearchPopup.tsx` (re-skin; lo usan Ventas y Stock).** Props nuevas opcionales: `warnMissingPrice?: boolean` (Ventas: mostrar badge "Sin precio"). Usar `Modal size="lg" title="Buscar producto" subtitle="Por nombre o por código de barras." closeOnOverlay headerExtra={<ShortcutBar items={[{keys:['F2'],label:'cierra'}]} />} shortcuts=[↑↓ Elegir, Enter (Ventas: "Agregar al carrito" / Stock: "Abrir"), Esc Cerrar]`.
-- Input `ig-input-wrap` + `Search` + `input.ig-input.ig-input-lg` (foco inicial).
-- Tabla (`ig-table-wrap`, `boxShadow:'none'`): Código de barras (`td.code`) | Nombre (`td.name` con `splitMatch` → `<b>`; si `warnMissingPrice && !hasValidSalePrice(p)` → `<Badge tone="danger">Sin precio</Badge>`) | Stock (`td.r` con tonos) | Vencimientos (si `showExpiry`, con `LotsList`). Fila activa `is-selected`, `onMouseEnter` la activa, click selecciona.
-- Si `!allowNumericEnter && /^\d+$/.test(query.trim())` → debajo de la tabla `InlineAlert tone="info"` `Si buscás solo números se busca el código exacto: hacé click en el producto para agregarlo.`
-- Sin resultados (query no vacía, no cargando) → fila única `No encontramos «{query}»`. Cargando → `TableSkeleton rows={3}` tras 300 ms.
-- La lógica de teclado/búsqueda/lotes se mantiene; Escape ahora lo maneja `Modal` (quitar el `case 'Escape'` del input). Borrar `SearchPopup.css`.
-Actualizar `SearchPopup.test.tsx`: `.search-popup__overlay` → `.ig-overlay`; agregar: resaltado `<b>`; hint info con query numérica en modo Ventas (y no en modo Stock); badge "Sin precio"; "No encontramos «zzz»".
-
-**9.9 `GeneralAmountPopup.tsx` (re-skin).** `Modal size="sm" title="Ítem general" closeOnOverlay shortcuts=[Enter Agregar, Esc Cancelar]`. Cuerpo: `Field label="Monto" htmlFor="general-amount" help="Mayor a 0. Podés usar coma o punto." error=…` con `ig-input-wrap` + `ig-prefix $` + `input#general-amount.ig-input.ig-input-amount.ig-input-lg inputMode="decimal"`. Enter valida con `validateGeneralAmount`; error `Ingresá un monto mayor a 0.` sin cerrar. Actualizar `GeneralAmountPopup.test.tsx` (nuevo copy; `1.500,50` → `onConfirm('1500.5')`).
-
-**9.10 `Sells.tsx` (reescritura).** Usa `useSales()`. Estructura (ver `ScreenSales/preview.html`):
-```tsx
-<>
-  <main className="ig-page" style={{ paddingBottom: 16, gap: 12 }}>
-    <div className="ig-page-head">
-      <h1>Ventas</h1>{viewSwitcher}<div className="ig-spacer" />
-      <Button size="sm" icon={Search} shortcut="F2" onClick={toggleSearch}>Buscar</Button>
-      <Button size="sm" icon={Receipt} shortcut="F10" onClick={toggleGeneral}>Ítem general</Button>
-    </div>
-    <BarcodeInput ref={barcodeRef} onScan={handleScan} onArrowDown={() => cartRef.current?.focusFirstRow()} />
-    <ShortcutBar items={[{keys:['F2'],label:'Buscar producto'},{keys:['F10'],label:'Ítem general'},{keys:['↓'],label:'Ir al carrito'},{keys:['Supr'],label:'Quitar línea'},{keys:['F12'],label:'Aprobar venta'}]} />
-    {cart.lines.length === 0
-      ? <div className="ig-card"><div className="ig-cart-empty"><div className="ig-empty"><div className="ico"><ScanBarcode size={22}/></div></div><h3>Escaneá un producto para empezar</h3><ShortcutBar items={[{keys:['F2'],label:'Buscar por nombre'},{keys:['F10'],label:'Monto suelto'}]} /></div></div>
-      : <CartTable ref={cartRef} ... />}
-  </main>
-  {cart.lines.length > 0 && <PaymentPanel ref={payRef} ... />}
-  <SearchPopup open={popupOpen} warnMissingPrice ... />
-  <GeneralAmountPopup ... />
-</>
-```
-Props: `{ viewSwitcher: ReactNode }`.
-Lógica:
-- `subtotal`, `total = Math.max(0, subtotal * (1 - discountPct/100))`, `paid = sumPayments(payments)`.
-- `disabledReason`: carrito vacío → `Agregá al menos un producto`; `paid < total - PAYMENT_EPSILON` → `Falta cubrir ${formatMoney(total - paid)}`; si no `null`. `canApprove = disabledReason === null`. (Sin regla de líneas General: D2.)
-- `addProduct(p)`: sin precio (`!hasValidSalePrice`) → toast danger `El producto no tiene un precio cargado` / `«${p.name}» — no se agregó` y devuelve false. Si no, igual que hoy + `flash(lineId)`; si `cantidad > stock` → toast warning `Sin stock suficiente` / `«${p.name}» se agregó igual`. Devuelve true.
-- `handleScan(code)`: `getProductByBarcode`; null o excepción → toast danger `Producto no encontrado` / `Código ${code}` y `return false`; si no `return addProduct(p)` (si no tiene precio también devuelve false → el texto queda seleccionado).
-- `handleApprove()`: si `!canApprove || saving` return; `setSaving(true)`; `createSale({ items: buildSaleItems(cart.lines), payments: PAYMENT_METHODS.map(...parsePaymentAmount...).filter(a>0), total: Math.round(total*100)/100, discountPct })`; éxito → `resetSale()`, foco al barcode; error → `console.error(e)` + toast danger `No se pudo guardar la venta. Probá de nuevo.` (no se vacía nada); `finally setSaving(false)`.
-- `onPaymentBlur(m)` → `setPayments(p => ({...p, [m]: formatPaymentOnBlur(p[m])}))`; `onFillRemaining(m)` → `setPayments(p => fillRemaining(p, m, total))`.
-- Al cerrar F2/F10 el foco vuelve al barcode (mantener los efectos actuales con `prevOpenRef`).
-- **Listener global en `window`** (`keydown`):
-  - `F2` / `F10`: toggle excluyente (como hoy) — permitido aunque haya un modal **de Ventas** abierto; si hay otro modal (`openModalCount() > (popupOpen||generalOpen ? 1 : 0)`) no hacer nada.
-  - Si `openModalCount() > 0` → ignorar el resto.
-  - `F12` → `preventDefault(); handleApprove()`.
-  - `Alt+1…Alt+5` (con `e.altKey` y `e.key` `'1'..'5'`) → `preventDefault()`; método `PAYMENT_METHODS[n-1]`; si hay líneas: `onFillRemaining(m)` y `payRef.current?.focusMethod(m)`.
-  - `Escape` sin `defaultPrevented` → foco al barcode.
-  - Dígito sin Ctrl/Alt/Meta y target **no** editable → `barcodeRef.current?.focus()` (sin `preventDefault`).
-  - Usá refs (`useRef`) para leer el estado más reciente dentro del listener (o `useEffect` con dependencias completas) para evitar closures viejas.
-- Borrar el `alert-banner` viejo y `Sells.css`.
-
-**9.11 `Pages/Sells/SalesPage.tsx`.** Props `{ nav; navigate }`. `viewSwitcher = <Segmented ariaLabel="Vista de ventas" options=[{value:'new',label:'Nueva venta'},{value:'history',label:'Historial'}] value={nav.salesView} onChange={v => navigate({ salesView: v, historySaleId: null })} />`. `new` → `<Sells viewSwitcher />`; `history` → `<SalesHistory viewSwitcher initialSaleId={nav.historySaleId} />`. Reemplaza la versión temporal del Paso 4.6.
-
-**9.12 Tests de Ventas** (`Sells.confirm.test.tsx` reescrito + `Sells.keyboard.test.tsx` nuevo; render con `renderWithProviders(<Sells viewSwitcher={null} />)`):
-1. Carrito vacío: "Escaneá un producto para empezar" y **no** hay panel de pago.
-2. Escanear agrega la línea; el panel aparece; el input queda vacío y con foco.
-3. Escanear el mismo código suma 1 (una sola fila, cantidad 2).
-4. Código inexistente → toast "Producto no encontrado" con "Código 999"; el input conserva "999".
-5. Stock insuficiente → toast "Sin stock suficiente" + badge "Sin stock" en la fila; la línea **sí** se agrega.
-6. Producto sin precio → toast "El producto no tiene un precio cargado" y no se agrega.
-7. APROBAR deshabilitado con hint "Falta cubrir $ 1.000,00"; click en "Autocompletar EFECTIVO" completa `1.000,00`, el hint desaparece, se ve "Pago exacto" y APROBAR se habilita.
-8. Pago `20000` en EFECTIVO + blur → input `20.000,00` y "Vuelto $ 19.000,00".
-9. Pago combinado: EFECTIVO `1000` sobre total 1500 → "Falta cubrir $ 500,00"; etiqueta TRANSFERENCIA → `500,00` y "Pago exacto".
-10. Aprobar: `createSale` recibe `items`, `payments` (solo > 0, con montos numéricos), `total` y `discountPct`; después el carrito queda vacío, el foco en el input y no hay toast.
-11. `createSale` rechaza → toast "No se pudo guardar la venta. Probá de nuevo." y el carrito **sigue** con la línea.
-12. Línea General (F10, monto 850,50) → se puede aprobar (D2): `createSale` con un ítem sin `productId`.
-13. Teclado: `F12` aprueba cuando está habilitado (y no hace nada si no); `Alt+1` completa EFECTIVO; `F2` abre "Buscar producto" y `F10` lo cierra y abre "Ítem general"; `Escape` con foco en un botón devuelve el foco al input; un dígito con foco en `document.body` mueve el foco al input de código; ↓ desde el input enfoca la primera fila del carrito.
-14. Descuento 10 → TOTAL recalculado; descuento `-10` → label "Recargo".
-15. Persistencia (D6): renderizar `<SalesProvider>` con `Sells` condicional, agregar un producto, desmontar `Sells` y volver a montarlo → la línea sigue.
-
-**9.13 Verificación.** Tests + typecheck + visual contra `ScreenSales`, `ScreenSalesSearch`, `ScreenSalesGeneral`. Probá en la app real una venta completa **sin mouse**: escanear (o tipear código + Enter) → `Alt+1` → `F12`.
-
----
-
-## Fase 10 — Ventas › Historial
-
-**10.1 `salesHistoryFilters.ts`.** Nuevo modelo:
-```ts
-export type SalesMethodFilter = '' | 'CASH' | 'DEBIT' | 'CREDIT' | 'TRANSFER' | 'OTHER' | 'MIXED'
-export interface SalesHistoryFilters {
-  fromDate: string   // "DD/MM/AAAA" o ''
-  toDate: string     // "DD/MM/AAAA" o ''
-  product: string    // texto: nombre o código
-  method: SalesMethodFilter
-  fromTime: string; toTime: string      // "HH:MM" o ''  (extras, D3)
-  minTotal: string; maxTotal: string    // texto es-AR o '' (extras, D3)
-}
-export function defaultFilters(now = new Date()): SalesHistoryFilters  // hoy-hoy, resto vacío
-export function hasActiveFilters(f: SalesHistoryFilters, now = new Date()): boolean  // distinto del default
-export function buildApiFilters(f): ListSalesFiltersPayload   // fechas con parseDateAR (to = 23:59:59.999); method solo si es uno de los 5 simples; min/max con parseDecimal
-export function filterSalesClientSide(sales: SaleFromApi[], f): SaleFromApi[]  // hora (filterByTime existente) + producto (includesFolded en item.product?.name o barcode contiene) + MIXED (payments.length > 1)
-export function lastSevenDaysFilters(now = new Date()): SalesHistoryFilters
-export function formatMethods(payments: SaleFromApi['payments']): string  // "Efectivo + Transferencia"; sin pagos "—"
-```
-Conservar `filterByTime` y `getSaleLocalTime`. Actualizar `salesHistoryFilters.test.ts` a fechas `DD/MM/AAAA` y agregar tests de `hasActiveFilters`, `MIXED`, filtro por producto (con y sin tildes), `formatMethods`, `buildApiFilters` (method `MIXED` no se envía; `minTotal '1.000,50'` → `1000.5`).
-
-**10.2 `SaleDetailCard.tsx`** (reemplaza `SaleDetailModal`; borrar el modal, su CSS y su test). Props `{ sale: SaleFromApi }`. Markup de `ScreenSalesHistory/preview.html` (tarjeta derecha):
-- `ig-card-head`: `<div><h3>Venta #{id}</h3><div className="ig-help">{formatDate(date)} · {formatTime(date)}</div></div>` + `Badge tone="success" icon={Check}` "Pagada". (Sin "Cajero": no existe el dato.)
-- Tabla ítems: Producto (`item.product?.name ?? 'General'`) · Cant. · Precio · Total.
-- `ig-card-body` con filas `ig-pay-row`: Subtotal; si `pct>0` `Descuento {pct} %` con `−{formatMoney(subtotal*pct/100)}` (el `−` ya lo pone formatMoney si pasás negativo: usá `formatMoney(-x)`); si `pct<0` `Recargo {|pct|} %` con `+{formatMoney(...)}`; Total en `amount-lg`; `<div className="ig-overline">Pagos</div>`; una fila por pago con `PAYMENT_ICONS` + `PAYMENT_TITLE_LABELS`; Vuelto (success) si `Σpagos − total > 0.005`.
-- Pie reservado (comentario `{/* Futuro: Reimprimir ticket · Anular venta (admin) */}`), sin botones.
-Tests `SaleDetailCard.test.tsx` (portar los de `SaleDetailModal.test.tsx`): título, ítem "General" para `product: null`, descuento y recargo, pagos con labels "Efectivo", vuelto.
-
-**10.3 `CajaSummary.tsx` (re-skin).** `div.ig-card` con `ig-card-head` `<h3>Resumen de caja</h3>` y `ig-card-body` con `ig-pay-row` (Total del período en negrita + una fila por medio). Borrar `CajaSummary.css`. Actualizar su test si consultaba clases.
-
-**10.4 `SalesHistory.tsx` (reescritura).** Props `{ viewSwitcher: ReactNode; initialSaleId: number | null }`.
-- `<main className="ig-page">` + `ig-page-head` (`<h1>Ventas</h1>{viewSwitcher}`).
-- `div.ig-filters`: `DateField` Desde, `DateField` Hasta, Producto (`ig-input-wrap` + `Search`, placeholder `Nombre o código`, ancho 260), Medio de pago (`<select className="ig-input" style={{width:200}}>` con Todos, Efectivo, Débito, Crédito, Transferencia, Otros, Combinado), `Button variant="ghost"` "Más filtros" (`aria-expanded`), `Button variant="ghost"` "Limpiar filtros" **solo** si `hasActiveFilters`, espaciador, y resumen a la derecha `<div style={{textAlign:'right'}}><div className="ig-help">{n} ventas · {rango legible}</div><div className="amount-lg num">{formatMoney(total)}</div></div>`.
-- "Más filtros" despliega una segunda `ig-filters` con Desde hora / Hasta hora (`<input type="time" className="ig-input">`) y Monto mín / Monto máx (`ig-input ig-input-amount inputMode="decimal"`).
-- Los filtros aplican **al instante** con debounce de 250 ms (no hay botón "Buscar").
-- `div.ig-master-detail`: izquierda tabla en `ig-table-wrap ig-grid` (tab-stop único, `useRowNavigation`, `aria-activedescendant`) con N° (`td.code` `#id`) · Fecha y hora (`formatDayMonthTime`) · Ítems (`td.r`, suma de cantidades) · Medio de pago (`formatMethods`) · Total (`td.r.name`). Selección por defecto: la primera; ↑/↓ cambian el detalle. Derecha: `<div style={{display:'grid', gap:16, alignContent:'start'}}><SaleDetailCard sale={seleccionada}/><CajaSummary sales={ventas}/></div>`.
-- `initialSaleId`: al montar, `getSaleById(id)`; si existe, poner `fromDate=toDate=formatDate(sale.date)` y seleccionarla.
-- Estados: skeleton; error → `EmptyState danger` "No pudimos leer las ventas" + Reintentar; vacío → `EmptyState icon={Receipt} title="No hay ventas en este período" action={<Button onClick={() => setFilters(lastSevenDaysFilters())}>Ver últimos 7 días</Button>}`.
-- Borrar `SalesHistory.css`.
-
-**10.5 Tests `SalesHistory.test.tsx`** (reescribir):
-1. Al montar llama `listSales` con `fromDate`/`toDate` de hoy.
-2. Lista ventas y la primera aparece en el detalle ("Venta #N").
-3. ↓ en la tabla cambia el detalle a la siguiente venta.
-4. Medio "Combinado" deja solo ventas con >1 pago (sin pasar `method` a la API).
-5. Producto "yerba" filtra en el cliente.
-6. "Limpiar filtros" aparece solo con filtros activos y restaura los de hoy.
-7. "Más filtros" muestra los campos de hora y monto.
-8. Vacío → "No hay ventas en este período"; "Ver últimos 7 días" vuelve a llamar `listSales` con el rango de 7 días.
-9. `initialSaleId=5` llama `getSaleById(5)` y la deja seleccionada.
-10. Resumen: "2 ventas" y la suma de totales.
-(Usá fake timers o `await waitFor` por el debounce de 250 ms.)
-
-**10.6 Verificación.** Tests + typecheck + visual contra `ScreenSalesHistory`.
-
----
-
-## Fase 11 — Estadísticas
-
-**11.1 `statsUtils.ts`.** Agregar (y testear en `statsUtils.test.ts`):
-- `formatRange(r: DateRange): string` → mismo mes y año: `"1 – 24 oct 2026"`; distinto mes: `"28 sep – 4 oct 2026"`; distinto año: `"28 dic 2025 – 3 ene 2026"`. Meses abreviados: `['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']`.
-- `comparedToLabel(preset: PeriodPreset, prev: DateRange): string` → today `vs. ayer`, week `vs. semana anterior`, month `vs. {nombre del mes de prev.from en minúscula}` (ej. `vs. septiembre`), custom `vs. período anterior`.
-- `HOUR_LABEL(label: string)` → `'18'` → `"18–19 h"`.
-- `formatPctChange` pasa a usar `formatPct` de `utils/format` (`+12,4 %`). Actualizar los tests que esperaban el formato viejo.
-- `peakIndex(rows: SalesByPeriodFromApi[]): number` → índice con mayor `saleCount` (−1 si vacío).
-
-**11.2 `Pages/Stats/StatCard.tsx`.** Props `{ label: string; icon: LucideIcon; value: string; deltaPct: number | null; comparedTo: string; empty?: boolean }`. Markup de `StatCard/preview.html` (`ig-card ig-kpi` → `span.k`, `span.v`, delta). Reglas: `empty` → valor `—` y sin delta; `deltaPct === null` → `<span className="ig-help">Sin datos para comparar</span>`; `> 0` → `ig-delta up` + `TrendingUp`; `< 0` → `down` + `TrendingDown`; `0` → `flat` + `Minus`; texto `formatPct(deltaPct)` + `<span>{comparedTo}</span>`.
-Tests: los 4 casos de delta + empty.
-
-**11.3 `Pages/Stats/RankingList.tsx`.** Props `{ items: { id: number; name: string; value: number }[]; format: (v: number) => string; onSelect?: (id: number, name: string) => void }`. `ol.ig-rank`; `li` con `span.pos`, nombre (si `onSelect`: `<button className="ig-link" style={{textDecoration:'none', color:'var(--ink)', textAlign:'left'}}>`), `span.val`, `span.bar > i` con `width: {value/max*100}%`. Vacío → `<EmptyState icon={ChartColumn} title="Sin ventas en este período" />`. Tests: anchos (primero 100 %), click llama `onSelect(id, name)`, vacío.
-
-**11.4 `Stats.tsx` (reescritura del render; misma carga en `Promise.all`).** Props `{ navigate: Navigate }`.
-- `ig-page-head`: `<h1>Estadísticas</h1><div className="ig-spacer"/><span className="ig-help">{formatRange(actual)} · comparado con {formatRange(anterior)}</span>` + `Segmented` (Hoy · Esta semana · Este mes · Personalizado con ícono `Calendar`).
-- Personalizado: fila `ig-filters` debajo con `DateField` Desde / Hasta y dos `Button size="sm" variant="ghost"` "Últimos 7 días" y "Mes pasado" que completan las fechas. Solo carga cuando ambas fechas parsean y desde ≤ hasta.
-- `div.ig-kpi-grid` con 4 `StatCard` en este orden: Ventas totales (`Banknote`), Cantidad de ventas (`Receipt`, valor `formatInt`), Ticket promedio (`ShoppingBasket`), Ganancia total (`PiggyBank`). `deltaPct = calcPctChange(cur, prev)`. `empty = summary.saleCount === 0`.
-- `div.ig-grid-2` con 4 tarjetas `ig-card`:
-  1. "Productos más vendidos" (`ig-help` `top 5 · unidades`) → `RankingList` con `format={v => `${formatInt(v)} u.`}`.
-  2. "Productos que más facturan" (`top 5 · monto`) → `RankingList` con `formatMoney`.
-  3. "Cuándo se vende más" con `Segmented` Por hora / Por día de semana en la cabecera; tabla Franja · Ventas (`td` con `div.ig-bar > i` ancho proporcional al máximo, `is-peak` en el pico) · Tickets (`td.r`) · Monto (`td.r`). Etiquetas: hora `HOUR_LABEL`, día `WEEKDAY_LABELS`. Vacía → EmptyState "Sin ventas en este período".
-  4. "Menor rotación" (`10 menos vendidos`) → tabla # · Producto · Vendidos (`{n} u.`); muestra 5 y un `Button variant="ghost" size="sm"` "Ver los 10" / "Ver menos" en `ig-table-foot`. (Sin "Última venta": D1.)
-- Click en un producto de los rankings o de Menor rotación → `navigate({ section:'stock', stockView:'movements', movementsProduct:{ id, name } })`.
-- Cargando → `TableSkeleton` por tarjeta (tras 300 ms); error → `EmptyState danger` "No pudimos calcular las estadísticas" + Reintentar.
-- Borrar `Stats.css`.
-
-**11.5 Tests `Stats.test.tsx`** (reescribir): llama las 7 funciones de la API; default "Este mes" seleccionado (`aria-selected`); KPIs con montos `$ …` y delta `+…%` y "vs. {mes}"; período anterior en 0 → "Sin datos para comparar"; sin ventas → KPIs "—" y "Sin ventas en este período"; cambiar a "Hoy" recarga; "Personalizado" muestra Desde/Hasta y "Últimos 7 días" dispara la carga; tab "Por día de semana" muestra días; click en un producto del ranking llama `navigate` con `movementsProduct`; "Ver los 10" muestra 10 filas.
-
-**11.6 Verificación.** Tests + typecheck + visual contra `ScreenStats`.
-
----
-
-## Fase 12 — Limpieza y barrido de calidad
-
-**12.1** Borrá todos los archivos de la lista "Eliminados" (sección 0.5) que sigan existiendo y sus imports. `git status` para revisar.
-
-**12.2 Barridos con Grep** en `renderer/src` (excluyendo `styles/tokens.css` y `__tests__`). Cada uno debe dar **0 resultados**; si no, corregí:
-- `#[0-9a-fA-F]{3,8}\b` en `.tsx`/`.css` (colores hardcodeados). Excepción permitida: ninguna.
-- `type="number"`.
-- `⚠|✕`.
-- `type="date"`.
-- `className="(stock-|cart-list|payment-panel|search-popup|load-stock|create-product|sales-history|stats-|expiry-alert__|lots-list|modal-overlay|Header)` (clases viejas).
-- `alert\(|confirm\(` (diálogos nativos).
-
-**12.3** `npm --workspace renderer run lint` → no más errores que en la Fase 0. Arreglá los que introdujiste (en especial `jsx-a11y`: `onClick` en elementos no interactivos — las filas `<tr>` con click deben tener `aria-selected`/rol de grid, o desactivá la regla puntual con comentario justificado).
-
-**12.4** Tema oscuro: con la app corriendo, alterná el tema y recorré todas las pantallas. Nada debe quedar con texto ilegible ni fondos blancos fuera del widget de vencimientos (que es blanco en ambos temas por diseño).
-
-**12.5 Verificación.** Tests + typecheck.
-
----
-
-## Fase 13 — Verificación final y documentación
-
-**13.1** `npm --workspace renderer test`, `npm run typecheck`, `npm run test:backend` (debe seguir igual que en la base: no tocamos backend).
-
-**13.2 Checklist de aceptación del DS** (de `guia/04-implementacion.md`), verificado **en la app real** (`npm start`). Marcá cada ítem en tu respuesta final:
-- [ ] Ninguna pantalla usa colores, tamaños o radios fuera de los tokens.
-- [ ] Todo elemento interactivo muestra el anillo de foco al navegar con Tab (también en el header, en celeste).
-- [ ] En Ventas se completa una venta entera sin mouse.
-- [ ] Un escaneo (tipear dígitos + Enter) con el foco fuera del input igual agrega el producto.
-- [ ] Ningún input numérico tiene spinners; todos aceptan coma y punto.
-- [ ] Montos `$ 1.234,50`, alineados a la derecha con cifras tabulares.
-- [ ] Las alertas de stock no impiden agregar; los toasts no roban el foco.
-- [ ] APROBAR deshabilitado siempre muestra el motivo.
-- [ ] Vuelto: los 3 estados se distinguen por palabra e ícono.
-- [ ] Widget de vencimientos oculto si no hay alertas; "Recordame luego" vuelve al reabrir la app.
-- [ ] Tema claro y oscuro se ven bien y el elegido se recuerda al reabrir.
-- [ ] Todas las vistas de datos tienen estado vacío, cargando y error.
-- [ ] El carrito sobrevive a ir a Stock y volver (D6).
-- [ ] Ventana no se puede achicar por debajo de 1280×720.
-
-**13.3 Empaquetado** (las fuentes y PNG deben viajar y la CSP/ofuscación no debe romper nada): cerrá Integral, `npm run package`, `npm run verify:package`, `npm run test:smoke-packaged`. Abrí `out/Integral-win32-x64/Integral.exe` y confirmá que se ven las fuentes Plus Jakarta / IBM Plex y el logo. Si las fuentes no cargan, revisá en DevTools la CSP (`font-src 'self' data:` ya las permite) y la ruta de `@font-face`.
-
-**13.4 Actualizar `CLAUDE.md`** (sin tocar la sección "Diseño" que agregó el usuario):
-- Estructura de carpetas del renderer: agregar `styles/`, `ui/`, `store/`, `navigation.ts`, `Components/AppHeader/`, los archivos nuevos de Stock/Sells/Stats y quitar los eliminados (`Header.tsx`, `HomeScreen.tsx`, `Stock.tsx`, `Stock.css`, `renderTypes.ts`).
-- Tabla "Estado del frontend": Stock (Productos + Movimientos) implementado con el DS; Ventas (Nueva venta + Historial) implementado; Estadísticas implementado; tema claro/oscuro.
-- Nueva subsección "UI / Design system en el código": tokens en `renderer/src/styles/tokens.css` (copiado de `design-system/tokens.css`), clases `ig-` en `styles/bundle.css` (copia sin cambios) y agregados en `styles/app.css`; componentes base en `renderer/src/ui/`; íconos `lucide-react@0.468.0`; fechas `DD/MM/AAAA` con `DateField`; montos con `parseDecimal`/`formatAmountInput`; toasts con `useToast`; modales con `Modal` (focus trap, `modalStack`); carrito en `store/SalesContext.tsx`; atajos (tabla de `design-system/guia/02-teclado-y-foco.md`, ahora implementados).
-- Decisiones D2 (líneas General se aprueban) y D3 (Historial dentro de Ventas, con extras).
-- Quitar de "Iteración actual" lo que ya no aplica (botón "Historial" del header, `alert-banner`, etc.).
-
-**13.5** Proponé al usuario el commit final (o uno por fase si no los hizo) con mensaje tipo `feat(ui): nueva UI/UX con el design system Integral` y la línea de atribución que corresponda.
-
----
-
-## Troubleshooting
-
-| Síntoma | Causa probable | Qué hacer |
+| Caso | Llamada | Esperado |
 |---|---|---|
-| `lucide-react` no exporta un ícono | Nombre nuevo no presente en 0.468.0 | Usar el alias viejo (sección 0.3). |
-| Test con `toBe('$ 1.234,50')` falla | Espacio duro U+00A0 | Normalizar (sección 1.2) o usar `getByText`. |
-| Escape en un selector/celda cierra el modal entero | Falta `stopPropagation` | Ver Paso 3.12 punto 6 y 6.1 punto 8. |
-| Un atajo de página se dispara con un modal abierto | Falta el chequeo de `openModalCount()` | Agregarlo al inicio del handler. |
-| `scrollIntoView is not a function` en tests | happy-dom | Usar `scrollIntoViewSafe`. |
-| El dígito redirigido no aparece en el input en tests | happy-dom no reenvía el carácter al cambiar el foco | En tests verificar solo que el foco se movió. En la app real sí entra. |
-| Montos `10.000,00` se guardan como 0 | Se usó `replace(',', '.')` en vez de `parseDecimal` | Ver Paso 9.1. |
-| Pantalla en blanco en el `.exe` | Error de runtime ofuscado o CSP | Correr `INTEGRAL_NO_OBFUSCATE=1 npm run package` para depurar; nunca activar `selfDefending`. |
-| `npm start` no abre ventana | `ELECTRON_RUN_AS_NODE=1` heredado | Ver sección 1.1. |
-| Closures viejas en listeners globales (F12 aprueba con datos viejos) | `useEffect` con dependencias incompletas | Leer estado desde refs actualizadas en cada render. |
+| Básico: abajo, 420 de ancho | `computeFloatingPlacement(rect(100, 200, 246), V)` | `{ side: 'below', top: 144, bottom: 'auto', left: 200, width: 420, maxHeight: 538 }` |
+| No entra a la derecha → alinea al borde derecho | `rect(100, 1000, 246)`, `V` | `{ side: 'below', top: 144, bottom: 'auto', left: 826, width: 420, maxHeight: 538 }` |
+| Disparador más ancho que 420 | `rect(100, 200, 500)`, `V` | `{ …, left: 200, width: 500, … }` (top 144, maxHeight 538) |
+| Ventana angosta: ancho y left acotados | `rect(100, 10, 246)`, `{ width: 400, height: 690 }` | `{ side: 'below', top: 144, bottom: 'auto', left: 8, width: 384, maxHeight: 538 }` |
+| Sin lugar abajo → abre arriba | `rect(560, 200, 246)`, `V` | `{ side: 'above', top: 'auto', bottom: 134, left: 200, width: 420, maxHeight: 548 }` |
+| Abajo < 360 pero más que arriba → abajo | `rect(300, 200, 246)`, `V` | `{ side: 'below', top: 344, bottom: 'auto', left: 200, width: 420, maxHeight: 338 }` |
+| Abajo exactamente 360 → abajo | `rect(278, 200, 246)`, `V` | `{ side: 'below', top: 322, bottom: 'auto', left: 200, width: 420, maxHeight: 360 }` |
+| Sin lugar en ningún lado → maxHeight nunca negativo | `rect(5, 200, 246, 680)`, `V` | `{ side: 'below', top: 689, bottom: 'auto', left: 200, width: 420, maxHeight: 0 }` |
+| Valores con decimales se redondean | `{ top: 100.4, bottom: 140.6, left: 200.5, right: 446.5, width: 246 }`, `V` | `{ side: 'below', top: 145, bottom: 'auto', left: 201, width: 420, maxHeight: 537 }` |
+| `minWidth` propio | `rect(100, 200, 246)`, `V`, `0` | `{ side: 'below', top: 144, bottom: 'auto', left: 200, width: 246, maxHeight: 538 }` |
+
+Más: `expect(FLOATING_MIN_WIDTH).toBe(420)` (es el ancho del DS).
+
+- **Checkpoint B2:** `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx vitest run src/ui/__tests__/floatingPlacement.test.ts` → verde. `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx eslint src/ui/floatingPlacement.ts src/ui/__tests__/floatingPlacement.test.ts` → sin errores.
+
+---
+
+### Fase C — `EntityPicker` con popover flotante
+
+**Paso C1 — Modificar `renderer/src/ui/EntityPicker.tsx`.** Cambios exactos (el resto del archivo queda igual):
+
+1. Imports: reemplazá la línea de React por
+   `import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'`
+   y agregá:
+   ```ts
+   import { computeFloatingPlacement } from './floatingPlacement'
+   import type { FloatingPlacement } from './floatingPlacement'
+   ```
+2. Debajo de `const nameRef = useRef<HTMLInputElement>(null)` agregá:
+   ```ts
+   const popRef = useRef<HTMLDivElement>(null)
+   /** Posición del popover flotante; null hasta medir el disparador. */
+   const [placement, setPlacement] = useState<FloatingPlacement | null>(null)
+   ```
+3. Debajo del efecto "Click afuera cierra." agregá:
+   ```ts
+   /** Ubica el popover respecto del disparador, en coordenadas de la ventana (lo usa `position: fixed`). */
+   const updatePlacement = useCallback(() => {
+     const trigger = innerTriggerRef.current
+     if (!trigger) return
+     setPlacement(computeFloatingPlacement(trigger.getBoundingClientRect(), { width: window.innerWidth, height: window.innerHeight }))
+   }, [])
+
+   // Abierto: se mide antes de pintar y se sigue al disparador si cambia la ventana o scrollea algún contenedor.
+   useLayoutEffect(() => {
+     if (!open) return
+     updatePlacement()
+     const onScroll = (e: Event) => {
+       // El scroll de la propia lista del popover no mueve al disparador.
+       if (e.target instanceof Node && popRef.current?.contains(e.target)) return
+       updatePlacement()
+     }
+     window.addEventListener('resize', updatePlacement)
+     window.addEventListener('scroll', onScroll, true) // captura: también el scroll del cuerpo del modal
+     return () => {
+       window.removeEventListener('resize', updatePlacement)
+       window.removeEventListener('scroll', onScroll, true)
+     }
+   }, [open, updatePlacement])
+   ```
+4. En `openPopover()`, agregá `setPlacement(null)` antes de `setOpen(true)`.
+5. En `onPopoverKeyDown`, como **primer** bloque de la función:
+   ```ts
+   if (e.key === 'Tab' && mode === 'list') {
+     // Tab sale de la lista: se cierra el popover y el navegador lleva el foco al campo siguiente/anterior.
+     closePopover(false)
+     return
+   }
+   ```
+   (No llames `preventDefault`.)
+6. En el `<div className="ig-picker-pop" …>` del popover:
+   - `className="ig-picker-pop is-floating"`
+   - agregá `ref={popRef}`
+   - agregá (exactamente):
+     ```tsx
+     style={
+       placement
+         ? {
+             position: 'fixed',
+             top: placement.top,
+             bottom: placement.bottom,
+             left: placement.left,
+             width: placement.width,
+             maxHeight: placement.maxHeight,
+           }
+         : { position: 'fixed', visibility: 'hidden' }
+     }
+     ```
+     **Siempre** se setean `top` y `bottom` (uno de los dos es `'auto'`): la regla vieja `.ig-anchor > .ig-picker-pop { top: calc(100% + 4px) }` de `app.css` tiene que quedar pisada por el estilo en línea.
+7. Actualizá el comentario JSDoc del componente agregando:
+   > El popover flota con `position: fixed` (posición calculada con `computeFloatingPlacement` desde el disparador): no lo recorta ni lo hace scrollear el contenedor (por ejemplo el cuerpo de un modal). No es un portal: sigue dentro del DOM del picker, así el focus trap del Modal, el click afuera y el stopPropagation de Enter/Esc funcionan igual. Tab en la lista cierra el popover.
+
+   y en la línea "Teclado:" agregá "; Tab (en la lista) cierra".
+
+**NO hagas:** `createPortal`, Popover API (`popover`/`showPopover`), CSS anchor positioning, ni cambios en las props.
+
+- **Checkpoint C1:** `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx vitest run src/ui/__tests__/EntityPicker.test.tsx src/Pages/Stock/__tests__/CategoryPicker.test.tsx src/Pages/Stock/__tests__/SupplierPicker.test.tsx src/Pages/Stock/__tests__/ProductFormModal.test.tsx src/Pages/Stock/__tests__/StockProducts.test.tsx` → todos verdes **sin cambiar ningún test** (el popover sigue teniendo `role="dialog"` y queda visible porque `useLayoutEffect` lo ubica antes de que el test consulte).
+  - Si falla con "Unable to find role dialog": revisá que el cálculo esté en `useLayoutEffect` (no `useEffect`) y que `openPopover` no deje `placement` en null después de abrir.
+
+**Paso C2 — Agregar tests a `renderer/src/ui/__tests__/EntityPicker.test.tsx`.**
+
+Helpers (arriba del `describe`, después de `searchBox`):
+
+```ts
+/** happy-dom no hace layout: se fija el tamaño de la ventana y el rectángulo del disparador a mano. */
+function setViewport(width: number, height: number) {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width })
+  Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: height })
+}
+function makeRect(r: { top: number; left: number; width: number; height: number }): DOMRect {
+  return { ...r, bottom: r.top + r.height, right: r.left + r.width, x: r.left, y: r.top, toJSON: () => ({}) } as DOMRect
+}
+function mockRect(el: HTMLElement, r: { top: number; left: number; width: number; height: number }) {
+  return vi.spyOn(el, 'getBoundingClientRect').mockReturnValue(makeRect(r))
+}
+const popover = () => screen.getByRole('dialog', { name: /^Elegir/ })
+```
+
+Tests nuevos (todos usan `setViewport(1280, 690)` al empezar y `setup()` del archivo; el rect se mockea **antes** del click):
+
+| Id | Nombre del test | Pasos | Esperado |
+|---|---|---|---|
+| E1 | `el popover flota: position fixed debajo del disparador, 420 px de ancho y alto máximo según el espacio` | `mockRect(trigger(), { top: 100, left: 200, width: 246, height: 40 })`; click | `popover()` tiene clases `ig-picker-pop` e `is-floating`; `style.position` `'fixed'`; `style.top` `'144px'`; `style.bottom` `'auto'`; `style.left` `'200px'`; `style.width` `'420px'`; `style.maxHeight` `'538px'` |
+| E2 | `si no entra a la derecha, se alinea con el borde derecho del disparador` | rect `{ top: 100, left: 1000, width: 246, height: 40 }`; click | `style.left` `'826px'` |
+| E3 | `si no hay lugar abajo, abre hacia arriba` | rect `{ top: 560, left: 200, width: 246, height: 40 }`; click | `style.top` `'auto'`; `style.bottom` `'134px'`; `style.maxHeight` `'548px'` |
+| E4 | `sigue al disparador cuando la ventana cambia de tamaño o scrollea un contenedor` | `const spy = mockRect(…{ top: 100, left: 200 …})`; click; `spy.mockReturnValue(makeRect({ top: 300, left: 10, width: 246, height: 40 }))`; `fireEvent(window, new Event('resize'))`; luego `spy.mockReturnValue(makeRect({ top: 310, left: 10, width: 246, height: 40 }))`; `fireEvent.scroll(document.body)` | después del resize: `top` `'344px'`, `left` `'10px'`; después del scroll: `top` `'354px'` |
+| E5 | `el scroll de la propia lista no recalcula la posición` | `const spy = mockRect(…{ top: 100 …})`; click; `spy.mockReturnValue(makeRect({ top: 300, left: 200, width: 246, height: 40 }))`; `fireEvent.scroll(document.querySelector('.ig-picker-list')!)` | `style.top` sigue `'144px'` |
+| E6 | `el popover sigue dentro del árbol del picker (no es un portal) y un mousedown adentro no lo cierra` | `const { container, trigger } = setup()`; click; `fireEvent.mouseDown(searchBox())` | `container.contains(popover())` es `true`; el popover sigue en el documento |
+| E7 | `Tab en la lista cierra el popover` | click; `fireEvent.keyDown(searchBox(), { key: 'Tab' })` | `screen.queryByRole('dialog')` es `null` |
+| E8 | `Tab dentro del alta no cierra el popover` | click; `fireEvent.change(searchBox(), { target: { value: 'zzz' } })`; click en `Crear «zzz»`; `fireEvent.keyDown(screen.getByLabelText(/^Nombre/), { key: 'Tab' })` | el popover sigue en el documento y se ve "Nueva categoría" |
+
+- **Checkpoint C2:** `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx vitest run src/ui/__tests__/EntityPicker.test.tsx` → verde. `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx eslint src/ui/EntityPicker.tsx src/ui/__tests__/EntityPicker.test.tsx` → sin errores. `cd /c/Users/asant/Music/Integral/wt-producto && npm run typecheck` → OK.
+
+---
+
+### Fase D — `Modal` con `className`
+
+**Paso D1 — Modificar `renderer/src/ui/Modal.tsx`.**
+1. En `ModalProps` agregá, debajo de `size`:
+   ```ts
+   /** Clase extra para el diálogo (`.ig-modal`), ej. un ancho propio de una pantalla. */
+   className?: string
+   ```
+2. Desestructurá `className` en los parámetros del componente.
+3. Reemplazá `className={\`ig-modal ${sizeClass}\`.trim()}` por `className={['ig-modal', sizeClass, className].filter(Boolean).join(' ')}`.
+4. No toques nada más (ni foco, ni Escape, ni overlay). **No** agregues un tamaño `xl`.
+
+**Paso D2 — Tests en `renderer/src/ui/__tests__/Modal.test.tsx`:**
+- `className se suma a las clases del diálogo`: `<Modal open title="T" className="pf-modal" onClose={() => {}}>x</Modal>` → `expect(screen.getByRole('dialog')).toHaveClass('ig-modal', 'pf-modal')`.
+- `className convive con size`: `size="sm" className="extra"` → `toHaveClass('ig-modal', 'ig-modal-sm', 'extra')`.
+
+- **Checkpoint D:** `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx vitest run src/ui/__tests__/Modal.test.tsx` → verde; `npx eslint src/ui/Modal.tsx src/ui/__tests__/Modal.test.tsx` (desde renderer) → sin errores.
+
+---
+
+### Fase E — CSS (`renderer/src/styles/app.css`)
+
+**Paso E1 — Agregar AL FINAL de `app.css` este bloque, completo y tal cual** (no edites las reglas que ya existen arriba; el bloque delimitado minimiza conflictos de merge con el otro agente):
+
+```css
+/* === Formulario de producto y scrollbars === */
+/* Scrollbars de toda la app con las propiedades estándar (Chromium ≥ 121). Se heredan a todos los contenedores
+   con scroll. Con estas propiedades seteadas Chromium ignora los pseudo-elementos de scrollbar con prefijo -webkit-:
+   no mezclar. */
+:root { scrollbar-width: thin; scrollbar-color: var(--border-control) transparent; }
+/* Controles nativos (flecha y lista del <select>, checkbox) acordes al tema. */
+:root, [data-theme="light"] { color-scheme: light; }
+[data-theme="dark"] { color-scheme: dark; }
+
+/* Modal de producto: más ancho y alto que modal-md para que el formulario entre sin scroll a 1280×720.
+   El cuerpo conserva el overflow: auto del DS solo como red de seguridad. */
+.ig-overlay:has(> .pf-modal) { padding-top: var(--space-4); }
+.ig-modal.pf-modal { width: 1080px; max-width: calc(100vw - 2 * var(--space-6)); max-height: calc(100vh - 2 * var(--space-4)); }
+.pf-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); align-items: start; }
+.pf-grid > .span-2 { grid-column: span 2; }
+.pf-grid > .pf-expiry { grid-column: 3 / span 2; }
+.pf-expiry .ig-input { max-width: 220px; }
+.pf-grid .ig-picker > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-grid .ig-input:disabled { background: var(--surface-sunken); color: var(--ink-disabled); border-color: var(--border); cursor: not-allowed; }
+.pf-auto { display: inline-flex; align-items: center; gap: var(--space-2); font: 500 13px/18px var(--font-sans); color: var(--ink); cursor: pointer; }
+.pf-auto input { width: 16px; height: 16px; margin: 0; accent-color: var(--primary); cursor: pointer; }
+.ig-input-wrap > .ig-input.pf-margin-input { padding-left: var(--space-3); padding-right: var(--space-8); }
+
+/* Popover del Picker flotante: EntityPicker le pone en línea position: fixed + top/bottom/left/width/max-height.
+   Así sale por encima del modal sin que el cuerpo del modal genere scroll. */
+.ig-picker-pop.is-floating { display: flex; flex-direction: column; }
+.ig-picker-pop.is-floating > .ig-pop-search, .ig-picker-pop.is-floating > .ig-picker-create { flex: none; }
+.ig-picker-pop.is-floating > .ig-picker-list { flex: 0 1 auto; min-height: 0; }
+.ig-picker-pop.is-floating > .ig-picker-new { min-height: 0; overflow: auto; }
+```
+
+- **Checkpoint E1** (chequeos estáticos, todos desde `/c/Users/asant/Music/Integral/wt-producto`):
+  - `grep -rn "webkit-scrollbar" renderer/src` → **sin salida**.
+  - `sed -n '/=== Formulario de producto y scrollbars ===/,$p' renderer/src/styles/app.css | grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\('` → **sin salida** (ningún color hardcodeado en el bloque).
+  - `grep -c "=== Formulario de producto y scrollbars ===" renderer/src/styles/app.css` → `1`.
+  - `git diff --stat -- renderer/src/styles/bundle.css renderer/src/styles/tokens.css design-system` → **sin salida**.
+
+---
+
+### Fase F — `ProductFormModal`: layout ancho de 4 columnas (todavía sin margen)
+
+> Al terminar esta fase la fila 2 tiene solo "Precio de compra" y "Precio de venta" y el código de barras "sube" a esa fila: es temporal, la Fase G completa la fila 2. Los tests no dependen de eso.
+
+**Paso F1 — Ancho y grilla.** En `renderer/src/Pages/Stock/ProductFormModal.tsx`:
+1. Al `<Modal …>` principal (no al de "¿Descartar los cambios?") agregale `className="pf-modal"`. Dejá `size="md"` como está.
+2. Cambiá `<div className="ig-form-grid">` por `<div className="pf-grid">`.
+3. Reordená los hijos de la grilla así (el contenido de cada `Field` queda **igual**, solo se mueven bloques):
+   ```tsx
+   {/* Fila 1: identidad */}
+   <Field label="Nombre" … className="span-2">…</Field>
+   <CategoryPicker … />
+   <SupplierPicker … />
+
+   {/* Fila 2: precios (la Fase G agrega "Calcular con margen" y "Redondeo" entre compra y venta) */}
+   <Field label="Precio de compra" …>…</Field>
+   <Field label="Precio de venta" …>…</Field>
+
+   {/* Fila 3: código y stock */}
+   <Field label="Código de barras" … className="span-2">…</Field>
+   {isEdit ? <Field label="Stock" …>…</Field> : <Field label="Stock inicial" …>…</Field>}
+   <Field label="Stock mínimo" …>…</Field>
+
+   {/* Fila 4 (solo alta con stock inicial > 0): debajo de las columnas de stock */}
+   {showExpiry && <DateField … className="pf-expiry" … />}
+   ```
+   (Hoy el orden ya es ese salvo por el `className` del vencimiento: cambiá `className="span-2"` del `DateField` por `className="pf-expiry"`.)
+4. No cambies `FIELD_ORDER`, ids, labels ni el `onKeyDown` del código de barras.
+
+**Paso F2 — Error de guardado al pie.**
+1. Borrá `{saveFailed && <InlineAlert tone="danger" title="No se pudo guardar el producto. Probá de nuevo." />}` del cuerpo.
+2. Al `div` que envuelve la grilla (el del `onKeyDown` de Ctrl+Enter) sacale `style={{ display: 'grid', gap: 16 }}` (ya no hace falta); dejá el `onKeyDown` y su comentario.
+3. En la prop `footer` del modal principal, como **primer** hijo del fragmento:
+   ```tsx
+   {saveFailed && (
+     <span className="ig-error" role="alert">
+       <CircleAlert size={16} aria-hidden="true" className="ig-icon ig-icon-sm" />
+       No se pudo guardar el producto. Probá de nuevo.
+     </span>
+   )}
+   ```
+4. Imports: agregá `CircleAlert` al import de `lucide-react` (queda `import { CircleAlert, ScanBarcode } from 'lucide-react'`) y **borrá** `import { InlineAlert } from '../../ui/InlineAlert'` (si no, falla `noUnusedLocals`).
+
+- **Checkpoint F2:** `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx vitest run src/Pages/Stock` → todos verdes **sin cambiar tests**. `cd /c/Users/asant/Music/Integral/wt-producto && npm run typecheck` → OK.
+
+**Paso F3 — Tests de layout en `ProductFormModal.test.tsx`** (nuevo `describe('ProductFormModal — layout sin scroll')`):
+- L1 `el modal usa pf-modal y la grilla de 4 columnas`: `renderModal()` → `expect(screen.getByRole('dialog', { name: 'Nuevo producto' })).toHaveClass('ig-modal', 'pf-modal')`; `expect(document.querySelector('.pf-grid')).not.toBeNull()`; `expect(document.querySelector('.ig-form-grid')).toBeNull()`.
+- L2 `Nombre y Código de barras ocupan 2 columnas`: `expect(nameInput().closest('.ig-field')).toHaveClass('span-2')`; `expect(barcodeInput().closest('.ig-field')).toHaveClass('span-2')`.
+- L3 `el vencimiento va bajo las columnas de stock`: `type(stockInput(), '12')` → `expect(screen.getByLabelText(/Vencimiento del lote/i).closest('.ig-field')).toHaveClass('pf-expiry')`.
+- L4 `el error de guardado aparece en el pie, al lado de los botones`: con `api().createProduct.mockRejectedValue(new Error('disco lleno'))`, `await fillMinimumValidForm()`, click en guardar → `const msg = await screen.findByText('No se pudo guardar el producto. Probá de nuevo.')`; `expect(msg.closest('.ig-modal-foot')).not.toBeNull()`; `expect(msg.closest('.ig-modal-body')).toBeNull()`.
+- L5 `el popover de Proveedor flota (position: fixed) y queda dentro del diálogo (focus trap)`: `renderModal()`; `fireEvent.click(screen.getByRole('button', { name: /^Proveedor/ }))`; `const pop = await screen.findByRole('dialog', { name: 'Elegir proveedor' })`; `expect(pop.style.position).toBe('fixed')`; `expect(pop).toHaveClass('is-floating')`; `expect(screen.getByRole('dialog', { name: 'Nuevo producto' }).contains(pop)).toBe(true)`.
+
+- **Checkpoint F3:** `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx vitest run src/Pages/Stock/__tests__/ProductFormModal.test.tsx` → verde.
+
+---
+
+### Fase G — `ProductFormModal`: precio con margen
+
+**Paso G1 — Imports, estado y reset al abrir.**
+1. Imports nuevos:
+   ```ts
+   import {
+     DEFAULT_PRICING_PREFS,
+     ROUNDING_STEPS,
+     autoSalePriceText,
+     formatMarginInput,
+     loadPricingPrefs,
+     parseMarginInput,
+     roundingStepLabel,
+     savePricingPrefs,
+     toRoundingStep,
+   } from '../../utils/pricing'
+   import type { RoundingStep } from '../../utils/pricing'
+   ```
+2. A nivel de módulo (fuera del componente, debajo de `formatMarginPct`):
+   ```ts
+   /** Configuración vigente del cálculo automático del precio de venta. */
+   type PricingConfig = { auto: boolean; margin: number; step: RoundingStep }
+
+   /** Si el cálculo está activo, devuelve el draft con el precio de venta recalculado desde el costo. */
+   function withAutoSale(d: ProductFormDraft, p: PricingConfig): ProductFormDraft {
+     return p.auto ? { ...d, salePrice: autoSalePriceText(d.purchasePrice, p.margin, p.step) } : d
+   }
+   ```
+3. Dentro del componente, junto a los otros `useState`:
+   ```ts
+   /** Cálculo automático del precio de venta (preferencias en utils/pricing). */
+   const [autoPrice, setAutoPrice] = useState(false)
+   const [marginPct, setMarginPct] = useState(DEFAULT_PRICING_PREFS.marginPct)
+   const [marginInput, setMarginInput] = useState(formatMarginInput(DEFAULT_PRICING_PREFS.marginPct))
+   const [roundingStep, setRoundingStep] = useState<RoundingStep>(DEFAULT_PRICING_PREFS.roundingStep)
+   ```
+4. Al final del `useEffect` que precarga/limpia el formulario (el de dependencias `[open, product, initialName, initialBarcode]`), agregá:
+   ```ts
+   const prefs = loadPricingPrefs()
+   setAutoPrice(product ? false : prefs.enabled) // en edición siempre arranca apagado: no pisa el precio guardado
+   setMarginPct(prefs.marginPct)
+   setMarginInput(formatMarginInput(prefs.marginPct))
+   setRoundingStep(prefs.roundingStep)
+   ```
+- **Checkpoint G1:** `cd /c/Users/asant/Music/Integral/wt-producto && npm run typecheck` (puede quejarse de imports sin usar: se usan en G2–G4; si es así, seguí y corré el typecheck en G4).
+
+**Paso G2 — Recalcular al cambiar el costo.** Reemplazá `updateField` por:
+```ts
+function updateField(field: keyof ProductFormDraft, value: string | number) {
+  setDraft((d) => {
+    const next: ProductFormDraft = { ...d, [field]: value }
+    // Con el cálculo activo, el precio de venta sigue al costo.
+    return field === 'purchasePrice' ? withAutoSale(next, pricing) : next
+  })
+  setErrors((e) => {
+    if (!e) return null
+    const cleared: FormErrors = { ...e, [field]: undefined }
+    if (field === 'purchasePrice' && autoPrice) cleared.salePrice = undefined
+    return cleared
+  })
+  if (field === 'barcode') setBarcodeTakenError(null)
+}
+```
+y, antes de `updateField`, declarás `const pricing: PricingConfig = { auto: autoPrice, margin: marginPct, step: roundingStep }`.
+
+**Paso G3 — Handlers del cálculo** (debajo de `formatPriceOnBlur`):
+```ts
+/** Tildar/destildar "Calcular con margen". Tildar recalcula ya; destildar deja el último valor (editable). */
+function handleAutoPriceChange(next: boolean) {
+  setAutoPrice(next)
+  if (!isEdit) savePricingPrefs({ enabled: next }) // en edición no cambia cómo arranca el alta
+  if (next) {
+    setDraft((d) => withAutoSale(d, { ...pricing, auto: true }))
+    setErrors((e) => (e ? { ...e, salePrice: undefined } : null))
+  }
+}
+
+/** Margen tipeado: si es válido se aplica y se recuerda en el momento; si no, se ignora hasta salir del campo. */
+function handleMarginInputChange(text: string) {
+  setMarginInput(text)
+  const n = parseMarginInput(text)
+  if (n === null) return
+  setMarginPct(n)
+  savePricingPrefs({ marginPct: n })
+  setDraft((d) => withAutoSale(d, { ...pricing, margin: n }))
+}
+
+/** Al salir del margen (blur o Enter) se muestra el último margen válido, normalizado ("30,50" → "30,5"). */
+function normalizeMarginInput() {
+  setMarginInput(formatMarginInput(marginPct))
+}
+
+function handleRoundingChange(step: RoundingStep) {
+  setRoundingStep(step)
+  savePricingPrefs({ roundingStep: step })
+  setDraft((d) => withAutoSale(d, { ...pricing, step }))
+}
+```
+
+**Paso G4 — JSX de la fila 2 y del precio de venta.**
+1. Entre el `Field` "Precio de compra" y el `Field` "Precio de venta", insertá **en este orden**:
+   ```tsx
+   {/* Calcular con margen + Margen (%): el checkbox hace de label del campo */}
+   <div className="ig-field">
+     <label className="pf-auto">
+       <input id="pf-auto-price" type="checkbox" checked={autoPrice} onChange={(e) => handleAutoPriceChange(e.target.checked)} />
+       Calcular con margen
+     </label>
+     <div className="ig-input-wrap">
+       <input
+         id="pf-margin"
+         className="ig-input ig-input-amount pf-margin-input"
+         inputMode="decimal"
+         aria-label="Margen (%)"
+         aria-describedby="pf-margin-help"
+         disabled={!autoPrice}
+         value={marginInput}
+         onChange={(e) => handleMarginInputChange(e.target.value)}
+         onBlur={normalizeMarginInput}
+         onKeyDown={(e) => {
+           if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
+             e.preventDefault()
+             normalizeMarginInput()
+           }
+         }}
+       />
+       <span className="ig-suffix" aria-hidden="true">%</span>
+     </div>
+     <span className="ig-help" id="pf-margin-help">Sobre el precio de compra.</span>
+   </div>
+
+   <Field label="Redondeo" htmlFor="pf-rounding" help="Al más cercano.">
+     <select
+       id="pf-rounding"
+       className="ig-input"
+       aria-describedby="pf-rounding-help"
+       disabled={!autoPrice}
+       value={String(roundingStep)}
+       onChange={(e) => {
+         const step = toRoundingStep(Number(e.target.value))
+         if (step !== null) handleRoundingChange(step)
+       }}
+     >
+       {ROUNDING_STEPS.map((s) => (
+         <option key={s} value={String(s)}>
+           {roundingStepLabel(s)}
+         </option>
+       ))}
+     </select>
+   </Field>
+   ```
+2. Ayuda del precio de venta: reemplazá la expresión `help={ margin ? … : undefined }` del `Field` "Precio de venta" por `help={saleHelp}`, y declarás `saleHelp` justo después de `const lossMaking = …` (antes del `return`):
+   ```tsx
+   /** Ayuda bajo "Precio de venta": falta el costo (cálculo activo) · venta bajo costo · margen real. */
+   function saleHelpContent(): React.ReactNode {
+     if (autoPrice && autoSalePriceText(draft.purchasePrice, marginPct, roundingStep) === '') {
+       return 'Completá el precio de compra para calcularlo.'
+     }
+     if (!margin) return undefined
+     if (lossMaking) return <span style={{ color: 'var(--warning)' }}>Estás vendiendo por debajo del costo.</span>
+     return `Margen: ${formatMarginPct(margin.pct)} % · ganancia ${formatMoney(margin.profit)} por unidad`
+   }
+   const saleHelp = saleHelpContent()
+   ```
+3. En el `<input id="pf-sale" …>`:
+   - **NO** agregues `readOnly` (decisión del usuario: el precio de venta siempre se puede tipear);
+   - `aria-describedby={errors?.salePrice ? 'pf-sale-error' : saleHelp ? 'pf-sale-help' : undefined}`;
+   - `onChange={(e) => handleSaleInputChange(e.target.value)}`, con este handler nuevo (ponelo debajo de `handleRoundingChange`):
+     ```ts
+     /** Tipear el precio de venta con el cálculo activo lo apaga SOLO para este producto (no se guarda la preferencia). */
+     function handleSaleInputChange(text: string) {
+       if (autoPrice) setAutoPrice(false)
+       updateField('salePrice', text)
+     }
+     ```
+     (Ojo: `updateField('salePrice', …)` no recalcula nada porque solo `purchasePrice` dispara `withAutoSale`.)
+   - `onBlur` queda como estaba (`formatPriceOnBlur('salePrice')`).
+4. Actualizá el JSDoc del componente con una línea: "- Precio con margen: el checkbox «Calcular con margen» completa el precio de venta con `utils/pricing`; tipear el precio a mano apaga el cálculo solo para ese producto; en alta arranca según la preferencia recordada y en edición apagado."
+- **Checkpoint G4:**
+  - `cd /c/Users/asant/Music/Integral/wt-producto && npm run typecheck` → OK.
+  - Como el default ahora es **cálculo activado**, algunos tests existentes que abren el modal en alta pueden fallar (por ejemplo, los que tipean solo el costo y esperan el precio de venta vacío). Arreglo único y permitido: buscá con `grep -rl "ProductFormModal\|StockProducts\|StockPage" renderer/src --include=*.test.tsx` los archivos de test que abren el modal de producto y, en cada uno que falle, agregá como **primeras líneas** de su `beforeEach` de nivel superior (creá uno si no hay):
+    ```ts
+    localStorage.clear()
+    localStorage.setItem('integral.pricing', JSON.stringify({ enabled: false, marginPct: 30, roundingStep: 100 }))
+    ```
+    No cambies ninguna otra cosa de esos tests.
+  - `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx vitest run src/Pages/Stock src/__tests__` → todos verdes.
+
+**Paso G5 — Preparar el archivo de tests `ProductFormModal.test.tsx`.**
+1. Primeras líneas del `beforeEach` de arriba del archivo (si en G4 ya las agregaste, dejalas así):
+   ```ts
+   localStorage.clear()
+   // Base de los tests: cálculo APAGADO (el default real, activado, lo prueba T1 limpiando el storage).
+   localStorage.setItem('integral.pricing', JSON.stringify({ enabled: false, marginPct: 30, roundingStep: 0 }))
+   ```
+   Importante: con esta base, en T2–T11 el `click` del checkbox lo **activa**. Si en G4 habías puesto `roundingStep: 100` en este archivo, cambialo a `0`.
+2. Imports nuevos: `import userEvent from '@testing-library/user-event'` y `import { PRICING_STORAGE_KEY } from '../../../utils/pricing'`.
+3. Helpers nuevos (junto a los existentes):
+   ```ts
+   const autoCheckbox = () => screen.getByRole('checkbox', { name: 'Calcular con margen' }) as HTMLInputElement
+   const marginInput = () => screen.getByLabelText('Margen (%)') as HTMLInputElement
+   const roundingSelect = () => screen.getByLabelText('Redondeo') as HTMLSelectElement
+   const setStep = (value: string) => fireEvent.change(roundingSelect(), { target: { value } })
+   const savePrefs = (p: object) => localStorage.setItem(PRICING_STORAGE_KEY, JSON.stringify(p))
+   const storedPrefs = () => JSON.parse(localStorage.getItem(PRICING_STORAGE_KEY) ?? 'null')
+   /** localStorage falso cuyos métodos lanzan (se pueden pisar algunos con `overrides`). Lo usa T17. */
+   function brokenStorage(overrides: Partial<Storage> = {}): Storage {
+     const fail = () => {
+       throw new Error('sin storage')
+     }
+     return { length: 0, clear: fail, key: fail, getItem: fail, removeItem: fail, setItem: fail, ...overrides } as Storage
+   }
+   ```
+
+**Paso G6 — Tests de integración** (nuevo `describe('ProductFormModal — precio con margen')`). `type` y `renderModal` son los helpers del archivo. Los valores esperados están verificados.
+
+| Id | Test | Pasos | Esperado |
+|---|---|---|---|
+| T1 | `sin preferencias guardadas: cálculo activado, margen 30 y redondeo $ 100` | `localStorage.clear()` (borra la base del `beforeEach`); `renderModal()`; `type(purchaseInput(), '1234')` | checkbox tildado; `marginInput().value` `'30'` y habilitado; `roundingSelect().value` `'100'` y habilitado; `saleInput().readOnly` `false`; `saleInput().value` `'1.600,00'` |
+| T2 | `tildar completa el precio de venta con el costo actual` | `type(purchaseInput(), '1000')`; `fireEvent.click(autoCheckbox())` | `saleInput().value` `'1.300,00'`; `readOnly` `false`; margen y redondeo habilitados |
+| T3 | `con el cálculo activo el precio sigue al costo y redondea al más cercano (la mitad sube)` | click checkbox; `type(marginInput(), '0')`; `setStep('100')`; costo `'1570'` → `'1530'` → `'1550'` → `'1549,99'` | venta `'1.600,00'` → `'1.500,00'` → `'1.600,00'` → `'1.500,00'` |
+| T4 | `cambiar el redondeo recalcula` | click; costo `'1234'`; luego `setStep` `'10'`, `'50'`, `'100'`, `'500'`, `'1000'`, `'0'` | `'1.604,20'` (inicial), `'1.600,00'`, `'1.600,00'`, `'1.600,00'`, `'1.500,00'`, `'2.000,00'`, `'1.604,20'` |
+| T5 | `cambiar el margen recalcula y acepta coma decimal` | click; costo `'1000'`; margen `'45'`; margen `'32,5'` | `'1.450,00'`; `'1.325,00'` |
+| T6 | `un margen inválido no recalcula y al salir vuelve al último válido` | click; costo `'1000'`; margen `'abc'`; `fireEvent.blur(marginInput())`; margen `'2000'`; blur; margen `'-5'`; blur | la venta queda `'1.300,00'` en todo momento; después de cada blur `marginInput().value` es `'30'` |
+| T7 | `Enter en el margen normaliza el texto y no guarda` | click; margen `'30,50'`; `fireEvent.keyDown(marginInput(), { key: 'Enter' })` | `marginInput().value` `'30,5'`; `api().createProduct` no llamado |
+| T8 | `sin costo, el precio queda vacío y lo explica` | click | `saleInput().value` `''`; `screen.getByText('Completá el precio de compra para calcularlo.')` existe |
+| T9 | `tipear el precio de venta apaga el cálculo solo para este producto` | click; costo `'1000'`; `type(saleInput(), '1.500')`; `type(purchaseInput(), '2000')` | tras tipear: `saleInput().value` `'1.500'`; checkbox sin tildar; margen y redondeo deshabilitados; `storedPrefs().enabled` sigue `true` (no se guardó el apagado); tras cambiar el costo el precio sigue `'1.500'` |
+| T10 | `destildar deja el último precio y se puede editar` | click; costo `'1000'`; click de nuevo; `type(saleInput(), '1.500')`; `type(purchaseInput(), '2000')` | tras destildar: `'1.300,00'`; después `'1.500'`; tras cambiar el costo sigue `'1.500'`; `storedPrefs().enabled` `false` (destildar a mano en alta sí se recuerda) |
+| T11 | `la ayuda muestra el margen real después de redondear` | click; `setStep('100')`; costo `'1234'` | venta `'1.600,00'`; `screen.getByText('Margen: 29,7 % · ganancia $ 366,00 por unidad')` |
+| T12 | `Ctrl+Enter guarda con el precio calculado` | `savePrefs({ enabled: true, marginPct: 30, roundingStep: 100 })`; `api().createProduct.mockResolvedValue(createdProduct())`; `renderModal()`; checkbox **ya tildado**; `type(nameInput(), 'Producto Test')`; `type(purchaseInput(), '1234')`; `await pickCategory()`; `await pickSupplier()`; `fireEvent.keyDown(nameInput(), { key: 'Enter', ctrlKey: true })` | `await waitFor(…)`: `createProduct` llamado con `expect.objectContaining({ purchasePrice: '1234', salePrice: '1600' })` |
+| T13 | `las preferencias se guardan al cambiarlas y se recuerdan al reabrir` | `const { rerender } = renderModal()`; click; margen `'40'`; `setStep('100')`; `rerender(<ProductFormModal open={false} onClose={vi.fn()} onSuccess={vi.fn()} />)`; `rerender(<ProductFormModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />)` | antes del rerender: `storedPrefs()` `toEqual({ enabled: true, marginPct: 40, roundingStep: 100 })`; al reabrir: checkbox tildado, margen `'40'`, redondeo `'100'` |
+| T14 | `en edición arranca apagado aunque la preferencia esté prendida, y no pisa el precio` | `savePrefs({ enabled: true, marginPct: 30, roundingStep: 100 })`; `renderModal({ product: productForEdit() })` | checkbox sin tildar; `saleInput().value` `'1.000,00'`; margen deshabilitado; redondeo muestra `'100'` |
+| T15 | `en edición, tildar recalcula con el costo del producto pero no cambia cómo arranca el alta` | `savePrefs({ enabled: false, marginPct: 30, roundingStep: 0 })`; edición; click | venta `'130,00'`; `storedPrefs().enabled` sigue `false` |
+| T16 | `en edición, el margen y el redondeo elegidos sí se recuerdan` | edición (sin prefs); click; margen `'50'`; `setStep('10')` | venta `'150,00'`; `storedPrefs()` `toEqual({ enabled: false, marginPct: 50, roundingStep: 10 })` |
+| T17 | `si localStorage falla, usa los valores por defecto y el cálculo funciona` | usá el helper `brokenStorage` de G5; dentro de `try { … } finally { vi.unstubAllGlobals() }`: `vi.stubGlobal('localStorage', brokenStorage())` **antes** de `renderModal()`; **sin** click; costo `'1234'`. **No** uses `vi.spyOn(Storage.prototype, …)` (ver la advertencia de A4) | checkbox **tildado** al abrir (default); margen `'30'`; redondeo `'100'`; tras tipear el costo: venta `'1.600,00'`; nada lanza |
+| T18 | `teclado: Tab recorre la fila de precios y Espacio tilda` | `const user = userEvent.setup()`; `renderModal()`; `await waitFor(() => expect(nameInput()).toHaveFocus())` (**obligatorio**: deja correr el foco inicial del Modal); `purchaseInput().focus()`; `await user.tab()`; `await user.tab()`; `autoCheckbox().focus()`; `await user.keyboard(' ')`; `purchaseInput().focus()`; 4 × `await user.tab()` | 1.er tab → checkbox con foco; 2.º → `saleInput()` (margen y redondeo deshabilitados se saltean); Espacio → checkbox tildado; con el cálculo activo: checkbox → `marginInput()` → `roundingSelect()` → `saleInput()` |
+| T19 | `el orden del DOM es el orden visual y de Tab` | `renderModal()`; armá `[nameInput(), botón /^Categoría/, botón /^Proveedor/, purchaseInput(), autoCheckbox(), marginInput(), roundingSelect(), saleInput(), barcodeInput(), stockInput(), minStockInput()]` | para cada par consecutivo: `expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()` |
+
+> En T3–T11 el checkbox se tilda **antes** de cambiar margen o redondeo (deshabilitados no deben usarse).
+
+- **Checkpoint G6:**
+  - `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx vitest run src/Pages/Stock/__tests__/ProductFormModal.test.tsx` → verde.
+  - `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx vitest run src/Pages/Stock src/ui` → verde.
+  - `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx eslint src/Pages/Stock/ProductFormModal.tsx src/Pages/Stock/__tests__/ProductFormModal.test.tsx` → sin errores.
+  - `cd /c/Users/asant/Music/Integral/wt-producto && npm run typecheck` → OK.
+
+---
+
+### Fase H — Verificación final y documentación
+
+**Paso H1 — Suite completa, tipos y lint.**
+- `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx vitest run` → **68 archivos** (66 + `pricing.test.ts` + `floatingPlacement.test.ts`), **0 fallidos**. Conteo de control: los 66 archivos que ya existían pasan de 850 a **884 tests** (+8 en `EntityPicker.test.tsx`, +2 en `Modal.test.tsx`, +24 en `ProductFormModal.test.tsx`: L1–L5 y T1–T19); a eso se suman unos 140 de `pricing.test.ts` (50 filas de `computeSalePrice` + los demás bloques) y unos 11 de `floatingPlacement.test.ts`. Si te dan menos, falta algún test del plan.
+- `cd /c/Users/asant/Music/Integral/wt-producto && npm run typecheck` → OK.
+- `cd /c/Users/asant/Music/Integral/wt-producto && npm run lint --workspace renderer` → exactamente los **mismos 7 errores preexistentes** de la sección 0 (3 archivos), ninguno nuevo.
+- `cd /c/Users/asant/Music/Integral/wt-producto/renderer && npx eslint src/utils/pricing.ts src/utils/__tests__/pricing.test.ts src/ui/floatingPlacement.ts src/ui/__tests__/floatingPlacement.test.ts src/ui/EntityPicker.tsx src/ui/__tests__/EntityPicker.test.tsx src/ui/Modal.tsx src/ui/__tests__/Modal.test.tsx src/Pages/Stock/ProductFormModal.tsx src/Pages/Stock/__tests__/ProductFormModal.test.tsx` → sin errores.
+
+**Paso H2 — Chequeos estáticos** (desde `/c/Users/asant/Music/Integral/wt-producto`): repetí los 4 comandos del Checkpoint E1 y además `git status --short`, que debe listar **solo**:
+
+```
+ M CLAUDE.md                       (después del Paso H4)
+ M plan.md
+ M renderer/src/Pages/Stock/ProductFormModal.tsx
+ M renderer/src/Pages/Stock/__tests__/ProductFormModal.test.tsx
+ M renderer/src/styles/app.css
+ M renderer/src/ui/EntityPicker.tsx
+ M renderer/src/ui/Modal.tsx
+ M renderer/src/ui/__tests__/EntityPicker.test.tsx
+ M renderer/src/ui/__tests__/Modal.test.tsx
+?? renderer/src/ui/__tests__/floatingPlacement.test.ts
+?? renderer/src/ui/floatingPlacement.ts
+?? renderer/src/utils/__tests__/pricing.test.ts
+?? renderer/src/utils/pricing.ts
+```
+
+**Paso H3 — Verificación manual a 1280×720 (la hace una persona; el ejecutor solo deja la checklist lista y avisa).** Ver sección 7.
+
+**Paso H4 — Actualizar `CLAUDE.md`.** Insertá la subsección de abajo **al final de "## Estado del frontend"**: justo **después** de la línea que empieza con `- Las clasificaciones de "expired" y "expiring_today" se calculan en el renderer…` y **antes** de la línea `---` que precede a `## IPC bridge (cómo se llama al backend desde el renderer)` (dejá una línea en blanco antes y después). No toques ninguna otra parte de `CLAUDE.md` (el otro agente edita la sección de Estadísticas).
+
+```md
+#### Formulario de producto: picker flotante, modal sin scroll y precio con margen (vigente)
+
+- **Picker (Categoría / Proveedor)**: el popover (`.ig-picker-pop.is-floating`) flota con `position: fixed`; `EntityPicker` calcula en línea `top`/`bottom`/`left`/`width`/`max-height` con `computeFloatingPlacement` (`renderer/src/ui/floatingPlacement.ts`) desde el `getBoundingClientRect()` del disparador. Ancho mínimo 420 px (DS); si no entra a la derecha se alinea con el borde derecho del disparador; si abajo hay menos de 360 px y arriba hay más lugar, abre hacia arriba; se recalcula con `resize` y con el `scroll` de cualquier contenedor. **No es un portal**: sigue dentro del DOM del picker, así el focus trap del `Modal`, el click afuera y el `stopPropagation` de Enter/Esc funcionan igual. `Tab` en la lista cierra el popover. Un `fixed` no cuenta para el overflow de sus ancestros (no genera scroll en el modal); dejaría de funcionar si un ancestro tuviera `transform`/`filter`/`contain`.
+- **Modal de producto sin scroll a 1280×720**: `Modal` acepta `className`; `ProductFormModal` usa `pf-modal` (1080 px, `max-height: calc(100vh − 32px)`, velo con `padding-top` 16 px vía `:has`) y la grilla `.pf-grid` de 4 columnas: fila 1 Nombre (2 col.) · Categoría · Proveedor; fila 2 Precio de compra · Calcular con margen + Margen (%) · Redondeo · Precio de venta; fila 3 Código de barras (2 col.) · Stock inicial / Stock · Stock mínimo; fila 4 (solo alta con stock > 0) Vencimiento del lote bajo las columnas de stock (`.pf-expiry`). El error "No se pudo guardar el producto…" va en el pie, al lado de los botones. El cuerpo conserva `overflow: auto` solo como red de seguridad. Peor caso calculado: 623 px de alto (disponible ≈ 648).
+- **Scrollbars**: globales en `app.css` con `scrollbar-width: thin` y `scrollbar-color: var(--border-control) transparent` sobre `:root` (se heredan). No usar `::-webkit-scrollbar` (Chromium lo ignora si están seteadas las estándar). `color-scheme` sigue al tema (`light`/`dark`) para los controles nativos.
+- **Precio con margen** (`renderer/src/utils/pricing.ts`): `venta = redondear(costo × (1 + margen/100), paso)` en centavos enteros; redondeo al múltiplo más cercano (la mitad sube); paso 0 = sin redondeo (al centavo); si el costo es > 0 y el redondeo daría $ 0, queda un paso. Pasos: sin redondeo / 10 / 50 / 100 / 500 / 1000. Margen 0–1000 % (2 decimales; un texto inválido no se aplica y al salir del campo vuelve el último válido).
+  - Preferencias globales en `localStorage`, clave `integral.pricing` = `{ enabled, marginPct, roundingStep }` (defaults `true`, `30`, `100`; valores corruptos o fuera de rango → default; storage que falla → defaults sin romper). Se guardan al cambiarlas: el margen cada vez que el texto es válido, el redondeo al elegirlo, `enabled` al tildar/destildar **solo en alta**.
+  - Alta: el checkbox arranca según la preferencia. Edición: arranca siempre apagado (no pisa el precio guardado). Con el cálculo activo el precio de venta se recalcula al cambiar costo, margen o redondeo; tipear el precio a mano apaga el cálculo solo para ese producto (no cambia la preferencia); destildar deja el último valor. Sin costo válido el precio queda vacío con la ayuda "Completá el precio de compra para calcularlo."; la ayuda de margen real y el aviso de venta bajo costo siguen igual.
+- Tests: `utils/__tests__/pricing.test.ts`, `ui/__tests__/floatingPlacement.test.ts`, casos nuevos en `EntityPicker.test.tsx`, `Modal.test.tsx` y `ProductFormModal.test.tsx` (este último limpia `localStorage` en `beforeEach`). El layout real (sin scroll, popover no recortado, scrollbars) se verifica a mano: happy-dom no hace layout ni aplica CSS. Para simular un `localStorage` roto en tests usar `vi.stubGlobal('localStorage', …)` + `vi.unstubAllGlobals()`: en happy-dom 20.9 `vi.spyOn(Storage.prototype, …)` no intercepta de forma confiable (el proxy de `localStorage` guarda cada método en el primer uso) y el mock puede quedar pegado.
+```
+
+- **Checkpoint H4:** `cd /c/Users/asant/Music/Integral/wt-producto && git diff --stat -- CLAUDE.md` → solo inserciones (ninguna línea borrada).
+
+**Paso H5 — Reporte final del ejecutor.** Informá: resultados de H1 (archivos/tests, typecheck, lint), la salida de `git status --short`, y que la verificación manual (sección 7) está pendiente para una persona.
+
+---
+
+## 6. Qué NO se puede testear en happy-dom (y cómo se cubre)
+
+| No se puede testear automáticamente | Por qué | Cómo se cubre |
+|---|---|---|
+| Que el modal no tenga scroll vertical/horizontal a 1280×720 | happy-dom no calcula layout (`scrollHeight`, anchos, cortes de línea) y no carga `app.css` | Presupuesto de alto (3.2) + verificación manual 7.2/7.3 |
+| Que el popover `fixed` no quede recortado por el `overflow` del modal | No hay motor de layout ni CSS | Tests de la estrategia: estilo en línea `position: fixed` + coordenadas (C2-E1…E5) y popover dentro del diálogo (F3-L5) + manual 7.4 |
+| `getBoundingClientRect()` real | Devuelve ceros | Se mockea por elemento en C2 |
+| Aspecto de las scrollbars, `color-scheme`, `:has()` | CSS no aplicado | Chequeos estáticos E1 + manual 7.6/7.7 |
+| Lista nativa del `<select>` y dibujo del checkbox | Son widgets del navegador | Manual 7.5/7.7 |
+| A dónde va el foco del navegador cuando `Tab` cierra el popover | `fireEvent` no mueve el foco y user-event no modela el "punto de partida" de Chromium tras quitar el elemento | Test de que se cierra (C2-E7) + manual 7.4 |
+| Animaciones de entrada del modal | No se ejecutan | No aplica |
+
+---
+
+## 7. Verificación manual (persona) — ventana 1280×720
+
+**Preparación**
+1. Cerrá cualquier Integral abierto (la app instalada y la de dev comparten el bloqueo de instancia única).
+2. `cd /c/Users/asant/Music/Integral/wt-producto && env -u ELECTRON_RUN_AS_NODE npm start`
+3. Achicá la ventana arrastrando la esquina inferior derecha hasta que no baje más (mínimo 1280×720).
+4. La base de dev del worktree puede estar vacía: creá una categoría y un proveedor desde los pickers del alta (sirve para probar el alta en el momento).
+
+**7.1 Alta sin errores.** Stock → `Ctrl+N`. No hay barra de scroll vertical ni horizontal en el modal. Se ven las 3 filas y el pie.
+**7.2 Alta en el peor caso.** Tipeá Stock inicial `12` (aparece "Vencimiento del lote" bajo las columnas de stock) y tocá "Guardar producto" con todo vacío: se ven todos los errores **y sigue sin scroll**. Repetí con "Proveedor" sin elegir y un código de barras repetido (error largo).
+**7.3 Edición.** Fila → Editar (o `Enter`): sin scroll; "Stock" de solo lectura; "Calcular con margen" destildado; el precio de venta no cambió.
+**7.4 Pickers.** Abrí "Categoría" y "Proveedor": el popover se ve completo, encima del formulario, **sin** generar scroll horizontal en el modal; el de Proveedor queda alineado con el borde derecho de su campo. Tipeá un nombre nuevo → `Enter` en "Crear «…»" → el alta (Nombre, Teléfono, Notas, botones) entra entera; `Esc` vuelve a la lista; `Esc` cierra y devuelve el foco al campo; `Tab` desde el buscador cierra el popover y el foco pasa a "Precio de compra" (en Proveedor) o a "Proveedor" (en Categoría); `Shift+Tab` vuelve al disparador. Click en una opción la elige.
+**7.5 Precio con margen.** Tildá "Calcular con margen"; Margen `30`; Redondeo `$ 100`; Precio de compra `1234` → Precio de venta `1.600,00` y ayuda "Margen: 29,7 % · ganancia $ 366,00 por unidad". Margen `0` + compra `1570` → `1.600,00`; `1530` → `1.500,00`; `1550` → `1.600,00`. Tipeá un precio a mano: el checkbox se destilda solo. Destildá: el precio queda y se puede editar. Cerrá y reabrí: el checkbox, el margen y el redondeo se recuerdan. Abrí una edición: arranca destildado.
+**7.6 Scrollbars (tema claro y oscuro, botón de tema del header).** Finas, pulgar gris azulado, sin riel blanco, en: tabla de Stock con muchos productos, Movimientos, carrito de Ventas con muchas líneas, Historial (lista y detalle), Estadísticas, buscador F2, lista de un picker, popup de vencimientos.
+**7.7 Tema oscuro y controles nativos.** El selector "Redondeo" (flecha y lista desplegada) y el checkbox se leen bien; el selector "Medio de pago" del Historial también.
+**7.8 Teclado completo del alta.** Tab: Nombre → Categoría → Proveedor → Precio de compra → Calcular con margen → (Margen → Redondeo si está tildado) → Precio de venta → Código de barras → Stock inicial → Stock mínimo → (Vencimiento) → botones. `Ctrl+Enter` guarda desde cualquier campo (incluido el checkbox y el selector). `Esc` con cambios pregunta "¿Descartar los cambios?".
+**7.9 Ventana grande.** Maximizada: el modal mide 1080 px y queda centrado.
+
+Si algo de esto falla, anotá el número de chequeo y una captura.
+
+---
+
+## 8. Checklist final
+
+- [ ] A: `pricing.ts` + tests (cálculo, textos, preferencias) en verde.
+- [ ] B: `floatingPlacement.ts` + tests en verde.
+- [ ] C: `EntityPicker` flotante (`position: fixed`, sin portal, `Tab` cierra en la lista) + tests; tests de pickers y del formulario sin cambios y verdes.
+- [ ] D: `Modal` con `className` + tests.
+- [ ] E: bloque `/* === Formulario de producto y scrollbars === */` al final de `app.css`; sin `::-webkit-scrollbar`; sin colores hardcodeados; `bundle.css`/`tokens.css`/`design-system/` intactos.
+- [ ] F: `pf-modal` + `.pf-grid` de 4 columnas; error de guardado en el pie; `InlineAlert` sin importar.
+- [ ] G: checkbox "Calcular con margen", Margen (%), Redondeo; tipear el precio de venta apaga el cálculo solo para ese producto; preferencias en `integral.pricing`; edición arranca apagado; tests T1–T19 en verde.
+- [ ] H: suite completa verde (68 archivos), typecheck OK, lint con solo los 7 errores preexistentes, `CLAUDE.md` con la subsección nueva, `git status` con solo los archivos esperados, sin commits.
+- [ ] Verificación manual (sección 7) pendiente para una persona.
