@@ -74,3 +74,33 @@ select.ig-input { appearance: auto; }
 
 /* Picker: botón "Crear «…»" activo por teclado o hover */
 .ig-picker-create:hover, .ig-picker-create.is-active { background: var(--surface-selected); }
+
+/* === Formulario de producto y scrollbars === */
+/* Scrollbars de toda la app con las propiedades estándar (Chromium ≥ 121). Se heredan a todos los contenedores
+   con scroll. Con estas propiedades seteadas Chromium ignora los pseudo-elementos de scrollbar con prefijo -webkit-:
+   no mezclar. */
+:root { scrollbar-width: thin; scrollbar-color: var(--border-control) transparent; }
+/* Controles nativos (flecha y lista del <select>, checkbox) acordes al tema. */
+:root, [data-theme="light"] { color-scheme: light; }
+[data-theme="dark"] { color-scheme: dark; }
+
+/* Modal de producto: más ancho y alto que modal-md para que el formulario entre sin scroll a 1280×720.
+   El cuerpo conserva el overflow: auto del DS solo como red de seguridad. */
+.ig-overlay:has(> .pf-modal) { padding-top: var(--space-4); }
+.ig-modal.pf-modal { width: 1080px; max-width: calc(100vw - 2 * var(--space-6)); max-height: calc(100vh - 2 * var(--space-4)); }
+.pf-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); align-items: start; }
+.pf-grid > .span-2 { grid-column: span 2; }
+.pf-grid > .pf-expiry { grid-column: 3 / span 2; }
+.pf-expiry .ig-input { max-width: 220px; }
+.pf-grid .ig-picker > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-grid .ig-input:disabled { background: var(--surface-sunken); color: var(--ink-disabled); border-color: var(--border); cursor: not-allowed; }
+.pf-auto { display: inline-flex; align-items: center; gap: var(--space-2); font: 500 13px/18px var(--font-sans); color: var(--ink); cursor: pointer; }
+.pf-auto input { width: 16px; height: 16px; margin: 0; accent-color: var(--primary); cursor: pointer; }
+.ig-input-wrap > .ig-input.pf-margin-input { padding-left: var(--space-3); padding-right: var(--space-8); }
+
+/* Popover del Picker flotante: EntityPicker le pone en línea position: fixed + top/bottom/left/width/max-height.
+   Así sale por encima del modal sin que el cuerpo del modal genere scroll. */
+.ig-picker-pop.is-floating { display: flex; flex-direction: column; }
+.ig-picker-pop.is-floating > .ig-pop-search, .ig-picker-pop.is-floating > .ig-picker-create { flex: none; }
+.ig-picker-pop.is-floating > .ig-picker-list { flex: 0 1 auto; min-height: 0; }
+.ig-picker-pop.is-floating > .ig-picker-new { min-height: 0; overflow: auto; }

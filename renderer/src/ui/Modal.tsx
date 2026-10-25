@@ -16,6 +16,8 @@ type ModalProps = {
   subtitle?: React.ReactNode
   /** Ancho del diálogo. Default `md`. */
   size?: 'sm' | 'md' | 'lg'
+  /** Clase extra para el diálogo (`.ig-modal`), ej. un ancho propio de una pantalla. */
+  className?: string
   onClose: () => void
   /** Qué hacer con Escape. Default: `onClose`. */
   onEscape?: () => void
@@ -48,6 +50,7 @@ export function Modal({
   title,
   subtitle,
   size = 'md',
+  className,
   onClose,
   onEscape,
   closeOnOverlay = false,
@@ -128,7 +131,7 @@ export function Modal({
       }}
     >
       <div
-        className={`ig-modal ${sizeClass}`.trim()}
+        className={['ig-modal', sizeClass, className].filter(Boolean).join(' ')}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

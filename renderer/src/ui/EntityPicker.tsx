@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Building2, ChevronsUpDown, Plus, Search, Tag } from 'lucide-react'
 import { Button } from './Button'
 import { Field } from './Field'
 import { foldText, includesFolded, splitMatch } from '../utils/text'
+import { computeFloatingPlacement } from './floatingPlacement'
+import type { FloatingPlacement } from './floatingPlacement'
 
 export type Entity = { id: number; name: string }
 
@@ -36,7 +38,11 @@ const TEXTS = {
  * una entidad nueva sin salir del formulario que lo contiene.
  *
  * Teclado: abre con click/Enter/Espacio/↓; ↑/↓ mueven la fila activa (el botón "Crear" es la última);
- * Enter elige o abre el alta; Esc vuelve a la lista o cierra devolviendo el foco al disparador.
+ * Enter elige o abre el alta; Esc vuelve a la lista o cierra devolviendo el foco al disparador; Tab (en la lista) cierra.
+ * El popover flota con `position: fixed` (posición calculada con `computeFloatingPlacement` desde el disparador):
+ * no lo recorta ni lo hace scrollear el contenedor (por ejemplo el cuerpo de un modal). No es un portal: sigue
+ * dentro del DOM del picker, así el focus trap del Modal, el click afuera y el stopPropagation de Enter/Esc
+ * funcionan igual. Tab en la lista cierra el popover.
  * Enter y Esc NUNCA se propagan: no deben enviar ni cerrar el formulario/modal que lo contiene.
  */
 export function EntityPicker({
@@ -70,6 +76,9 @@ export function EntityPicker({
   const innerTriggerRef = useRef<HTMLButtonElement | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
+  /** Posición del popover flotante; null hasta medir el disparador. */
+  const [placement, setPlacement] = useState<FloatingPlacement | null>(null)
 
   const setTriggerRef = (el: HTMLButtonElement | null) => {
     innerTriggerRef.current = el
@@ -100,11 +109,36 @@ export function EntityPicker({
     return () => document.removeEventListener('mousedown', onDown)
   }, [open])
 
+  /** Ubica el popover respecto del disparador, en coordenadas de la ventana (lo usa `position: fixed`). */
+  const updatePlacement = useCallback(() => {
+    const trigger = innerTriggerRef.current
+    if (!trigger) return
+    setPlacement(computeFloatingPlacement(trigger.getBoundingClientRect(), { width: window.innerWidth, height: window.innerHeight }))
+  }, [])
+
+  // Abierto: se mide antes de pintar y se sigue al disparador si cambia la ventana o scrollea algún contenedor.
+  useLayoutEffect(() => {
+    if (!open) return
+    updatePlacement()
+    const onScroll = (e: Event) => {
+      // El scroll de la propia lista del popover no mueve al disparador.
+      if (e.target instanceof Node && popRef.current?.contains(e.target)) return
+      updatePlacement()
+    }
+    window.addEventListener('resize', updatePlacement)
+    window.addEventListener('scroll', onScroll, true) // captura: también el scroll del cuerpo del modal
+    return () => {
+      window.removeEventListener('resize', updatePlacement)
+      window.removeEventListener('scroll', onScroll, true)
+    }
+  }, [open, updatePlacement])
+
   function openPopover() {
     setQuery('')
     setActiveIndex(0)
     setMode('list')
     setCreateError(null)
+    setPlacement(null)
     setOpen(true)
   }
 
@@ -157,6 +191,11 @@ export function EntityPicker({
 
   /** Teclado del popover. Enter/Esc se consumen siempre (no deben llegar al formulario de afuera). */
   function onPopoverKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Tab' && mode === 'list') {
+      // Tab sale de la lista: se cierra el popover y el navegador lleva el foco al campo siguiente/anterior.
+      closePopover(false)
+      return
+    }
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
@@ -214,7 +253,25 @@ export function EntityPicker({
         </button>
 
         {open && (
-          <div className="ig-picker-pop" role="dialog" aria-label={`Elegir ${entityName}`} onKeyDown={onPopoverKeyDown}>
+          <div
+            ref={popRef}
+            className="ig-picker-pop is-floating"
+            role="dialog"
+            aria-label={`Elegir ${entityName}`}
+            onKeyDown={onPopoverKeyDown}
+            style={
+              placement
+                ? {
+                    position: 'fixed',
+                    top: placement.top,
+                    bottom: placement.bottom,
+                    left: placement.left,
+                    width: placement.width,
+                    maxHeight: placement.maxHeight,
+                  }
+                : { position: 'fixed', visibility: 'hidden' }
+            }
+          >
             {mode === 'list' ? (
               <>
                 <div className="ig-pop-search">

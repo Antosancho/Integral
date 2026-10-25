@@ -3,7 +3,9 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { describe, it, beforeEach, vi, expect } from 'vitest'
 import type { ProductFromApi } from '../../../electron-api'
 import { makeProduct } from '../../../test/fixtures'
+import userEvent from '@testing-library/user-event'
 import ProductFormModal from '../ProductFormModal'
+import { PRICING_STORAGE_KEY } from '../../../utils/pricing'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const api = () => (window as any).api
@@ -29,6 +31,9 @@ function productForEdit(): ProductFromApi {
 }
 
 beforeEach(() => {
+  localStorage.clear()
+  // Base de los tests: cálculo APAGADO (el default real, activado, lo prueba T1 limpiando el storage).
+  localStorage.setItem('integral.pricing', JSON.stringify({ enabled: false, marginPct: 30, roundingStep: 0 }))
   ;(window as unknown as { api: unknown }).api = {
     listCategories: vi.fn().mockResolvedValue([{ id: 1, name: 'CatTest' }]),
     listSuppliers: vi.fn().mockResolvedValue([{ id: 1, name: 'ProvTest', phone: null, notes: null }]),
@@ -64,6 +69,19 @@ const barcodeInput = () => screen.getByLabelText(/^Código de barras/) as HTMLIn
 const stockInput = () => screen.getByLabelText(/^Stock inicial/) as HTMLInputElement
 const minStockInput = () => screen.getByLabelText(/^Stock mínimo/) as HTMLInputElement
 const saveButton = (name = 'Guardar producto') => screen.getByRole('button', { name })
+const autoCheckbox = () => screen.getByRole('checkbox', { name: 'Calcular con margen' }) as HTMLInputElement
+const marginInput = () => screen.getByLabelText('Margen (%)') as HTMLInputElement
+const roundingSelect = () => screen.getByLabelText('Redondeo') as HTMLSelectElement
+const setStep = (value: string) => fireEvent.change(roundingSelect(), { target: { value } })
+const savePrefs = (p: object) => localStorage.setItem(PRICING_STORAGE_KEY, JSON.stringify(p))
+const storedPrefs = () => JSON.parse(localStorage.getItem(PRICING_STORAGE_KEY) ?? 'null')
+/** localStorage falso cuyos métodos lanzan (se pueden pisar algunos con `overrides`). Lo usa T17. */
+function brokenStorage(overrides: Partial<Storage> = {}): Storage {
+  const fail = () => {
+    throw new Error('sin storage')
+  }
+  return { length: 0, clear: fail, key: fail, getItem: fail, removeItem: fail, setItem: fail, ...overrides } as Storage
+}
 
 const type = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } })
 
@@ -441,5 +459,298 @@ describe('Modo edición (con product prop)', () => {
     const { rerender } = renderModal({ product: productForEdit() })
     rerender(<ProductFormModal open={true} product={second} onClose={vi.fn()} onSuccess={vi.fn()} />)
     expect((nameInput() as HTMLInputElement).value).toBe('Otro Producto')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Layout sin scroll
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ProductFormModal — layout sin scroll', () => {
+  it('L1 el modal usa pf-modal y la grilla de 4 columnas', () => {
+    renderModal()
+    expect(screen.getByRole('dialog', { name: 'Nuevo producto' })).toHaveClass('ig-modal', 'pf-modal')
+    expect(document.querySelector('.pf-grid')).not.toBeNull()
+    expect(document.querySelector('.ig-form-grid')).toBeNull()
+  })
+
+  it('L2 Nombre y Código de barras ocupan 2 columnas', () => {
+    renderModal()
+    expect(nameInput().closest('.ig-field')).toHaveClass('span-2')
+    expect(barcodeInput().closest('.ig-field')).toHaveClass('span-2')
+  })
+
+  it('L3 el vencimiento va bajo las columnas de stock', () => {
+    renderModal()
+    type(stockInput(), '12')
+    expect(screen.getByLabelText(/Vencimiento del lote/i).closest('.ig-field')).toHaveClass('pf-expiry')
+  })
+
+  it('L4 el error de guardado aparece en el pie, al lado de los botones', async () => {
+    renderModal()
+    api().createProduct.mockRejectedValue(new Error('disco lleno'))
+    await fillMinimumValidForm()
+    fireEvent.click(saveButton())
+    const msg = await screen.findByText('No se pudo guardar el producto. Probá de nuevo.')
+    expect(msg.closest('.ig-modal-foot')).not.toBeNull()
+    expect(msg.closest('.ig-modal-body')).toBeNull()
+  })
+
+  it('L5 el popover de Proveedor flota (position: fixed) y queda dentro del diálogo (focus trap)', async () => {
+    renderModal()
+    fireEvent.click(screen.getByRole('button', { name: /^Proveedor/ }))
+    const pop = await screen.findByRole('dialog', { name: 'Elegir proveedor' })
+    expect(pop.style.position).toBe('fixed')
+    expect(pop).toHaveClass('is-floating')
+    expect(screen.getByRole('dialog', { name: 'Nuevo producto' }).contains(pop)).toBe(true)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Precio con margen
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ProductFormModal — precio con margen', () => {
+  it('T1 sin preferencias guardadas: cálculo activado, margen 30 y redondeo $ 100', () => {
+    localStorage.clear()
+    renderModal()
+    type(purchaseInput(), '1234')
+    expect(autoCheckbox().checked).toBe(true)
+    expect(marginInput().value).toBe('30')
+    expect(marginInput()).toBeEnabled()
+    expect(roundingSelect().value).toBe('100')
+    expect(roundingSelect()).toBeEnabled()
+    expect(saleInput().readOnly).toBe(false)
+    expect(saleInput().value).toBe('1.600,00')
+  })
+
+  it('T2 tildar completa el precio de venta con el costo actual', () => {
+    renderModal()
+    type(purchaseInput(), '1000')
+    fireEvent.click(autoCheckbox())
+    expect(saleInput().value).toBe('1.300,00')
+    expect(saleInput().readOnly).toBe(false)
+    expect(marginInput()).toBeEnabled()
+    expect(roundingSelect()).toBeEnabled()
+  })
+
+  it('T3 con el cálculo activo el precio sigue al costo y redondea al más cercano (la mitad sube)', () => {
+    renderModal()
+    fireEvent.click(autoCheckbox())
+    type(marginInput(), '0')
+    setStep('100')
+    const expected: [string, string][] = [
+      ['1570', '1.600,00'],
+      ['1530', '1.500,00'],
+      ['1550', '1.600,00'],
+      ['1549,99', '1.500,00'],
+    ]
+    for (const [cost, sale] of expected) {
+      type(purchaseInput(), cost)
+      expect(saleInput().value).toBe(sale)
+    }
+  })
+
+  it('T4 cambiar el redondeo recalcula', () => {
+    renderModal()
+    fireEvent.click(autoCheckbox())
+    type(purchaseInput(), '1234')
+    expect(saleInput().value).toBe('1.604,20')
+    const steps: [string, string][] = [
+      ['10', '1.600,00'],
+      ['50', '1.600,00'],
+      ['100', '1.600,00'],
+      ['500', '1.500,00'],
+      ['1000', '2.000,00'],
+      ['0', '1.604,20'],
+    ]
+    for (const [step, sale] of steps) {
+      setStep(step)
+      expect(saleInput().value).toBe(sale)
+    }
+  })
+
+  it('T5 cambiar el margen recalcula y acepta coma decimal', () => {
+    renderModal()
+    fireEvent.click(autoCheckbox())
+    type(purchaseInput(), '1000')
+    type(marginInput(), '45')
+    expect(saleInput().value).toBe('1.450,00')
+    type(marginInput(), '32,5')
+    expect(saleInput().value).toBe('1.325,00')
+  })
+
+  it('T6 un margen inválido no recalcula y al salir vuelve al último válido', () => {
+    renderModal()
+    fireEvent.click(autoCheckbox())
+    type(purchaseInput(), '1000')
+    for (const bad of ['abc', '2000', '-5']) {
+      type(marginInput(), bad)
+      expect(saleInput().value).toBe('1.300,00')
+      fireEvent.blur(marginInput())
+      expect(marginInput().value).toBe('30')
+      expect(saleInput().value).toBe('1.300,00')
+    }
+  })
+
+  it('T7 Enter en el margen normaliza el texto y no guarda', () => {
+    renderModal()
+    fireEvent.click(autoCheckbox())
+    type(marginInput(), '30,50')
+    fireEvent.keyDown(marginInput(), { key: 'Enter' })
+    expect(marginInput().value).toBe('30,5')
+    expect(api().createProduct).not.toHaveBeenCalled()
+  })
+
+  it('T8 sin costo, el precio queda vacío y lo explica', () => {
+    renderModal()
+    fireEvent.click(autoCheckbox())
+    expect(saleInput().value).toBe('')
+    expect(screen.getByText('Completá el precio de compra para calcularlo.')).toBeInTheDocument()
+  })
+
+  it('T9 tipear el precio de venta apaga el cálculo solo para este producto', () => {
+    renderModal()
+    fireEvent.click(autoCheckbox())
+    type(purchaseInput(), '1000')
+    type(saleInput(), '1.500')
+    expect(saleInput().value).toBe('1.500')
+    expect(autoCheckbox().checked).toBe(false)
+    expect(marginInput()).toBeDisabled()
+    expect(roundingSelect()).toBeDisabled()
+    expect(storedPrefs().enabled).toBe(true)
+    type(purchaseInput(), '2000')
+    expect(saleInput().value).toBe('1.500')
+  })
+
+  it('T10 destildar deja el último precio y se puede editar', () => {
+    renderModal()
+    type(purchaseInput(), '1000')
+    fireEvent.click(autoCheckbox())
+    fireEvent.click(autoCheckbox())
+    expect(saleInput().value).toBe('1.300,00')
+    type(saleInput(), '1.500')
+    expect(saleInput().value).toBe('1.500')
+    type(purchaseInput(), '2000')
+    expect(saleInput().value).toBe('1.500')
+    expect(storedPrefs().enabled).toBe(false)
+  })
+
+  it('T11 la ayuda muestra el margen real después de redondear', () => {
+    renderModal()
+    fireEvent.click(autoCheckbox())
+    setStep('100')
+    type(purchaseInput(), '1234')
+    expect(saleInput().value).toBe('1.600,00')
+    expect(screen.getByText('Margen: 29,7 % · ganancia $ 366,00 por unidad')).toBeInTheDocument()
+  })
+
+  it('T12 Ctrl+Enter guarda con el precio calculado', async () => {
+    savePrefs({ enabled: true, marginPct: 30, roundingStep: 100 })
+    api().createProduct.mockResolvedValue(createdProduct())
+    renderModal()
+    expect(autoCheckbox().checked).toBe(true)
+    type(nameInput(), 'Producto Test')
+    type(purchaseInput(), '1234')
+    await pickCategory()
+    await pickSupplier()
+    fireEvent.keyDown(nameInput(), { key: 'Enter', ctrlKey: true })
+    await waitFor(() =>
+      expect(api().createProduct).toHaveBeenCalledWith(expect.objectContaining({ purchasePrice: '1234', salePrice: '1600' })),
+    )
+  })
+
+  it('T13 las preferencias se guardan al cambiarlas y se recuerdan al reabrir', () => {
+    const { rerender } = renderModal()
+    fireEvent.click(autoCheckbox())
+    type(marginInput(), '40')
+    setStep('100')
+    expect(storedPrefs()).toEqual({ enabled: true, marginPct: 40, roundingStep: 100 })
+    rerender(<ProductFormModal open={false} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    rerender(<ProductFormModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />)
+    expect(autoCheckbox().checked).toBe(true)
+    expect(marginInput().value).toBe('40')
+    expect(roundingSelect().value).toBe('100')
+  })
+
+  it('T14 en edición arranca apagado aunque la preferencia esté prendida, y no pisa el precio', () => {
+    savePrefs({ enabled: true, marginPct: 30, roundingStep: 100 })
+    renderModal({ product: productForEdit() })
+    expect(autoCheckbox().checked).toBe(false)
+    expect(saleInput().value).toBe('1.000,00')
+    expect(marginInput()).toBeDisabled()
+    expect(roundingSelect().value).toBe('100')
+  })
+
+  it('T15 en edición, tildar recalcula con el costo del producto pero no cambia cómo arranca el alta', () => {
+    savePrefs({ enabled: false, marginPct: 30, roundingStep: 0 })
+    renderModal({ product: productForEdit() })
+    fireEvent.click(autoCheckbox())
+    expect(saleInput().value).toBe('130,00')
+    expect(storedPrefs().enabled).toBe(false)
+  })
+
+  it('T16 en edición, el margen y el redondeo elegidos sí se recuerdan', () => {
+    renderModal({ product: productForEdit() })
+    fireEvent.click(autoCheckbox())
+    type(marginInput(), '50')
+    setStep('10')
+    expect(saleInput().value).toBe('150,00')
+    expect(storedPrefs()).toEqual({ enabled: false, marginPct: 50, roundingStep: 10 })
+  })
+
+  it('T17 si localStorage falla, usa los valores por defecto y el cálculo funciona', () => {
+    try {
+      vi.stubGlobal('localStorage', brokenStorage())
+      renderModal()
+      expect(autoCheckbox().checked).toBe(true)
+      expect(marginInput().value).toBe('30')
+      expect(roundingSelect().value).toBe('100')
+      type(purchaseInput(), '1234')
+      expect(saleInput().value).toBe('1.600,00')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('T18 teclado: Tab recorre la fila de precios y Espacio tilda', async () => {
+    const user = userEvent.setup()
+    renderModal()
+    await waitFor(() => expect(nameInput()).toHaveFocus())
+    purchaseInput().focus()
+    await user.tab()
+    expect(autoCheckbox()).toHaveFocus()
+    await user.tab()
+    expect(saleInput()).toHaveFocus()
+    autoCheckbox().focus()
+    await user.keyboard(' ')
+    expect(autoCheckbox().checked).toBe(true)
+    purchaseInput().focus()
+    await user.tab()
+    expect(autoCheckbox()).toHaveFocus()
+    await user.tab()
+    expect(marginInput()).toHaveFocus()
+    await user.tab()
+    expect(roundingSelect()).toHaveFocus()
+    await user.tab()
+    expect(saleInput()).toHaveFocus()
+  })
+
+  it('T19 el orden del DOM es el orden visual y de Tab', () => {
+    renderModal()
+    const order = [
+      nameInput(),
+      screen.getByRole('button', { name: /^Categoría/ }),
+      screen.getByRole('button', { name: /^Proveedor/ }),
+      purchaseInput(),
+      autoCheckbox(),
+      marginInput(),
+      roundingSelect(),
+      saleInput(),
+      barcodeInput(),
+      stockInput(),
+      minStockInput(),
+    ]
+    for (let i = 0; i < order.length - 1; i++) {
+      expect(order[i].compareDocumentPosition(order[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
   })
 })
