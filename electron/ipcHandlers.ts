@@ -37,6 +37,7 @@ import {
   type CreateSupplierInput,
   type ListStockMovementsFilters,
   type ProductFilters,
+  type StatsRangeInput,
   type UpdateCategoryInput,
   type UpdateProductInput,
   type UpdateSupplierInput
@@ -191,29 +192,29 @@ export function buildIpcHandlers(): IpcHandlerMap {
       getSaleById(id)
     ),
 
-    "stats:getSummary": withChannelError<{ from: Date; to: Date }>(
+    "stats:getSummary": withChannelError<StatsRangeInput>(
       "stats:getSummary",
-      ({ from, to }) => getSalesSummary(from, to)
+      ({ from, to, intervals }) => getSalesSummary(from, to, intervals)
     ),
-    "stats:getTopProductsByQuantity": withChannelError<{ from: Date; to: Date; limit: number }>(
+    "stats:getTopProductsByQuantity": withChannelError<StatsRangeInput & { limit: number }>(
       "stats:getTopProductsByQuantity",
-      ({ from, to, limit }) => getTopProductsByQuantity(from, to, limit)
+      ({ from, to, limit, intervals }) => getTopProductsByQuantity(from, to, limit, intervals)
     ),
-    "stats:getTopProductsByRevenue": withChannelError<{ from: Date; to: Date; limit: number }>(
+    "stats:getTopProductsByRevenue": withChannelError<StatsRangeInput & { limit: number }>(
       "stats:getTopProductsByRevenue",
-      ({ from, to, limit }) => getTopProductsByRevenue(from, to, limit)
+      ({ from, to, limit, intervals }) => getTopProductsByRevenue(from, to, limit, intervals)
     ),
-    "stats:getSalesByHour": withChannelError<{ from: Date; to: Date }>(
+    "stats:getSalesByHour": withChannelError<StatsRangeInput>(
       "stats:getSalesByHour",
-      ({ from, to }) => getSalesByHour(from, to)
+      ({ from, to, intervals }) => getSalesByHour(from, to, intervals)
     ),
-    "stats:getSalesByWeekday": withChannelError<{ from: Date; to: Date }>(
+    "stats:getSalesByWeekday": withChannelError<StatsRangeInput>(
       "stats:getSalesByWeekday",
-      ({ from, to }) => getSalesByWeekday(from, to)
+      ({ from, to, intervals }) => getSalesByWeekday(from, to, intervals)
     ),
-    "stats:getLowRotationProducts": withChannelError<{ from: Date; to: Date; limit: number }>(
+    "stats:getLowRotationProducts": withChannelError<StatsRangeInput & { limit: number }>(
       "stats:getLowRotationProducts",
-      ({ from, to, limit }) => getLowRotationProducts(from, to, limit)
+      ({ from, to, limit, intervals }) => getLowRotationProducts(from, to, limit, intervals)
     )
   }
 }

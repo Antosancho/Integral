@@ -126,3 +126,14 @@ const api: ElectronApi = {
 }
 
 void api
+
+// El input de stats sigue aceptando { from, to } y acepta `intervals` opcional (filtro horario).
+const statsInputLegacy: Parameters<ElectronApi["getSalesSummary"]>[0] = { from: new Date(), to: new Date() }
+const statsInputWithIntervals: Parameters<ElectronApi["getTopProductsByQuantity"]>[0] = {
+  from: new Date(),
+  to: new Date(),
+  limit: 5,
+  intervals: [{ from: new Date(), to: new Date() }]
+}
+void statsInputLegacy
+void statsInputWithIntervals

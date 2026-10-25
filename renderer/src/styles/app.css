@@ -55,6 +55,13 @@ html, body, #root { height: 100%; }
 .ig-bar > i.is-peak { background: var(--chart-1); }
 select.ig-input { appearance: auto; }
 
+/* === Estadísticas: filtro horario === */
+/* Campos HH:MM angostos; un mensaje de error puede ensanchar el campo sin achicar el input. */
+.stats-hours .stats-time .ig-input { width: 112px; }
+/* Descripción de la franja alineada con la altura de los inputs. */
+.stats-hours .stats-hours-desc { display: inline-flex; align-items: center; min-height: var(--control-md); }
+/* === fin Estadísticas: filtro horario === */
+
 /* Botones con estado "presionado" (filtros tipo toggle) */
 .ig-btn[aria-pressed="true"] { background: var(--primary-soft); color: var(--on-primary-soft); border-color: var(--primary); }
 

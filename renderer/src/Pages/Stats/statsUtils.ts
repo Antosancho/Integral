@@ -30,6 +30,30 @@ export function getEndOfDay(d: Date): Date {
 // ---------------------------------------------------------------------------
 
 /**
+ * Rango de días ancla del preset tomando `ref` como "hoy".
+ * Con filtro horario, `ref` es el día comercial en curso (ver hourFilter.ts › getBusinessToday).
+ */
+export function getPeriodDatesAt(preset: Exclude<PeriodPreset, 'custom'>, ref: Date): DateRange {
+  switch (preset) {
+    case 'today':
+      return { from: getStartOfDay(ref), to: getEndOfDay(ref) }
+    case 'week': {
+      // getDay() retorna 0=Dom ... 6=Sáb; el offset al lunes es (day + 6) % 7
+      const offsetToMonday = (ref.getDay() + 6) % 7
+      const monday = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - offsetToMonday)
+      const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6)
+      return { from: getStartOfDay(monday), to: getEndOfDay(sunday) }
+    }
+    case 'month': {
+      const firstDay = new Date(ref.getFullYear(), ref.getMonth(), 1)
+      // Día 0 del mes siguiente = último día del mes actual
+      const lastDay = new Date(ref.getFullYear(), ref.getMonth() + 1, 0)
+      return { from: getStartOfDay(firstDay), to: getEndOfDay(lastDay) }
+    }
+  }
+}
+
+/**
  * Calcula el DateRange correspondiente al preset seleccionado.
  * Para 'custom', el caller debe garantizar que customFrom y customTo están definidos.
  */
@@ -38,35 +62,8 @@ export function getPeriodDates(
   customFrom?: Date,
   customTo?: Date
 ): DateRange {
-  switch (preset) {
-    case 'today': {
-      const today = new Date()
-      return { from: getStartOfDay(today), to: getEndOfDay(today) }
-    }
-
-    case 'week': {
-      const today = new Date()
-      const dayOfWeek = today.getDay()
-      // getDay() retorna 0=Dom ... 6=Sáb; el offset al lunes es (day + 6) % 7
-      const offsetToMonday = (dayOfWeek + 6) % 7
-      const monday = new Date(today)
-      monday.setDate(today.getDate() - offsetToMonday)
-      const sunday = new Date(monday)
-      sunday.setDate(monday.getDate() + 6)
-      return { from: getStartOfDay(monday), to: getEndOfDay(sunday) }
-    }
-
-    case 'month': {
-      const now = new Date()
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
-      // Día 0 del mes siguiente = último día del mes actual
-      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-      return { from: getStartOfDay(firstDay), to: getEndOfDay(lastDay) }
-    }
-
-    case 'custom':
-      return { from: customFrom!, to: customTo! }
-  }
+  if (preset === 'custom') return { from: customFrom!, to: customTo! }
+  return getPeriodDatesAt(preset, new Date())
 }
 
 // ---------------------------------------------------------------------------
