@@ -1,0 +1,46 @@
+<!-- @dsCard group="Formularios" height=330 subtitle="texto · monto · error · solo lectura" -->
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><title>Input — Integral</title>
+<style>body{padding:20px;background:var(--bg)} .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap} .col{display:grid;gap:16px} .cap{font:500 12px/16px var(--font-sans);color:var(--ink-subtle);margin-bottom:6px} </style></head>
+<body>
+
+<div class="ig-form-grid" style="max-width:720px">
+ <div class="ig-field"><label class="ig-label">Nombre <span class="req">*</span></label><input class="ig-input" value="Yerba Playadito 1 kg"></div>
+ <div class="ig-field"><label class="ig-label">Precio de venta <span class="req">*</span></label><div class="ig-input-wrap"><span class="ig-prefix">$</span><input class="ig-input ig-input-amount is-focus" value="4.890,00" inputmode="decimal"></div><span class="ig-help">Margen sobre compra: 32 %</span></div>
+ <div class="ig-field"><label class="ig-label">Código de barras</label><input class="ig-input is-error" value="7791234500017" style="font-family:var(--font-mono)"><span class="ig-error"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <line x1="12" x2="12" y1="8" y2="12" />
+  <line x1="12" x2="12.01" y1="16" y2="16" />
+</svg>Ese código ya lo usa «Yerba Playadito 1 kg».</span></div>
+ <div class="ig-field"><label class="ig-label">Stock</label><input class="ig-input is-readonly" value="6" readonly><span class="ig-help">Para modificar el stock usá «Cargar stock».</span></div>
+ <div class="ig-field"><label class="ig-label">Buscar</label><div class="ig-input-wrap"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="11" cy="11" r="8" />
+  <path d="m21 21-4.3-4.3" />
+</svg><input class="ig-input" placeholder="Nombre o código de barras"></div></div>
+ <div class="ig-field"><label class="ig-label">Vencimiento del lote</label><input class="ig-input" placeholder="DD/MM/AAAA" value="15/11/2026"></div>
+</div>
+</body>
+</html>

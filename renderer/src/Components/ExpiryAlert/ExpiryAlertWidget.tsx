@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Check, TriangleAlert, X } from 'lucide-react'
 import type { StockMovementFromApi } from '../../electron-api'
-import { classifyExpiry, formatExpiryInput } from '../../utils/expiry'
-import './ExpiryAlertWidget.css'
+import { Button } from '../../ui/Button'
+import { formatDate, formatDayMonth } from '../../utils/format'
+import { classifyExpiry } from '../../utils/expiry'
 
 // ---------------------------------------------------------------------------
 // Componente interno: fila del popup para un lote
@@ -9,33 +11,30 @@ import './ExpiryAlertWidget.css'
 
 interface RowProps {
   m: StockMovementFromApi
+  /** 'expired' → "Venció el…"; 'expiring_today' → "Vence hoy…". */
+  status: 'expired' | 'expiring_today'
   onAlreadyRemoved: (id: number) => void
   onRemindLater: (id: number) => void
 }
 
-function Row({ m, onAlreadyRemoved, onRemindLater }: RowProps) {
+function Row({ m, status, onAlreadyRemoved, onRemindLater }: RowProps) {
+  const detail =
+    status === 'expired' && m.expiryDate
+      ? `Venció el ${formatDate(m.expiryDate)} · lote cargado el ${formatDayMonth(m.date)} · ${m.quantity} u.`
+      : `Vence hoy · ${m.quantity} u.`
+
   return (
-    <div className="expiry-alert__row">
-      <div className="expiry-alert__row-info">
-        <span className="expiry-alert__row-name">{m.product.name}</span>
-        <span className="expiry-alert__row-meta">
-          Cantidad: {m.quantity} · Vence: {formatExpiryInput(m.expiryDate)}
-        </span>
+    <div className="ig-expiry-row">
+      <div className="what">
+        <strong>{m.product.name}</strong>
+        <span>{detail}</span>
       </div>
-      <div className="expiry-alert__row-actions">
-        <button
-          className="expiry-alert__btn-remove"
-          onClick={() => onAlreadyRemoved(m.id)}
-        >
-          Ya lo saqué
-        </button>
-        <button
-          className="expiry-alert__btn-remind"
-          onClick={() => onRemindLater(m.id)}
-        >
-          Recordame luego
-        </button>
-      </div>
+      <Button size="sm" variant="secondary" onClick={() => onRemindLater(m.id)}>
+        Recordame luego
+      </Button>
+      <Button size="sm" variant="primary" icon={Check} onClick={() => onAlreadyRemoved(m.id)}>
+        Ya lo saqué
+      </Button>
     </div>
   )
 }
@@ -50,6 +49,8 @@ function Row({ m, onAlreadyRemoved, onRemindLater }: RowProps) {
  * - "Ya lo saqué" persiste el descarte (expiryDismissedAt) — no reaparece al recargar.
  * - "Recordame luego" descarta solo en sesión (estado local) — vuelve al recargar.
  * - Si no hay lotes visibles, el componente retorna null (no renderiza nada).
+ *
+ * Es blanco con borde rojo en ambos temas (tokens `expiry-*`). Esc cierra el popup.
  */
 export default function ExpiryAlertWidget() {
   const [items, setItems] = useState<StockMovementFromApi[]>([])
@@ -59,6 +60,7 @@ export default function ExpiryAlertWidget() {
   const [error, setError] = useState<string | null>(null)
 
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   // Cargar lotes al montar el componente
   useEffect(() => {
@@ -107,12 +109,12 @@ export default function ExpiryAlertWidget() {
     [visible]
   )
 
-  // Texto del botón: solo incluye segmentos con count > 0
-  const label = useMemo(() => {
-    const segments: string[] = []
-    if (expired.length > 0) segments.push(`${expired.length} vencido${expired.length === 1 ? '' : 's'}`)
-    if (today.length > 0) segments.push(`${today.length} vence${today.length === 1 ? '' : 'n'} hoy`)
-    return `⚠ ${segments.join(' · ')}`
+  // Segmentos del botón: solo los que tienen count > 0
+  const segments = useMemo(() => {
+    const out: string[] = []
+    if (expired.length > 0) out.push(`${expired.length} vencido${expired.length === 1 ? '' : 's'}`)
+    if (today.length > 0) out.push(`${today.length} vence${today.length === 1 ? '' : 'n'} hoy`)
+    return out
   }, [expired.length, today.length])
 
   // Descarte permanente: persiste expiryDismissedAt en DB
@@ -134,30 +136,67 @@ export default function ExpiryAlertWidget() {
     })
   }
 
+  function closePopup() {
+    setPopupOpen(false)
+    triggerRef.current?.focus()
+  }
+
   // No renderizar si hay error de carga, si está cargando o si no hay items visibles
   if (loading || error || visible.length === 0) return null
 
   return (
-    <div className="expiry-alert" ref={wrapperRef}>
+    <div className="ig-anchor" ref={wrapperRef}>
       <button
-        className="expiry-alert__trigger"
+        ref={triggerRef}
+        type="button"
+        className="ig-expiry"
+        aria-haspopup="dialog"
+        aria-expanded={popupOpen}
         onClick={() => setPopupOpen((v) => !v)}
-        aria-label="Ver lotes vencidos"
       >
-        {label}
+        <TriangleAlert size={16} strokeWidth={2} aria-hidden="true" className="ig-icon ig-icon-sm" />
+        {segments.map((text, i) => (
+          <Fragment key={text}>
+            {i > 0 && (
+              <>
+                {' '}
+                <span className="sep">·</span>{' '}
+              </>
+            )}
+            {text}
+          </Fragment>
+        ))}
       </button>
 
       {popupOpen && (
-        <div className="expiry-alert__popup">
+        <div
+          className="ig-expiry-pop"
+          role="dialog"
+          aria-label="Lotes a revisar"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              e.stopPropagation()
+              closePopup()
+            }
+          }}
+        >
+          <div className="ig-modal-head">
+            <div>
+              <h2>Lotes a revisar</h2>
+              <p>Sacalos de la góndola o recordalos más tarde.</p>
+            </div>
+            <Button variant="ghost" size="sm" iconOnly icon={X} aria-label="Cerrar" onClick={closePopup} />
+          </div>
+
           {expired.length > 0 && (
             <section>
-              <h4 className="expiry-alert__section-title expiry-alert__section-title--expired">
-                Vencidos
-              </h4>
+              <div className="ig-expiry-group">Vencidos · {expired.length}</div>
               {expired.map((m) => (
                 <Row
                   key={m.id}
                   m={m}
+                  status="expired"
                   onAlreadyRemoved={handleAlreadyRemoved}
                   onRemindLater={handleRemindLater}
                 />
@@ -167,13 +206,12 @@ export default function ExpiryAlertWidget() {
 
           {today.length > 0 && (
             <section>
-              <h4 className="expiry-alert__section-title expiry-alert__section-title--today">
-                Vencen hoy
-              </h4>
+              <div className="ig-expiry-group">Vencen hoy · {today.length}</div>
               {today.map((m) => (
                 <Row
                   key={m.id}
                   m={m}
+                  status="expiring_today"
                   onAlreadyRemoved={handleAlreadyRemoved}
                   onRemindLater={handleRemindLater}
                 />

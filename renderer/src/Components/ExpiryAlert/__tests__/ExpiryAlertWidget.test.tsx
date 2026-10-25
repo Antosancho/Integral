@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, beforeEach, vi, expect } from 'vitest'
 import type { StockMovementFromApi } from '../../../electron-api'
@@ -78,51 +78,51 @@ describe('ExpiryAlertWidget', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('Con items mixtos: botón dice "⚠ 1 vencido · 2 vencen hoy"', async () => {
+  it('Con items mixtos: botón dice "1 vencido · 2 vencen hoy"', async () => {
     mockList.mockResolvedValue([
       mockMovement({ id: 1, expiryDate: yesterday() }),
       mockMovement({ id: 2, expiryDate: todayNoon() }),
       mockMovement({ id: 3, expiryDate: todayNoon() })
     ])
     render(<ExpiryAlertWidget />)
-    await waitFor(() => screen.getByRole('button', { name: /Ver lotes vencidos/i }))
-    expect(screen.getByRole('button', { name: /Ver lotes vencidos/i }).textContent).toBe('⚠ 1 vencido · 2 vencen hoy')
+    await waitFor(() => screen.getByRole('button', { name: /vencid|vence/i }))
+    expect(screen.getByRole('button', { name: /vencid|vence/i }).textContent).toBe('1 vencido · 2 vencen hoy')
   })
 
-  it('Solo vencidos: botón dice "⚠ 2 vencidos" sin segmento "vencen hoy"', async () => {
+  it('Solo vencidos: botón dice "2 vencidos" sin segmento "vencen hoy"', async () => {
     mockList.mockResolvedValue([
       mockMovement({ id: 1, expiryDate: yesterday() }),
       mockMovement({ id: 2, expiryDate: yesterday() })
     ])
     render(<ExpiryAlertWidget />)
-    await waitFor(() => screen.getByRole('button', { name: /Ver lotes vencidos/i }))
-    expect(screen.getByRole('button', { name: /Ver lotes vencidos/i }).textContent).toBe('⚠ 2 vencidos')
+    await waitFor(() => screen.getByRole('button', { name: /vencid|vence/i }))
+    expect(screen.getByRole('button', { name: /vencid|vence/i }).textContent).toBe('2 vencidos')
   })
 
-  it('Solo vencen hoy: botón dice "⚠ 3 vencen hoy" sin segmento "vencidos"', async () => {
+  it('Solo vencen hoy: botón dice "3 vencen hoy" sin segmento "vencidos"', async () => {
     mockList.mockResolvedValue([
       mockMovement({ id: 1, expiryDate: todayNoon() }),
       mockMovement({ id: 2, expiryDate: todayNoon() }),
       mockMovement({ id: 3, expiryDate: todayNoon() })
     ])
     render(<ExpiryAlertWidget />)
-    await waitFor(() => screen.getByRole('button', { name: /Ver lotes vencidos/i }))
-    expect(screen.getByRole('button', { name: /Ver lotes vencidos/i }).textContent).toBe('⚠ 3 vencen hoy')
+    await waitFor(() => screen.getByRole('button', { name: /vencid|vence/i }))
+    expect(screen.getByRole('button', { name: /vencid|vence/i }).textContent).toBe('3 vencen hoy')
   })
 
   it('Click abre popup; segundo click cierra popup', async () => {
     const user = userEvent.setup()
     mockList.mockResolvedValue([mockMovement({ id: 1, expiryDate: yesterday() })])
     render(<ExpiryAlertWidget />)
-    const btn = await waitFor(() => screen.getByRole('button', { name: /Ver lotes vencidos/i }))
+    const btn = await waitFor(() => screen.getByRole('button', { name: /vencid|vence/i }))
 
     // Abrir
     await user.click(btn)
-    expect(screen.getByText('Vencidos')).toBeInTheDocument()
+    expect(screen.getByText(/^Vencidos · 1$/)).toBeInTheDocument()
 
     // Cerrar
     await user.click(btn)
-    expect(screen.queryByText('Vencidos')).toBeNull()
+    expect(screen.queryByText(/^Vencidos/)).toBeNull()
   })
 
   it('Click en "Ya lo saqué" llama dismissStockMovementExpiry y remueve la fila', async () => {
@@ -130,7 +130,7 @@ describe('ExpiryAlertWidget', () => {
     mockDismiss.mockResolvedValue({})
     mockList.mockResolvedValue([mockMovement({ id: 42, expiryDate: yesterday() })])
     render(<ExpiryAlertWidget />)
-    const btn = await waitFor(() => screen.getByRole('button', { name: /Ver lotes vencidos/i }))
+    const btn = await waitFor(() => screen.getByRole('button', { name: /vencid|vence/i }))
     await user.click(btn) // abrir popup
 
     await waitFor(() => screen.getByText('Ya lo saqué'))
@@ -145,7 +145,7 @@ describe('ExpiryAlertWidget', () => {
     const user = userEvent.setup()
     mockList.mockResolvedValue([mockMovement({ id: 7, expiryDate: yesterday() })])
     render(<ExpiryAlertWidget />)
-    const btn = await waitFor(() => screen.getByRole('button', { name: /Ver lotes vencidos/i }))
+    const btn = await waitFor(() => screen.getByRole('button', { name: /vencid|vence/i }))
     await user.click(btn)
 
     await waitFor(() => screen.getByText('Recordame luego'))
@@ -160,17 +160,74 @@ describe('ExpiryAlertWidget', () => {
     mockDismiss.mockResolvedValue({})
     mockList.mockResolvedValue([mockMovement({ id: 1, expiryDate: yesterday() })])
     render(<ExpiryAlertWidget />)
-    const btn = await waitFor(() => screen.getByRole('button', { name: /Ver lotes vencidos/i }))
+    const btn = await waitFor(() => screen.getByRole('button', { name: /vencid|vence/i }))
     await user.click(btn)
     await waitFor(() => screen.getByText('Ya lo saqué'))
     await user.click(screen.getByText('Ya lo saqué'))
-    await waitFor(() => expect(screen.queryByRole('button', { name: /Ver lotes vencidos/i })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: /vencid|vence/i })).toBeNull())
   })
 
   it('Si la API falla al montar, el componente no rompe la app y no renderiza botón', async () => {
     mockList.mockRejectedValue(new Error('Network error'))
     render(<ExpiryAlertWidget />)
     await waitFor(() => expect(mockList).toHaveBeenCalled())
-    expect(screen.queryByRole('button', { name: /Ver lotes vencidos/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /vencid|vence/i })).toBeNull()
+  })
+
+  it('singular: "1 vencido" y "1 vence hoy"', async () => {
+    mockList.mockResolvedValue([mockMovement({ id: 1, expiryDate: todayNoon() })])
+    render(<ExpiryAlertWidget />)
+    const btn = await waitFor(() => screen.getByRole('button', { name: /vencid|vence/i }))
+    expect(btn.textContent).toBe('1 vence hoy')
+  })
+
+  it('combinado: "2 vencidos · 3 vencen hoy"', async () => {
+    mockList.mockResolvedValue([
+      mockMovement({ id: 1, expiryDate: yesterday() }),
+      mockMovement({ id: 2, expiryDate: yesterday() }),
+      mockMovement({ id: 3, expiryDate: todayNoon() }),
+      mockMovement({ id: 4, expiryDate: todayNoon() }),
+      mockMovement({ id: 5, expiryDate: todayNoon() })
+    ])
+    render(<ExpiryAlertWidget />)
+    const btn = await waitFor(() => screen.getByRole('button', { name: /vencid|vence/i }))
+    expect(btn.textContent).toBe('2 vencidos · 3 vencen hoy')
+  })
+
+  it('Esc con el popup abierto lo cierra y devuelve el foco al botón', async () => {
+    const user = userEvent.setup()
+    mockList.mockResolvedValue([mockMovement({ id: 1, expiryDate: yesterday() })])
+    render(<ExpiryAlertWidget />)
+    const btn = await waitFor(() => screen.getByRole('button', { name: /vencid|vence/i }))
+    await user.click(btn)
+    const popup = screen.getByRole('dialog', { name: 'Lotes a revisar' })
+    fireEvent.keyDown(popup, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Lotes a revisar' })).toBeNull()
+    expect(btn).toHaveFocus()
+  })
+
+  it('el detalle de un lote vencido incluye fecha de vencimiento, de carga y cantidad', async () => {
+    const user = userEvent.setup()
+    const expiry = new Date(2026, 4, 1, 12)
+    mockList.mockResolvedValue([mockMovement({ id: 1, quantity: 6, expiryDate: expiry, date: new Date(2026, 3, 10) })])
+    render(<ExpiryAlertWidget />)
+    await user.click(await waitFor(() => screen.getByRole('button', { name: /vencid|vence/i })))
+    expect(screen.getByText('Venció el 01/05/2026 · lote cargado el 10/04 · 6 u.')).toBeInTheDocument()
+  })
+
+  it('el detalle de un lote que vence hoy dice "Vence hoy · n u."', async () => {
+    const user = userEvent.setup()
+    mockList.mockResolvedValue([mockMovement({ id: 1, quantity: 3, expiryDate: todayNoon() })])
+    render(<ExpiryAlertWidget />)
+    await user.click(await waitFor(() => screen.getByRole('button', { name: /vencid|vence/i })))
+    expect(screen.getByText('Vence hoy · 3 u.')).toBeInTheDocument()
+  })
+
+  it('no usa el glifo ⚠ (usa un ícono lucide)', async () => {
+    mockList.mockResolvedValue([mockMovement({ id: 1, expiryDate: yesterday() })])
+    const { container } = render(<ExpiryAlertWidget />)
+    await waitFor(() => screen.getByRole('button', { name: /vencid|vence/i }))
+    expect(container.textContent).not.toContain('⚠')
+    expect(container.querySelector('svg')).not.toBeNull()
   })
 })

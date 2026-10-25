@@ -1,0 +1,172 @@
+<!-- @dsCard group="Pantallas" height=768 width=1366 subtitle="Ventas — historial filtrable con detalle" page=true -->
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><title>ScreenSalesHistory — Integral</title>
+<style>body{background:var(--bg)} .ig-app{height:100vh;overflow:hidden} </style></head>
+<body>
+<div class="ig-app"><header class="ig-header">
+  <a class="ig-brand" href="#" aria-label="Factor Integral — inicio"><img src="/_blob/0140d0ab9e979f1edd362b46f3eca8a4" alt="Factor Integral" style="width:auto;height:30px;border-radius:0"></a>
+  <nav class="ig-nav" aria-label="Secciones"><a href="#"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z" />
+  <path d="M12 22V12" />
+  <path d="m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7" />
+  <path d="m7.5 4.27 9 5.15" />
+</svg>Stock</a><a href="#" aria-current="page"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="8" cy="21" r="1" />
+  <circle cx="19" cy="21" r="1" />
+  <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
+</svg>Ventas</a><a href="#"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+  <path d="M18 17V9" />
+  <path d="M13 17V5" />
+  <path d="M8 17v-3" />
+</svg>Estadísticas</a></nav>
+  <div class="ig-spacer"></div>
+  <button class="ig-expiry" aria-haspopup="dialog"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+  <path d="M12 9v4" />
+  <path d="M12 17h.01" />
+</svg>2 vencidos <span class="sep">·</span> 3 vencen hoy</button>
+</header>
+<main class="ig-page">
+ <div class="ig-page-head"><h1>Ventas</h1><div class="ig-seg" role="tablist"><button aria-selected="false">Nueva venta</button><button aria-selected="true">Historial</button></div><div class="ig-spacer"></div></div>
+ <div class="ig-filters">
+  <div class="ig-field"><label class="ig-label">Desde</label><input class="ig-input" value="24/10/2026" style="width:140px"></div>
+  <div class="ig-field"><label class="ig-label">Hasta</label><input class="ig-input" value="24/10/2026" style="width:140px"></div>
+  <div class="ig-field"><label class="ig-label">Producto</label><div class="ig-input-wrap" style="width:260px"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="11" cy="11" r="8" />
+  <path d="m21 21-4.3-4.3" />
+</svg><input class="ig-input" placeholder="Nombre o código"></div></div>
+  <div class="ig-field"><label class="ig-label">Medio de pago</label><button class="ig-picker" style="width:200px"><span>Todos</span><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m6 9 6 6 6-6" />
+</svg></button></div>
+  <button class="ig-btn ig-btn-ghost">Limpiar filtros</button>
+  <div style="flex:1"></div><div style="text-align:right"><div class="ig-help">48 ventas · hoy</div><div class="amount-lg num">$ 186.420,00</div></div>
+ </div>
+ <div style="display:grid;grid-template-columns:1.25fr 1fr;gap:16px;flex:1;min-height:0">
+  <div class="ig-table-wrap" style="overflow:auto"><table class="ig-table"><thead><tr><th>N°</th><th>Fecha y hora</th><th class="r">Ítems</th><th>Medio de pago</th><th class="r">Total</th></tr></thead><tbody><tr><td class="code">#1284</td><td>24/10 18:42</td><td class="r">7</td><td>Efectivo</td><td class="r name">$ 12.480,00</td></tr><tr><td class="code">#1283</td><td>24/10 18:37</td><td class="r">2</td><td>Débito</td><td class="r name">$ 3.600,00</td></tr><tr class=is-selected><td class="code">#1282</td><td>24/10 18:21</td><td class="r">12</td><td>Efectivo + Transferencia</td><td class="r name">$ 31.950,00</td></tr><tr><td class="code">#1281</td><td>24/10 18:02</td><td class="r">1</td><td>Crédito</td><td class="r name">$ 4.890,00</td></tr><tr><td class="code">#1280</td><td>24/10 17:55</td><td class="r">4</td><td>Transferencia</td><td class="r name">$ 8.740,00</td></tr><tr><td class="code">#1279</td><td>24/10 17:40</td><td class="r">3</td><td>Efectivo</td><td class="r name">$ 5.150,00</td></tr><tr><td class="code">#1278</td><td>24/10 17:31</td><td class="r">9</td><td>Débito</td><td class="r name">$ 18.320,00</td></tr></tbody></table></div>
+  <div class="ig-card" style="overflow:auto"><div class="ig-card-head"><div><h3>Venta #1282</h3><div class="ig-help">24/10/2026 · 18:21 · Cajero: Javier</div></div><span class="ig-badge ig-badge-success"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M20 6 9 17l-5-5" />
+</svg>Pagada</span></div>
+   <table class="ig-table"><thead><tr><th>Producto</th><th class="r">Cant.</th><th class="r">Precio</th><th class="r">Total</th></tr></thead><tbody><tr><td>Leche entera La Serenísima 1 L</td><td class="r">4</td><td class="r">$ 1.450,00</td><td class="r name">$ 5.800,00</td></tr><tr><td>Yerba Playadito 1 kg</td><td class="r">2</td><td class="r">$ 4.890,00</td><td class="r name">$ 9.780,00</td></tr><tr><td>Pan lactal Bimbo blanco</td><td class="r">2</td><td class="r">$ 2.650,00</td><td class="r name">$ 5.300,00</td></tr><tr><td>Galletitas Oreo 118 g</td><td class="r">4</td><td class="r">$ 1.350,00</td><td class="r name">$ 5.400,00</td></tr></tbody></table>
+   <div class="ig-card-body" style="display:grid;gap:6px;border-top:1px solid var(--border)">
+    <div class="ig-pay-row"><span>Subtotal</span><span class="num">$ 26.280,00</span></div>
+    <div class="ig-pay-row"><span>Descuento 5 %</span><span class="num">− $ 1.314,00</span></div>
+    <div class="ig-pay-row" style="color:var(--ink)"><b>Total</b><b class="num amount-lg">$ 24.966,00</b></div>
+    <div class="ig-overline" style="margin-top:8px">Pagos</div>
+    <div class="ig-pay-row"><span><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <rect width="20" height="12" x="2" y="6" rx="2" />
+  <circle cx="12" cy="12" r="2" />
+  <path d="M6 12h.01M18 12h.01" />
+</svg> Efectivo</span><span class="num">$ 20.000,00</span></div>
+    <div class="ig-pay-row"><span><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M8 3 4 7l4 4" />
+  <path d="M4 7h16" />
+  <path d="m16 21 4-4-4-4" />
+  <path d="M20 17H4" />
+</svg> Transferencia</span><span class="num">$ 11.950,00</span></div>
+    <div class="ig-pay-row" style="color:var(--success)"><span>Vuelto</span><span class="num">$ 6.984,00</span></div>
+   </div></div>
+ </div>
+</main></div>
+</body>
+</html>

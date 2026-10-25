@@ -1,0 +1,126 @@
+<!-- @dsCard group="Pantallas" height=620 width=1366 subtitle="Modal Cargar stock — paso 1 Buscar y paso 2 Confirmar" page=true -->
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><title>ScreenLoadStock — Integral</title>
+<style>body{background:var(--bg)} .ig-modal{width:auto}</style></head>
+<body>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:32px;align-items:start;background:var(--overlay);min-height:100vh"><div class="ig-modal" role="dialog" aria-labelledby="c1">
+ <div class="ig-modal-head"><div><h2 id="c1">Cargar stock</h2><div class="ig-steps"><span class="step is-current"><span class="dot">1</span>Buscar producto</span><span class="line"></span><span class="step"><span class="dot">2</span>Cantidad</span></div></div><button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Cerrar"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 6 6 18" />
+  <path d="m6 6 12 12" />
+</svg></button></div>
+ <div class="ig-modal-body" style="display:grid;gap:12px">
+  <div class="ig-input-wrap"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="11" cy="11" r="8" />
+  <path d="m21 21-4.3-4.3" />
+</svg><input class="ig-input ig-input-lg is-focus" value="leche" style="padding-left:40px"></div>
+  <div class="ig-table-wrap" style="box-shadow:none"><table class="ig-table"><thead><tr><th>Código de barras</th><th>Nombre</th><th class="r">Stock actual</th></tr></thead><tbody>
+   <tr class="is-selected"><td class="code">7790080000123</td><td class="name"><b>Leche</b> entera La Serenísima 1 L</td><td class="r">24</td></tr>
+   <tr><td class="code">7790080000147</td><td class="name"><b>Leche</b> descremada La Serenísima 1 L</td><td class="r is-low"><span class="ig-stock"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 5v14" />
+  <path d="m19 12-7 7-7-7" />
+</svg>3</span></td></tr>
+   <tr><td class="code">7790742000219</td><td class="name"><b>Leche</b> condensada Nestlé 395 g</td><td class="r">8</td></tr>
+  </tbody></table></div>
+ </div>
+ <div class="ig-modal-foot"><div class="ig-shortcuts"><span><kbd class="ig-kbd">↑</kbd><kbd class="ig-kbd">↓</kbd> Elegir</span><span><kbd class="ig-kbd">Enter</kbd> Continuar</span><span><kbd class="ig-kbd">Esc</kbd> Cerrar</span></div></div>
+</div><div class="ig-modal" role="dialog" aria-labelledby="c2">
+ <div class="ig-modal-head"><div><h2 id="c2">Cargar stock</h2><div class="ig-steps"><span class="step is-done"><span class="dot"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M20 6 9 17l-5-5" />
+</svg></span>Buscar producto</span><span class="line"></span><span class="step is-current"><span class="dot">2</span>Cantidad</span></div></div><button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Cerrar"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 6 6 18" />
+  <path d="m6 6 12 12" />
+</svg></button></div>
+ <div class="ig-modal-body"><div class="ig-form-grid">
+  <div class="ig-field span-2"><label class="ig-label">Producto</label><input class="ig-input is-readonly" readonly value="Leche entera La Serenísima 1 L · stock actual 24"></div>
+  <div class="ig-field"><label class="ig-label">Cantidad a agregar (negativo = merma) <span class="req">*</span></label><input class="ig-input ig-input-amount ig-input-lg is-focus" value="−2" style="color:var(--warning)"><span class="ig-help" style="color:var(--warning)"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 5v14" />
+  <path d="m19 12-7 7-7-7" />
+</svg> Merma: el stock queda en 22</span></div>
+  <div class="ig-field"><label class="ig-label">Vencimiento del lote</label><input class="ig-input ig-input-lg" placeholder="DD/MM/AAAA"><span class="ig-help">Opcional</span></div>
+  <div class="ig-field span-2"><label class="ig-label">Notas</label><input class="ig-input" value="Dos sachets rotos en la heladera"></div>
+ </div></div>
+ <div class="ig-modal-foot"><div class="ig-shortcuts"><span><kbd class="ig-kbd">Esc</kbd> Volver</span><span><kbd class="ig-kbd">Enter</kbd> Confirmar</span></div><button class="ig-btn ig-btn-secondary"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m12 19-7-7 7-7" />
+  <path d="M19 12H5" />
+</svg>Volver</button><button class="ig-btn ig-btn-primary">Cargar stock</button></div>
+</div></div>
+</body>
+</html>

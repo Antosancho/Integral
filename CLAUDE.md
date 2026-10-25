@@ -49,16 +49,31 @@ Integral/
 │   ├── ipcContract.ts            # Tipado del API y builder de ElectronApi
 │   ├── ipcHandlers.ts            # Registra handlers en ipcMain
 │   └── ipcSerialize.ts           # Serializa BigInt/Decimal para IPC
+├── design-system/                # Design System "Integral" (referencia de solo lectura: tokens, componentes, guías)
 ├── renderer/
 │   ├── src/
-│   │   ├── App.tsx               # Router simple: Home | Stock | Sells
-│   │   ├── renderTypes.ts        # type Cont = 'sells' | 'stock' | null
+│   │   ├── App.tsx               # Raíz: estado de navegación + ToastProvider + SalesProvider + atajos Ctrl+1/2/3
+│   │   ├── navigation.ts         # Section / StockView / SalesView / NavState / Navigate (reemplaza renderTypes.ts)
 │   │   ├── electron-api.d.ts     # Tipos de window.api para el renderer
+│   │   ├── styles/               # tokens.css (copia del DS), bundle.css (clases ig-…, copia sin cambios), app.css (agregados propios)
+│   │   ├── assets/               # fonts/*.woff2 (Plus Jakarta Sans, IBM Plex) y brand/ (logos PNG)
+│   │   ├── ui/                   # Componentes base del DS: Button, Kbd, ShortcutBar, Badge, Segmented, Field, DateField,
+│   │   │                         #   InlineAlert, EmptyState, TableSkeleton, Modal (+modalStack), Toast, MenuButton,
+│   │   │                         #   StepIndicator, EntityPicker, useRowNavigation, useFlash, useDelayedFlag
+│   │   ├── store/SalesContext.tsx  # Carrito, descuento y pagos de la venta en curso (sobreviven al cambiar de sección)
+│   │   ├── utils/                # format (es-AR), parse (parseDecimal/Integer/DateAR), text (sin tildes), stock, dom, theme, expiry, lots
+│   │   ├── test/                 # renderWithProviders y fixtures (makeProduct)
+│   │   ├── Components/
+│   │   │   ├── AppHeader/        # Header (logo, nav Stock | Ventas | Estadísticas, widget de vencimientos, ThemeToggle)
+│   │   │   ├── ExpiryAlert/      # Widget de lotes vencidos / que vencen hoy
+│   │   │   └── LotsList/         # Lotes de un producto como badges
 │   │   └── Pages/
-│   │       ├── Header.tsx        # Nav: Home / Sells / Stock
-│   │       ├── HomeScreen.tsx    # Placeholder (retorna null)
-│   │       ├── Stock.tsx         # Tabla de productos (implementada — solo lectura)
-│   │       └── Stock.css
+│   │       ├── Stock/            # StockPage (Productos | Movimientos), StockProducts, StockMovements, movements.ts,
+│   │       │                     #   productFilters.ts, ProductFormModal, LoadStockModal, CategoryPicker, SupplierPicker
+│   │       ├── Sells/            # SalesPage (Nueva venta | Historial), Sells, BarcodeInput, CartTable, EditableCell,
+│   │       │                     #   PaymentPanel, ChangeIndicator, SearchPopup, GeneralAmountPopup, cartReducer, payments…
+│   │       ├── SalesHistory/     # SalesHistory (maestro–detalle), SaleDetailCard, CajaSummary, salesHistoryFilters
+│   │       └── Stats/            # Stats, StatCard, RankingList, statsUtils
 └── scripts/
     ├── verify-package.mjs        # Verificación estática del paquete (verify:package / verify:make)
     ├── smoke-packaged.mjs        # Smoke test del exe empaquetado (test:smoke-packaged)
@@ -173,25 +188,40 @@ El módulo de ventas requiere tres tablas nuevas:
 
 | Pantalla | Estado |
 |----------|--------|
-| Header (nav) | Implementado |
+| Header (nav) | Implementado con el DS — logo, Stock / Ventas / Estadísticas (`Ctrl+1/2/3`), widget de vencimientos y selector de tema claro/oscuro |
 | Home | **Eliminada** — la app arranca directamente en Stock |
-| Stock (lista de productos) | Implementado — tabla con crear y cargar stock; **editar producto en curso** |
-| Sells | **Pendiente — próximo a desarrollar** |
-| Stats (estadísticas) | **Planificada — ver sección abajo** |
+| Stock | Implementado con el DS — **Productos** (tabla con filtros, orden, alertas, crear / editar / cargar stock, menú ⋮) y **Movimientos** (historial filtrable) |
+| Ventas | Implementado con el DS — **Nueva venta** (carrito, pagos, vuelto, aprobar) e **Historial** (maestro–detalle con filtros y resumen de caja) |
+| Estadísticas | Implementado con el DS — período, 4 KPIs con comparación, rankings, ventas por franja y menor rotación |
+| Tema | Claro por defecto y oscuro con selector en el header (se recuerda en `localStorage`) |
 
-### Próximo trabajo: pantalla Sells
-- **Historial de ventas**: lista filtrable con detalle de ítems y pagos
-- **Crear venta**: flujo tipo carrito → productos via scanner/buscador → form de pagos con cálculo de vuelto → confirmar
+### Ventas (referencia de la implementación actual)
+- **Historial de ventas**: dentro de Ventas (segmentado Nueva venta | Historial), con filtros que se aplican solos, detalle de ítems y pagos, y resumen de caja.
+- **Crear venta**: flujo tipo carrito → productos via scanner/buscador → panel de pago con cálculo de vuelto → aprobar.
 
-#### Iteración actual (en curso): medios de pago + confirmación de venta + layout sticky
+#### Medios de pago + confirmación de venta + layout sticky (vigente)
 
-- **Layout**: pantalla dividida en 2 zonas: zona scrolleable del carrito (`cart-list`) + panel de pago sticky en la parte inferior (`PaymentPanel`).
-- **5 medios de pago**: EFECTIVO, DÉBITO, CRÉDITO, TRANSFERENCIA, OTROS. Cada uno tiene un botón-label (click autocompleta el faltante) y un input de monto libre.
-- **Vuelto**: se calcula como `Σpagos - total` (con signo). Negativo = falta cubrir (déficit); `0` = pago exacto; positivo = cambio a devolver. Se muestra debajo del TOTAL.
-- **Botón APROBAR VENTA**: bloqueado (disabled + atenuado) salvo que `(carrito no vacío) ∧ (Σpagos ≥ total − 0.01) ∧ (sin líneas 'general')`. Se acepta que el cliente pague de más (recibe vuelto positivo).
-- **Líneas general**: aún no se persisten (el backend exige `productId`). Si el carrito tiene alguna línea general, APROBAR se bloquea y aparece el hint "Las líneas General aún no se pueden guardar".
-- **En éxito**: vaciar carrito (RESET), resetear `discountPct = 0`, resetear todos los inputs de pago a `''`, devolver foco al barcode input. Sin alerta de éxito.
-- **IPC**: nuevos canales `sale:create`, `sale:list`, `sale:getById` expuestos via `window.api`. No se modificó el schema Prisma ni `saleService.ts`.
+- **Layout**: zona scrolleable con el input de código y el carrito (`CartTable`) + panel de pago fijo abajo (`PaymentPanel`), visible solo si hay líneas.
+- **5 medios de pago**: EFECTIVO, DÉBITO, CRÉDITO, TRANSFERENCIA, OTROS. Cada uno tiene un botón-etiqueta (click o `Alt+1…5` completan lo que falta) y un input de monto libre (formato es-AR, se reformatea al salir).
+- **Vuelto**: se calcula como `Σpagos - total` (con signo) y se muestra como "Falta cubrir" / "Pago exacto" / "Vuelto" (palabra + ícono, nunca solo color).
+- **Botón APROBAR VENTA** (`F12`): bloqueado salvo que `(carrito no vacío) ∧ (Σpagos ≥ total − 0.005)`. Siempre que está bloqueado muestra el motivo. Se acepta que el cliente pague de más (recibe vuelto positivo).
+- **Líneas General (F10)**: **sí se aprueban** (el backend ya guarda `SaleItem` sin `productId`). Ya no existe el hint "Las líneas General aún no se pueden guardar".
+- **En éxito**: `resetSale()` (carrito vacío, `discountPct = 0`, pagos a `''`) y foco al input de código. Sin alerta de éxito. Si falla: toast de error y no se borra nada.
+- **IPC**: canales `sale:create`, `sale:list`, `sale:getById` expuestos via `window.api`. No se modificó el schema Prisma ni `saleService.ts`.
+
+### UI / Design system en el código
+
+Fuente de verdad visual: `design-system/` (solo lectura). En el renderer:
+- **Tokens y estilos**: `renderer/src/styles/tokens.css` (copiado de `design-system/tokens.css`, solo cambian las rutas de las fuentes), clases `ig-…` en `styles/bundle.css` (copia sin cambios de `design-system/components/bundle.css`) y agregados propios en `styles/app.css`. **Prohibido** hardcodear colores fuera de `tokens.css`: usar `var(--token)`.
+- **Componentes base** en `renderer/src/ui/` (ver estructura). Los íconos son `lucide-react@0.468.0` (`aria-hidden` en los decorativos; los glifos `⚠` y `✕` están prohibidos, usar `TriangleAlert` y `X`).
+- **Tema**: atributo `data-theme` en `<html>`, `utils/theme.ts` (`getStoredTheme` / `saveTheme`), clave `integral.theme` en `localStorage`.
+- **Fechas** en formato `DD/MM/AAAA` con `DateField` (texto con máscara; nada de `<input type="date">`). **Montos**: texto libre con `inputMode="decimal"` (nada de `type="number"`), parseo con `parseDecimal` y formateo con `formatAmountInput` al salir del campo. El signo menos se escribe `−` (U+2212) en la UI.
+- **Toasts** con `useToast()` (máx. 3, no roban el foco); **modales** con `Modal` (focus trap, devuelve el foco, `modalStack` para que los atajos de pantalla no se disparen con un modal abierto; Esc con `stopPropagation`).
+- **Carrito global**: `store/SalesContext.tsx` (carrito, descuento y pagos). Sobrevive a cambiar de sección o ir al Historial.
+- **Atajos** (tabla completa en `design-system/guia/02-teclado-y-foco.md`, ahora implementados): `Ctrl+1/2/3` secciones · Stock: `F2` buscar, `Ctrl+N` nuevo, `Ctrl+L` cargar stock, `Ctrl+F` buscador, ↑/↓/Enter en la tabla · Ventas: `F2`, `F10`, ↓ al carrito, `Supr`, `Alt+1…5`, `F12`, `Esc` vuelve al input de código · modales: `Ctrl+Enter` guarda el formulario de producto.
+- **Estados**: toda vista de datos tiene estado vacío, cargando (skeleton con delay de 300 ms) y error con "Reintentar".
+- **Decisiones**: D2 — las líneas General se aprueban. D3 — el Historial vive dentro de Ventas (maestro–detalle) y conserva los filtros extra de hora y monto y el resumen de caja; ya no hay botón "Historial" en el header ni modal de detalle.
+- **Ventana**: mínimo 1280×720 (`electron/main.ts`).
 
 #### Iteración anterior (completa): pie de carrito con subtotal, total y descuento/recargo
 Se agrega al pie del `CartList` un bloque con: **Subtotal** (suma de `lineTotal` de todas las filas), **input de Descuento %** (positivo = descuento, negativo = recargo), **Total final** (subtotal aplicando el %). El footer fue removido de `CartList` y movido al `PaymentPanel` en la iteración siguiente.
@@ -259,7 +289,7 @@ type CartLine = {
 
 **Cambio transversal al renderer incluido en esta iteración:**
 - Los tipos `ProductFromApi`, `CategoryFromApi`, `SupplierFromApi`, etc. de [electron-api.d.ts](renderer/src/electron-api.d.ts) pasan a ser **exportados explícitamente** (antes estaban declarados sin `export` y el archivo es un módulo por `export {}`, por lo que no eran ni globales ni importables).
-- `formatMoney` se extrae de [Stock.tsx](renderer/src/Pages/Stock.tsx) a un util compartido en `renderer/src/utils/format.ts` para reutilizar en Sells.
+- `formatMoney` se extrae de la pantalla de Stock a un util compartido en `renderer/src/utils/format.ts` para reutilizar en Sells (hoy formatea `$ 1.234,50` con `−` en negativos).
 
 ### Módulo de Estadísticas (planificado)
 
@@ -490,3 +520,7 @@ Reglas que no se pueden cambiar: `PrismaClient` propio con **`connection_limit=1
 - `BigInt` del barcode se serializa a `string` en el IPC antes de llegar al renderer
 - Los `Decimal` de Prisma se serializan a `string` en el IPC
 - La pantalla de ventas debe ser **operable principalmente con teclado y lector de barras** (scanner actúa como teclado); el mouse es secundario en el flujo de caja
+
+## Diseño
+Fuente de verdad de la UI: Design System "Integral" en https://claude.ai/artifact/GqLNZDeRjXRUZJSQEiJbhz
+Antes de tocar UI, leé project/README.md y los archivos que indica.

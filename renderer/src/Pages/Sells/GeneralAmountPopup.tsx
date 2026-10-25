@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
+import { Field } from '../../ui/Field'
+import { Modal } from '../../ui/Modal'
 import { validateGeneralAmount } from './amount'
-import './SearchPopup.css'
 
 type Props = {
   open: boolean
   onClose: () => void
+  /** Recibe el monto validado en formato máquina (punto decimal, ej. "1500.5"). */
   onConfirm: (amount: string) => void
 }
 
+/**
+ * Popup F10 "Ítem general": un monto libre sin producto asociado.
+ * Enter valida y agrega (monto > 0, coma o punto decimal); si es inválido muestra el error sin cerrar.
+ */
 export default function GeneralAmountPopup({ open, onClose, onConfirm }: Props) {
   const [value, setValue] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -17,48 +23,54 @@ export default function GeneralAmountPopup({ open, onClose, onConfirm }: Props) 
     if (open) {
       setValue('')
       setError(null)
-      setTimeout(() => inputRef.current?.focus(), 0)
     }
   }, [open])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      const result = validateGeneralAmount(value)
-      if (result.ok) {
-        onConfirm(result.value)
-        onClose()
-      } else {
-        setError(result.error)
-      }
-    } else if (e.key === 'Escape') {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    const result = validateGeneralAmount(value)
+    if (result.ok) {
+      onConfirm(result.value)
       onClose()
+    } else {
+      setError(result.error)
     }
   }
 
-  if (!open) return null
-
   return (
-    <div
-      className="search-popup__overlay"
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    <Modal
+      open={open}
+      title="Ítem general"
+      size="sm"
+      closeOnOverlay
+      onClose={onClose}
+      initialFocusRef={inputRef}
+      shortcuts={[
+        { keys: ['Enter'], label: 'Agregar' },
+        { keys: ['Esc'], label: 'Cancelar' }
+      ]}
     >
-      <div className="search-popup__container">
-        <h2>Monto general</h2>
-        <input
-          ref={inputRef}
-          type="text"
-          inputMode="decimal"
-          placeholder="Monto (ej: 1500,50)"
-          value={value}
-          onChange={e => {
-            setValue(e.target.value)
-            setError(null)
-          }}
-          onKeyDown={handleKeyDown}
-        />
-        {error && <p className="search-popup__error">{error}</p>}
-      </div>
-    </div>
+      <Field label="Monto" htmlFor="general-amount" help="Mayor a 0. Podés usar coma o punto." error={error}>
+        <div className="ig-input-wrap">
+          <span className="ig-prefix">$</span>
+          <input
+            id="general-amount"
+            ref={inputRef}
+            type="text"
+            className={`ig-input ig-input-amount ig-input-lg${error ? ' is-error' : ''}`}
+            inputMode="decimal"
+            aria-invalid={!!error}
+            aria-describedby={error ? 'general-amount-error' : 'general-amount-help'}
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value)
+              setError(null)
+            }}
+            onKeyDown={handleKeyDown}
+          />
+        </div>
+      </Field>
+    </Modal>
   )
 }

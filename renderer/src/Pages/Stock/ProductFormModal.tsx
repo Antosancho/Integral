@@ -1,11 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { ScanBarcode } from 'lucide-react'
 import type { ProductFromApi } from '../../electron-api'
-import CategorySelector from './CategorySelector'
-import SupplierSelector from './SupplierSelector'
-import { validateProductForm, normalizeDecimal } from './validateProductForm'
-import type { ProductFormDraft, FormErrors } from './validateProductForm'
-import { parseExpiryInput } from '../../utils/expiry'
-import './CreateProductModal.css'
+import { Button } from '../../ui/Button'
+import { DateField } from '../../ui/DateField'
+import { Field } from '../../ui/Field'
+import { InlineAlert } from '../../ui/InlineAlert'
+import { Modal } from '../../ui/Modal'
+import { formatAmountInput, formatMoney } from '../../utils/format'
+import { parseDateAR, parseDecimal, parseInteger } from '../../utils/parse'
+import CategoryPicker from './CategoryPicker'
+import SupplierPicker from './SupplierPicker'
+import { FIELD_ORDER, marginInfo, priceToPayload, validateProductForm } from './validateProductForm'
+import type { FormErrors, ProductFormDraft } from './validateProductForm'
 
 type Props = {
   open: boolean
@@ -13,19 +19,33 @@ type Props = {
   onSuccess: (product: ProductFromApi) => void
   /** Si está presente, el modal opera en modo edición; si no, en modo creación. */
   product?: ProductFromApi
+  /** Valores con los que arranca el modo creación (ej. el código escaneado que no existía). */
+  initialValues?: { name?: string; barcode?: string }
 }
 
-/** Draft vacío para el modo creación. */
-function emptyDraft(): ProductFormDraft {
-  return { name: '', purchasePrice: '', salePrice: '', categoryId: 0, supplierId: 0, barcode: '', stock: '0', minStock: '0' }
+/** Campos que pueden recibir foco por validación (los de `FIELD_ORDER` + el vencimiento). */
+type FocusableField = (typeof FIELD_ORDER)[number] | 'expiry'
+
+/** Draft para el modo creación, opcionalmente precargado. */
+function emptyDraft(initial?: Props['initialValues']): ProductFormDraft {
+  return {
+    name: initial?.name ?? '',
+    purchasePrice: '',
+    salePrice: '',
+    categoryId: 0,
+    supplierId: 0,
+    barcode: initial?.barcode ?? '',
+    stock: '0',
+    minStock: '0',
+  }
 }
 
-/** Convierte un ProductFromApi al draft editable del formulario. */
+/** Convierte un ProductFromApi al draft editable del formulario (precios formateados es-AR). */
 function productToDraft(p: ProductFromApi): ProductFormDraft {
   return {
     name: p.name,
-    purchasePrice: p.purchasePrice,
-    salePrice: p.salePrice,
+    purchasePrice: formatAmountInput(p.purchasePrice),
+    salePrice: formatAmountInput(p.salePrice),
     categoryId: p.categoryId,
     supplierId: p.supplierId,
     barcode: p.barcode !== null ? p.barcode.toString() : '',
@@ -34,244 +54,401 @@ function productToDraft(p: ProductFromApi): ProductFormDraft {
   }
 }
 
-export default function ProductFormModal({ open, onClose, onSuccess, product }: Props) {
-  /** true cuando se recibió un producto existente → modo edición. */
+/** Porcentaje con 1 decimal y coma: 44.848 → "44,8". */
+function formatMarginPct(pct: number): string {
+  return pct.toFixed(1).replace('.', ',')
+}
+
+/**
+ * Modal de alta y edición de producto.
+ *
+ * - Modo creación: stock inicial editable y, si es > 0, vencimiento del lote inicial.
+ * - Modo edición (`product`): el stock es solo lectura (se modifica con "Cargar stock").
+ * - Ctrl+Enter guarda desde cualquier campo; Esc con cambios pide confirmación antes de descartar.
+ * - Al guardar con errores se muestran todos y el foco va al primer campo inválido.
+ */
+export default function ProductFormModal({ open, onClose, onSuccess, product, initialValues }: Props) {
   const isEdit = !!product
 
   const [draft, setDraft] = useState<ProductFormDraft>(emptyDraft())
   const [errors, setErrors] = useState<FormErrors | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [apiError, setApiError] = useState<string | null>(null)
+  const [saveFailed, setSaveFailed] = useState(false)
+  /** Error de código de barras duplicado, detectado recién al guardar (lo informa el backend). */
+  const [barcodeTakenError, setBarcodeTakenError] = useState<string | null>(null)
   const [expiryDate, setExpiryDate] = useState('')
-  const [expiryDateError, setExpiryDateError] = useState<string | null>(null)
+  const [expiryError, setExpiryError] = useState<string | null>(null)
+  const [showDiscard, setShowDiscard] = useState(false)
 
-  /**
-   * Resetea o precarga el formulario al abrir/cerrar el modal o al cambiar
-   * el producto en edición.
-   */
-  useEffect(() => {
-    if (!open) {
-      setDraft(emptyDraft())
-      setErrors(null)
-      setSubmitting(false)
-      setApiError(null)
-      setExpiryDate('')
-      setExpiryDateError(null)
-    } else {
-      // Al abrir: precargar datos del producto en edición o limpiar si es creación
-      setDraft(product ? productToDraft(product) : emptyDraft())
-      setErrors(null)
-      setSubmitting(false)
-      setApiError(null)
-      setExpiryDate('')
-      setExpiryDateError(null)
-    }
-  }, [open, product])
+  /** JSON del draft inicial: sirve para saber si el usuario cambió algo (`dirty`). */
+  const [baseline, setBaseline] = useState('')
+  const fieldRefs = useRef<Partial<Record<FocusableField, HTMLElement | null>>>({})
+  const nameRef = useRef<HTMLInputElement>(null)
+  const discardKeepRef = useRef<HTMLButtonElement>(null)
 
-  /** Cierra el modal con Escape mientras no esté enviando. */
+  const initialName = initialValues?.name
+  const initialBarcode = initialValues?.barcode
+
+  /** Precarga o limpia el formulario al abrir, o al cambiar el producto en edición. */
   useEffect(() => {
-    if (!open) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !submitting) onClose()
+    const base = product ? productToDraft(product) : emptyDraft({ name: initialName, barcode: initialBarcode })
+    setDraft(base)
+    setBaseline(JSON.stringify(base))
+    setErrors(null)
+    setSubmitting(false)
+    setSaveFailed(false)
+    setBarcodeTakenError(null)
+    setExpiryDate('')
+    setExpiryError(null)
+    setShowDiscard(false)
+  }, [open, product, initialName, initialBarcode])
+
+  const stockCount = parseInteger(draft.stock) ?? 0
+  const showExpiry = !isEdit && stockCount > 0
+  const dirty = baseline !== '' && (JSON.stringify(draft) !== baseline || expiryDate !== '')
+  const margin = marginInfo(draft.purchasePrice, draft.salePrice)
+
+  function setRef(field: FocusableField) {
+    return (el: HTMLElement | null) => {
+      fieldRefs.current[field] = el
     }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [open, submitting, onClose])
+  }
 
   function updateField(field: keyof ProductFormDraft, value: string | number) {
     setDraft((d) => ({ ...d, [field]: value }))
     setErrors((e) => (e ? { ...e, [field]: undefined } : null))
+    if (field === 'barcode') setBarcodeTakenError(null)
+  }
+
+  /** Reformatea un precio al salir del campo (solo si parsea: si no, se deja para que lo corrija). */
+  function formatPriceOnBlur(field: 'purchasePrice' | 'salePrice') {
+    const n = parseDecimal(draft[field])
+    if (n !== null) updateField(field, formatAmountInput(n))
+  }
+
+  /** Cierre pedido por el usuario (Cancelar, X, Esc): con cambios, pide confirmación. */
+  function requestClose() {
+    if (submitting) return
+    if (dirty) setShowDiscard(true)
+    else onClose()
+  }
+
+  function focusField(field: FocusableField) {
+    fieldRefs.current[field]?.focus()
   }
 
   async function handleSubmit() {
+    if (submitting) return
+
     const errs = validateProductForm(draft)
-    if (errs) {
-      setErrors(errs)
-      return
+
+    // Vencimiento: solo en creación con stock inicial > 0 y fecha tipeada.
+    let parsedExpiry: Date | null = null
+    let expiryErr: string | null = null
+    if (showExpiry && expiryDate.trim() !== '') {
+      parsedExpiry = parseDateAR(expiryDate)
+      if (!parsedExpiry) expiryErr = 'Revisá la fecha (DD/MM/AAAA).'
     }
 
-    // Validar vencimiento solo en creación con stock > 0 y fecha ingresada
-    let parsedExpiry: Date | null = null
-    const stockNum = Number((draft.stock || '0').trim())
-    if (!isEdit && stockNum > 0 && expiryDate.trim() !== '') {
-      parsedExpiry = parseExpiryInput(expiryDate)
-      if (!parsedExpiry) {
-        setExpiryDateError('Fecha inválida')
-        return
-      }
+    if (errs || expiryErr) {
+      setErrors(errs)
+      setExpiryError(expiryErr)
+      const first: FocusableField | undefined = FIELD_ORDER.find((f) => errs?.[f]) ?? (expiryErr ? 'expiry' : undefined)
+      if (first) focusField(first)
+      return
     }
 
     /**
      * Payload base sin `stock`: en edición el stock se gestiona exclusivamente
-     * mediante la operación "Cargar stock", no desde este formulario.
+     * mediante "Cargar stock", no desde este formulario.
      */
     const payload = {
       name: draft.name.trim(),
-      purchasePrice: normalizeDecimal(draft.purchasePrice),
-      salePrice: normalizeDecimal(draft.salePrice),
+      purchasePrice: priceToPayload(draft.purchasePrice),
+      salePrice: priceToPayload(draft.salePrice),
       categoryId: draft.categoryId,
       supplierId: draft.supplierId,
       barcode: draft.barcode.trim() || null,
-      minStock: draft.minStock.trim() === '' ? 0 : Number(draft.minStock),
+      minStock: parseInteger(draft.minStock) ?? 0,
     }
 
     setSubmitting(true)
-    setApiError(null)
+    setSaveFailed(false)
     try {
       const result = isEdit
         ? await window.api.updateProduct(product!.id, payload)
         : await window.api.createProduct({
             ...payload,
-            stock: draft.stock.trim() === '' ? 0 : Number(draft.stock),
-            ...(parsedExpiry ? { expiryDate: parsedExpiry } : {})
+            stock: parseInteger(draft.stock) ?? 0,
+            ...(parsedExpiry ? { expiryDate: parsedExpiry } : {}),
           })
       onSuccess(result)
-      // El componente padre cierra el modal a través del callback onSuccess
+      // El componente padre cierra el modal a través del callback onSuccess.
     } catch (e) {
-      setApiError(e instanceof Error ? e.message : isEdit ? 'Error al editar el producto' : 'Error al crear el producto')
       setSubmitting(false)
+      const message = e instanceof Error ? e.message : ''
+      const barcode = draft.barcode.trim()
+      // Código duplicado: se busca quién lo usa para decírselo al usuario.
+      if (barcode !== '' && /unique|barcode/i.test(message)) {
+        try {
+          const other = await window.api.getProductByBarcode(barcode)
+          if (other && other.id !== product?.id) {
+            setBarcodeTakenError(`Ese código ya lo usa «${other.name}». Usá otro o dejalo vacío.`)
+            focusField('barcode')
+            return
+          }
+        } catch {
+          // Si la consulta falla, se cae al error genérico de abajo.
+        }
+      }
+      console.error(e)
+      setSaveFailed(true)
     }
   }
 
-  if (!open) return null
+  const barcodeError = errors?.barcode ?? barcodeTakenError
+  const lossMaking = margin !== null && margin.profit < 0
 
   return (
-    <div className="create-product-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="create-product-modal">
-        <h2 className="create-product-modal__title">
-          {isEdit ? 'Editar producto' : 'Nuevo producto'}
-        </h2>
-
-        <div className="create-product-modal__field">
-          <label className="create-product-modal__label">Nombre *</label>
-          <input
-            type="text"
-            className={`create-product-modal__input${errors?.name ? ' create-product-modal__input--error' : ''}`}
-            value={draft.name}
-            onChange={(e) => updateField('name', e.target.value)}
-            placeholder="Nombre del producto"
-          />
-          {errors?.name && <p className="create-product-modal__field-error">{errors.name}</p>}
-        </div>
-
-        <div className="create-product-modal__field">
-          <label className="create-product-modal__label">Precio de compra *</label>
-          <input
-            type="text"
-            inputMode="decimal"
-            className={`create-product-modal__input${errors?.purchasePrice ? ' create-product-modal__input--error' : ''}`}
-            value={draft.purchasePrice}
-            onChange={(e) => updateField('purchasePrice', e.target.value)}
-            placeholder="0.00"
-          />
-          {errors?.purchasePrice && <p className="create-product-modal__field-error">{errors.purchasePrice}</p>}
-        </div>
-
-        <div className="create-product-modal__field">
-          <label className="create-product-modal__label">Precio de venta *</label>
-          <input
-            type="text"
-            inputMode="decimal"
-            className={`create-product-modal__input${errors?.salePrice ? ' create-product-modal__input--error' : ''}`}
-            value={draft.salePrice}
-            onChange={(e) => updateField('salePrice', e.target.value)}
-            placeholder="0.00"
-          />
-          {errors?.salePrice && <p className="create-product-modal__field-error">{errors.salePrice}</p>}
-        </div>
-
-        <div className="create-product-modal__field">
-          <label className="create-product-modal__label">Categoría *</label>
-          <CategorySelector value={draft.categoryId} onChange={(id) => updateField('categoryId', id)} error={errors?.categoryId} />
-        </div>
-
-        <div className="create-product-modal__field">
-          <label className="create-product-modal__label">Proveedor *</label>
-          <SupplierSelector value={draft.supplierId} onChange={(id) => updateField('supplierId', id)} error={errors?.supplierId} />
-        </div>
-
-        <div className="create-product-modal__field">
-          <label className="create-product-modal__label">Código de barras (opcional)</label>
-          <input
-            type="text"
-            inputMode="numeric"
-            className={`create-product-modal__input${errors?.barcode ? ' create-product-modal__input--error' : ''}`}
-            value={draft.barcode}
-            onChange={(e) => updateField('barcode', e.target.value)}
-            placeholder="Sólo dígitos"
-          />
-          {errors?.barcode && <p className="create-product-modal__field-error">{errors.barcode}</p>}
-        </div>
-
-        {/* En modo edición el stock es solo lectura; se modifica via "Cargar stock" */}
-        <div className="create-product-modal__field">
-          {isEdit ? (
-            <>
-              <label className="create-product-modal__label">Stock</label>
+    <>
+      <Modal
+        open={open}
+        title={isEdit ? 'Editar producto' : 'Nuevo producto'}
+        subtitle={isEdit ? product!.name : 'Los campos con * son obligatorios.'}
+        size="md"
+        closeOnOverlay={false}
+        initialFocusRef={nameRef}
+        onClose={requestClose}
+        onEscape={requestClose}
+        shortcuts={[
+          { keys: ['Esc'], label: 'Cancelar' },
+          { keys: ['Ctrl', 'Enter'], label: 'Guardar' },
+        ]}
+        footer={
+          <>
+            <Button variant="ghost" onClick={requestClose}>
+              Cancelar
+            </Button>
+            <Button variant="primary" onClick={handleSubmit} disabled={submitting}>
+              {submitting ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Guardar producto'}
+            </Button>
+          </>
+        }
+      >
+        {/* Ctrl+Enter guarda desde cualquier campo; el div solo captura el atajo, no es interactivo. */}
+        <div
+          style={{ display: 'grid', gap: 16 }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault()
+              void handleSubmit()
+            }
+          }}
+        >
+          <div className="ig-form-grid">
+            <Field label="Nombre" htmlFor="pf-name" required error={errors?.name} className="span-2">
               <input
-                type="text"
-                className="create-product-modal__input"
-                value={String(product!.stock)}
-                readOnly
+                id="pf-name"
+                ref={(el) => {
+                  nameRef.current = el
+                  setRef('name')(el)
+                }}
+                className={errors?.name ? 'ig-input is-error' : 'ig-input'}
+                aria-invalid={!!errors?.name}
+                aria-describedby={errors?.name ? 'pf-name-error' : undefined}
+                value={draft.name}
+                onChange={(e) => updateField('name', e.target.value)}
               />
-              <p className="create-product-modal__field-help">Para modificar el stock usá "Cargar stock"</p>
-            </>
-          ) : (
-            <>
-              <label className="create-product-modal__label">Stock inicial (opcional)</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                className={`create-product-modal__input${errors?.stock ? ' create-product-modal__input--error' : ''}`}
-                value={draft.stock}
-                onChange={(e) => updateField('stock', e.target.value)}
-                placeholder="0"
-              />
-              {errors?.stock && <p className="create-product-modal__field-error">{errors.stock}</p>}
-            </>
-          )}
-        </div>
+            </Field>
 
-        {/* Campo de vencimiento del lote inicial: solo en creación con stock > 0 */}
-        {!isEdit && Number((draft.stock || '0').trim()) > 0 && (
-          <div className="create-product-modal__field">
-            <label className="create-product-modal__label" htmlFor="product-form-expiry">Vencimiento del lote (opcional)</label>
-            <input
-              id="product-form-expiry"
-              type="date"
-              className={`create-product-modal__input${expiryDateError ? ' create-product-modal__input--error' : ''}`}
-              value={expiryDate}
-              onChange={(e) => { setExpiryDate(e.target.value); setExpiryDateError(null) }}
+            <CategoryPicker
+              id="pf-category"
+              valueId={draft.categoryId}
+              onChange={(id) => updateField('categoryId', id)}
+              error={errors?.categoryId}
+              triggerRef={setRef('categoryId')}
             />
-            {expiryDateError && <p className="create-product-modal__field-error">{expiryDateError}</p>}
+            <SupplierPicker
+              id="pf-supplier"
+              valueId={draft.supplierId}
+              onChange={(id) => updateField('supplierId', id)}
+              error={errors?.supplierId}
+              triggerRef={setRef('supplierId')}
+            />
+
+            <Field label="Precio de compra" htmlFor="pf-purchase" required error={errors?.purchasePrice}>
+              <div className="ig-input-wrap">
+                <span className="ig-prefix">$</span>
+                <input
+                  id="pf-purchase"
+                  ref={setRef('purchasePrice')}
+                  className={`ig-input ig-input-amount${errors?.purchasePrice ? ' is-error' : ''}`}
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  aria-invalid={!!errors?.purchasePrice}
+                  aria-describedby={errors?.purchasePrice ? 'pf-purchase-error' : undefined}
+                  value={draft.purchasePrice}
+                  onChange={(e) => updateField('purchasePrice', e.target.value)}
+                  onBlur={() => formatPriceOnBlur('purchasePrice')}
+                />
+              </div>
+            </Field>
+
+            <Field
+              label="Precio de venta"
+              htmlFor="pf-sale"
+              required
+              error={errors?.salePrice}
+              help={
+                margin ? (
+                  lossMaking ? (
+                    <span style={{ color: 'var(--warning)' }}>Estás vendiendo por debajo del costo.</span>
+                  ) : (
+                    `Margen: ${formatMarginPct(margin.pct)} % · ganancia ${formatMoney(margin.profit)} por unidad`
+                  )
+                ) : undefined
+              }
+            >
+              <div className="ig-input-wrap">
+                <span className="ig-prefix">$</span>
+                <input
+                  id="pf-sale"
+                  ref={setRef('salePrice')}
+                  className={`ig-input ig-input-amount${errors?.salePrice ? ' is-error' : ''}`}
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  aria-invalid={!!errors?.salePrice}
+                  aria-describedby={errors?.salePrice ? 'pf-sale-error' : margin ? 'pf-sale-help' : undefined}
+                  value={draft.salePrice}
+                  onChange={(e) => updateField('salePrice', e.target.value)}
+                  onBlur={() => formatPriceOnBlur('salePrice')}
+                />
+              </div>
+            </Field>
+
+            <Field
+              label="Código de barras"
+              htmlFor="pf-barcode"
+              className="span-2"
+              error={barcodeError}
+              help="Podés escanearlo con el lector. Solo números, hasta 20."
+            >
+              <div className="ig-input-wrap">
+                <ScanBarcode size={18} strokeWidth={2} aria-hidden="true" className="ig-icon" />
+                <input
+                  id="pf-barcode"
+                  ref={setRef('barcode')}
+                  className={barcodeError ? 'ig-input is-error' : 'ig-input'}
+                  style={{ fontFamily: 'var(--font-mono)' }}
+                  inputMode="numeric"
+                  aria-invalid={!!barcodeError}
+                  aria-describedby={barcodeError ? 'pf-barcode-error' : 'pf-barcode-help'}
+                  value={draft.barcode}
+                  onChange={(e) => updateField('barcode', e.target.value)}
+                  onKeyDown={(e) => {
+                    // El Enter del lector no guarda el formulario: pasa al siguiente campo.
+                    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
+                      e.preventDefault()
+                      focusField(isEdit ? 'minStock' : 'stock')
+                    }
+                  }}
+                />
+              </div>
+            </Field>
+
+            {isEdit ? (
+              <Field label="Stock" htmlFor="pf-stock" help="Para modificar el stock usá «Cargar stock».">
+                <input
+                  id="pf-stock"
+                  className="ig-input is-readonly"
+                  readOnly
+                  aria-describedby="pf-stock-help"
+                  value={String(product!.stock)}
+                />
+              </Field>
+            ) : (
+              <Field label="Stock inicial" htmlFor="pf-stock" error={errors?.stock}>
+                <input
+                  id="pf-stock"
+                  ref={setRef('stock')}
+                  className={errors?.stock ? 'ig-input is-error' : 'ig-input'}
+                  inputMode="numeric"
+                  placeholder="0"
+                  aria-invalid={!!errors?.stock}
+                  aria-describedby={errors?.stock ? 'pf-stock-error' : undefined}
+                  value={draft.stock}
+                  onChange={(e) => updateField('stock', e.target.value)}
+                />
+              </Field>
+            )}
+
+            <Field
+              label="Stock mínimo"
+              htmlFor="pf-minstock"
+              error={errors?.minStock}
+              help="Avisamos cuando quede igual o menos."
+            >
+              <input
+                id="pf-minstock"
+                ref={setRef('minStock')}
+                className={errors?.minStock ? 'ig-input is-error' : 'ig-input'}
+                inputMode="numeric"
+                placeholder="0"
+                aria-invalid={!!errors?.minStock}
+                aria-describedby={errors?.minStock ? 'pf-minstock-error' : 'pf-minstock-help'}
+                value={draft.minStock}
+                onChange={(e) => updateField('minStock', e.target.value)}
+              />
+            </Field>
+
+            {showExpiry && (
+              <DateField
+                id="pf-expiry"
+                label="Vencimiento del lote"
+                className="span-2"
+                value={expiryDate}
+                onChange={(v) => {
+                  setExpiryDate(v)
+                  setExpiryError(null)
+                }}
+                error={expiryError}
+                help="Opcional. Aparece porque cargaste stock inicial."
+                inputRef={setRef('expiry')}
+              />
+            )}
           </div>
-        )}
 
-        {/* Stock mínimo siempre editable (es metadata, no transacción) */}
-        <div className="create-product-modal__field">
-          <label className="create-product-modal__label">Stock mínimo (opcional)</label>
-          <input
-            type="text"
-            inputMode="numeric"
-            className={`create-product-modal__input${errors?.minStock ? ' create-product-modal__input--error' : ''}`}
-            value={draft.minStock}
-            onChange={(e) => updateField('minStock', e.target.value)}
-            placeholder="0"
-          />
-          {errors?.minStock && <p className="create-product-modal__field-error">{errors.minStock}</p>}
+          {saveFailed && <InlineAlert tone="danger" title="No se pudo guardar el producto. Probá de nuevo." />}
         </div>
+      </Modal>
 
-        {apiError && <p className="create-product-modal__api-error">{apiError}</p>}
-
-        <div className="create-product-modal__actions">
-          <button className="create-product-modal__btn-cancel" onClick={onClose} disabled={submitting}>Cancelar</button>
-          <button className="create-product-modal__btn-submit" onClick={handleSubmit} disabled={submitting}>
-            {submitting
-              ? (isEdit ? 'Guardando...' : 'Creando...')
-              : (isEdit ? 'Guardar cambios' : 'Crear producto')}
-          </button>
-        </div>
-      </div>
-    </div>
+      <Modal
+        open={open && showDiscard}
+        title="¿Descartar los cambios?"
+        subtitle="Lo que tipeaste se va a perder."
+        size="sm"
+        hideCloseButton
+        initialFocusRef={discardKeepRef}
+        onClose={() => setShowDiscard(false)}
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setShowDiscard(false)
+                onClose()
+              }}
+            >
+              Descartar
+            </Button>
+            <Button ref={discardKeepRef} variant="primary" onClick={() => setShowDiscard(false)}>
+              Seguir editando
+            </Button>
+          </>
+        }
+      >
+        {null}
+      </Modal>
+    </>
   )
 }

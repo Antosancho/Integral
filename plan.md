@@ -1,1243 +1,1350 @@
-# Plan — Empaquetado de Integral con Electron Forge (v8 + Vite + Squirrel)
+# Plan — Nueva UI/UX de Integral con el Design System "Integral" (Factor Integral)
 
-> **Para quién es este plan:** un agente de IA que lo va a ejecutar paso a paso. Seguí las fases **en orden**. No saltees verificaciones. Cada paso es chico a propósito: hacé uno, verificá, seguí. Si un paso falla y la causa no es obvia, consultá la sección **"Troubleshooting"** al final antes de improvisar.
+> **Para quién es este plan:** un agente de IA (modelo de menor potencia) que lo ejecuta paso a paso. Seguí las fases **en orden**. Cada paso es chico a propósito: hacelo, verificá, seguí. No improvises diseño: todo lo visual sale del design system (DS) que está copiado en `design-system/`.
 >
 > **Reglas generales para el ejecutor:**
-> - No modifiques archivos que este plan no menciona (salvo para arreglar un error que el plan anticipa).
-> - **No toques** `CLAUDE.md` hasta la Fase 13, ni `backend/prisma/dev.db` nunca (tiene datos del negocio).
-> - El working tree arranca con `CONTEXT.md` y `ENTREGA.md` borrados y `CLAUDE.md` sin trackear: **es intencional, no lo "arregles"**.
-> - Versiones **exactas** (sin `^` ni `~`) para todo lo que se instala en este plan.
-> - Commits: proponé un commit al final de cada fase, pero hacelo solo si el usuario lo autoriza.
-> - Todos los comandos se corren desde la raíz del repo: `H:\anton\Proyectos\Integral`.
-> - Las Fases 1 a 11 dejan el empaquetado **funcionando**. Las Fases 11A, 11B y 11C agregan las **capas de protección** (bytecode, ofuscación, licencia) sobre algo que ya anda: no las adelantes.
-> - Nunca cambies la visibilidad del repo de GitHub ni ninguna configuración remota: eso lo hace el usuario (Fase P).
+> 1. Trabajá en una rama nueva: `git checkout -b feat/ui-design-system` (Fase 0). No hagas commit sin autorización del usuario; al final de cada fase **proponé** un commit.
+> 2. **No modifiques el backend** (`backend/`), ni `electron/ipcContract.ts`, ni `electron/preload.ts`, ni el schema de Prisma. La única excepción es el Paso 1.9 (tamaño mínimo de la ventana en `electron/main.ts`).
+> 3. **No toques** `design-system/` (es material de referencia, de solo lectura) ni `backend/prisma/dev.db`.
+> 4. `CLAUDE.md` tiene cambios locales del usuario sin commitear (sección "Diseño"): **no los reviertas**. Solo se edita en la Fase 13.
+> 5. Al terminar **cada fase** corré, desde la raíz del repo:
+>    - `npm --workspace renderer test` → todo verde.
+>    - `npm run typecheck` → sin errores.
+>    Si algo falla, arreglalo **antes** de pasar a la fase siguiente.
+> 6. Cuando una fase cambia un componente que ya tiene tests, **actualizá esos tests en la misma fase** (el plan lista cuáles). Nunca borres un test sin reemplazar lo que cubría, salvo que el plan lo indique.
+> 7. Versiones **exactas** (sin `^` ni `~`) para toda dependencia nueva.
+> 8. Prohibido en el renderer: colores hex/rgb hardcodeados fuera de `styles/tokens.css` (usar `var(--token)`), `type="number"` en inputs, los glifos `⚠` y `✕` (usar íconos lucide `TriangleAlert` y `X`), emojis.
+> 9. Textos: copiar **literalmente** los copys indicados en este plan (vienen de `design-system/guia/03-estados-y-copy.md`). Español rioplatense con voseo.
+> 10. Si algo de este plan contradice el DS, **gana este plan** (las decisiones del usuario están en la sección 0.2).
 
 ---
 
-## 0. Resumen del problema y decisiones tomadas
+## 0. Contexto
 
-### Estado actual (relevado)
+### 0.1 Qué hay que hacer
 
-| Aspecto | Hoy | Problema para empaquetar |
+Reemplazar toda la UI del renderer (`renderer/src/`) por la del design system "Integral": tokens de color/tipografía/espaciado, componentes (`ig-…` en `bundle.css`), pantallas y flujos de teclado. Fuente de verdad, en este orden:
+
+1. Este plan.
+2. `design-system/README.md` (principios, color, tipografía, íconos, layout).
+3. `design-system/guia/01-flujos.md`, `02-teclado-y-foco.md`, `03-estados-y-copy.md`, `04-implementacion.md`.
+4. `design-system/components/<Componente>/README.md` y `preview.html` (markup de referencia exacto; abrilo para copiar la estructura de clases). Los previews referencian `/_blob/...` para el logo: ignoralo, en la app se usa el PNG local.
+5. `design-system/components/bundle.css` (clases `ig-…`) y `design-system/tokens.css` (variables).
+6. `design-system/lamina-de-marca.jpg` (lámina de marca: logo, tipografías, colores).
+
+### 0.2 Decisiones tomadas con el usuario (no re-discutir)
+
+| # | Tema | Decisión |
 |---|---|---|
-| Main/preload | `tsc` → `dist/electron/*.js`; `package.json#main = dist/electron/main.js` | Forge+Vite necesita `main` apuntando a `.vite/build/main.cjs` |
-| Carga del renderer | `mainWindow.loadURL("http://localhost:5173")` **siempre** | En producción no hay dev server → pantalla en blanco |
-| Preload | `path.join(__dirname, "preload.js")`, `sandbox: false` | En Forge v8 el preload sale como `preload.cjs`; conviene `sandbox: true` |
-| Renderer | workspace npm `renderer/` con Vite 7.3.2 + React 19 (sin router) | Hay que decirle a Forge que el root del renderer es `renderer/` |
-| Prisma 5.22 | motor nativo `node_modules/.prisma/client/query_engine-windows.dll.node` | No se puede bundlear ni cargar desde dentro del `.asar` |
-| Migraciones en prod | **no existen** (CLAUDE.md lo marca como pendiente) | La app instalada arrancaría con una DB sin tablas |
-| DB en prod | `setupEnv.ts` ya resuelve `<userData>/integral.db` cuando `app.isPackaged` | OK, se reutiliza |
-| `dist/` | **versionado en git** (60 archivos) | Queda obsoleto; se saca del repo |
-| Entorno de la terminal | `ELECTRON_RUN_AS_NODE=1` seteado (heredado de VS Code) | `npm start` lanzaría Electron como Node → no abre ventana |
-| Node | v22.17.1 | OK para Forge v8 (requiere ≥ 22.13) |
+| D1 | Alcance | **Todo lo que sea frontend** del DS: re-skin completo + pantalla **Stock › Movimientos** + filtros de Stock + orden de columnas + menú ⋮ + selector con alta en el momento + atajos + toasts + estados vacío/cargando/error. **Sin cambios de backend**: se omiten los datos que la API no da (columna "Stock resultante" en Movimientos, "Última venta" en Menor rotación, nota de "productos sin precio de compra", metadato "N productos" por proveedor). |
+| D2 | Líneas General (F10) | **Se pueden aprobar** (el backend ya las guarda). Se ignora la regla del DS que bloquea APROBAR y su hint "Las líneas General aún no se pueden guardar". |
+| D3 | Historial de ventas | Layout del DS (segmentado **Nueva venta \| Historial** dentro de Ventas, maestro–detalle), **conservando** filtros de hora y de monto (fila "Más filtros") y el **Resumen de caja** (debajo del detalle). Se quita la pestaña "Historial" del header y el modal de detalle. |
+| D4 | Buscador en Stock | **Ambos**: popup **F2 "Buscar producto"** (estilo DS, elegir abre Editar producto) **y** buscador inline en la toolbar que filtra la tabla (`Ctrl+F`). |
+| D5 | Columna de lotes | Se **mantiene** el toggle de vencimientos (botón "Vencimientos" en la toolbar de Stock y columna en el popup F2 de Stock). |
+| D6 | Carrito al cambiar de sección | **Store global** (Context por encima de las pantallas): carrito, descuento y pagos sobreviven al cambiar de sección o al ir al Historial. |
+| D7 | Tema | **Claro + oscuro con selector** (botón en el header, guardado en `localStorage`, default claro). |
+| D8 | Assets | Ya están copiados en `design-system/` (fuentes `.woff2`, logos PNG, CSS, guías). El ejecutor los copia al renderer en la Fase 1. |
 
-### Decisiones (confirmadas con el usuario)
+### 0.3 Decisiones técnicas tomadas por el arquitecto
 
-1. **Forge v8.0.1 + plugin de Vite.** Main y preload se bundlean y minifican con Vite. Esto también ayuda al requisito de "no exponer el código fuente": dentro del paquete solo va JS bundleado/minificado, sin `.ts`, sin `.map` y sin carpetas `backend/` ni `electron/`.
-2. **Prisma como "runtime external".** `@prisma/client` y `.prisma/client` no se bundlean: un hook de Forge (`packageAfterPrune`) los copia a `node_modules` dentro del paquete. El `.node` del motor se desempaqueta del asar (`asar.unpack: "*.node"`) y `setupEnv.ts` setea `PRISMA_QUERY_ENGINE_LIBRARY` apuntando a `app.asar.unpacked`.
-3. **Migrador propio** (`backend/db/migrator.ts`). Al iniciar la app, aplica los `migration.sql` pendientes (que viajan en el instalador como `resources/migrations/`) y los registra en `_prisma_migrations` con **el mismo formato que Prisma CLI**. Así es compatible con una `dev.db` ya migrada por `prisma migrate deploy` y el CLI de Prisma sigue funcionando sobre una DB migrada por la app. Antes de aplicar migraciones sobre una DB con datos, hace backup con `VACUUM INTO`.
-4. **Datos del cliente actual:** copia manual documentada de `backend\prisma\dev.db` a `%APPDATA%\Integral\integral.db` (Fase 13).
-5. **Instalador:** solo **Squirrel.Windows** (`Setup.exe`, por usuario, sin admin).
-6. **Ícono y firma:** no hay por ahora. El ícono se toma de `assets/icons/icon.ico` **solo si existe**. La firma se activa **solo** si está definida la variable de entorno `WINDOWS_CERTIFICATE_FILE`.
-7. **Seguridad:** `sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`, CSP en el HTML de producción, navegación y ventanas nuevas bloqueadas, fuses de Electron activados, una sola instancia de la app (SQLite no se lleva bien con dos procesos escribiendo).
-8. **Protección del código — main process en bytecode de V8 (Fase 11A).** Toda la lógica de negocio (repositorios, ventas, estadísticas, migrador) corre en el main. Al empaquetar, `main.cjs` se compila a `main.jsc` con **bytenode 1.7.0**, usando **el mismo binario de Electron** del proyecto (el bytecode solo sirve para la versión exacta de V8 con la que se generó), y `main.cjs` se reemplaza por un cargador de 3 líneas. En desarrollo (`npm start`) no hay bytecode. El preload **no** se compila: corre en sandbox (no puede cargar `.jsc`) y solo tiene nombres de canales IPC.
-9. **Protección del código — renderer ofuscado (Fase 11B).** Plugin de Vite propio, solo en build, con `javascript-obfuscator 5.9.0` y `target: "browser-no-eval"` (compatible con la CSP). React y demás librerías van a un chunk `vendor` que **no** se ofusca (no aporta nada y empeora el rendimiento).
-10. **Licencia de uso (EULA) (Fase 11C).** Squirrel no muestra pantallas durante la instalación, así que la licencia se acepta **en la app**, en el primer arranque, con un diálogo nativo ("Acepto" / "No acepto"). La aceptación se guarda en `%APPDATA%\Integral\license-accepted.json` con la versión de la licencia: si el texto cambia y se sube `LICENSE_VERSION`, se vuelve a pedir. El texto vive en `LICENSE.txt` (raíz) y viaja como `resources/LICENSE.txt`. **Es un borrador: lo tiene que revisar un abogado antes de distribuir.**
-11. **Repo de GitHub público (Fase P).** Verificado: `https://api.github.com/repos/Antosancho/Integral` responde 200 sin autenticación. Mientras siga público, cualquiera puede leer el código completo con comentarios, y las fases de protección pierden sentido. Hacerlo privado es una acción **del usuario**.
+- **Íconos:** `lucide-react@0.468.0` (exacta). `size={18}` por defecto, 16 en filas/badges, 22 en el input de código. Si al compilar un nombre no existe en esa versión, usar el alias viejo: `ChartColumn`→`BarChart3`, `EllipsisVertical`→`MoreVertical`, `TriangleAlert`→`AlertTriangle`, `CircleAlert`→`AlertCircle`, `CircleCheck`→`CheckCircle2`.
+- **Sin librerías nuevas** de estado, router, modales ni fechas. Solo React + lucide.
+- **Fechas:** inputs de texto con máscara `DD/MM/AAAA` (no `<input type="date">`), como pide el DS.
+- **Montos:** texto libre + `inputMode="decimal"`, parseo es-AR con `parseDecimal` (Paso 2.2), formateo **al salir** del input.
+- **Accesibilidad de nombres existentes:** para minimizar cambios en tests, se conservan estos nombres accesibles: botón `APROBAR VENTA` (el `Kbd F12` lleva `aria-hidden`), inputs de pago con `aria-label` = `EFECTIVO`/`DÉBITO`/…, botones-etiqueta con `aria-label` = `Autocompletar EFECTIVO`…, input de descuento con `aria-label="Descuento"`.
+- **Movimientos de stock:** clasificación (Paso 8.1) basada en `type`, `quantity` y `appliedDelta` (ya existen). "Alta inicial" = `type==='IN' && appliedDelta===0 && quantity>0` (así lo crea `productRepository.createProduct`).
+- **Splash de 1 s del DS (F1):** fuera de alcance (la base se abre en el main antes de mostrar la ventana).
+- **Búsqueda sin tildes en el popup F2:** la búsqueda por nombre la hace el backend (`nameContains`), que no ignora tildes; se acepta la limitación. El **resaltado** de la coincidencia sí ignora tildes. El buscador inline de Stock filtra en el cliente e ignora tildes.
 
-> **Límite de la protección (dejarlo claro en el reporte final):** nada que corra en la máquina del cliente es 100% inextraíble. Con estas capas, extraer el `app.asar` ya no da código legible del main (solo bytecode y textos sueltos) y el renderer queda ofuscado. Siguen visibles `schema.prisma`, los `migration.sql`, el preload y la base `integral.db` (SQLite). La protección real frente a un cliente es la licencia + el contrato.
+### 0.4 Estado actual relevado (para ubicarte)
 
-### Hechos verificados en los que se apoya el migrador (no los re-investigues)
+- `renderer/src/App.tsx`: estado `content: 'sells'|'stock'|'history'|'stats'`, renderiza `Header` + página.
+- `renderer/src/Pages/Header.tsx`: botones Sells/Historial/Stock/Estadísticas + `ExpiryAlertWidget`.
+- Stock: `Pages/Stock.tsx` (grilla CSS, popup F2 con `SearchPopup`, toggle de lotes), `Pages/Stock/ProductFormModal.tsx`, `LoadStockModal.tsx`, `CategorySelector.tsx`, `SupplierSelector.tsx`, `validateProductForm.ts`.
+- Ventas: `Pages/Sells/Sells.tsx` (estado local con `useReducer(cartReducer)`), `BarcodeInput.tsx`, `CartList.tsx`, `PaymentPanel.tsx`, `SearchPopup.tsx`, `GeneralAmountPopup.tsx`, `cartReducer.ts`, `payments.ts`, `amount.ts`, `confirmSaleUtils.ts`, `searchProducts.ts`, `types.ts`, `lineId.ts`.
+- Historial: `Pages/SalesHistory/SalesHistory.tsx`, `SaleDetailModal.tsx`, `CajaSummary.tsx`, `cajaUtils.ts`, `salesHistoryFilters.ts`.
+- Estadísticas: `Pages/Stats/Stats.tsx`, `statsUtils.ts`.
+- Componentes: `Components/ExpiryAlert/ExpiryAlertWidget.tsx`, `Components/LotsList/LotsList.tsx`.
+- Utils: `utils/format.ts` (`formatMoney`), `utils/expiry.ts`, `utils/lots.ts`.
+- Tests: Vitest + Testing Library + happy-dom (`renderer/vitest.config.ts`, setup en `src/setupTests.ts`). Hoy hay ~391 tests.
+- CSP de producción (`vite.renderer.config.mts`): `font-src 'self' data:` e `img-src 'self' data:` → fuentes y PNG locales funcionan sin cambios.
 
-- La tabla `_prisma_migrations` en SQLite tiene exactamente este DDL (copiado de `dev.db`):
-  ```sql
-  CREATE TABLE "_prisma_migrations" (
-      "id"                    TEXT PRIMARY KEY NOT NULL,
-      "checksum"              TEXT NOT NULL,
-      "finished_at"           DATETIME,
-      "migration_name"        TEXT NOT NULL,
-      "logs"                  TEXT,
-      "rolled_back_at"        DATETIME,
-      "started_at"            DATETIME NOT NULL DEFAULT current_timestamp,
-      "applied_steps_count"   INTEGER UNSIGNED NOT NULL DEFAULT 0
-  )
+### 0.5 Mapa de archivos
+
+**Nuevos** (todos bajo `renderer/src/`):
+
+```
+assets/fonts/*.woff2                      (8 archivos, copiados)
+assets/brand/factor-integral-horizontal-oscuro.png
+assets/brand/factor-integral-horizontal-claro.png
+styles/tokens.css                         (copia adaptada de design-system/tokens.css)
+styles/bundle.css                         (copia exacta de design-system/components/bundle.css)
+styles/app.css                            (agregados propios del proyecto)
+utils/theme.ts                            utils/parse.ts      utils/text.ts
+utils/stock.ts                            utils/dom.ts
+ui/Kbd.tsx  ui/ShortcutBar.tsx  ui/Button.tsx  ui/Badge.tsx  ui/Segmented.tsx
+ui/Field.tsx  ui/DateField.tsx  ui/InlineAlert.tsx  ui/EmptyState.tsx
+ui/TableSkeleton.tsx  ui/Modal.tsx  ui/modalStack.ts  ui/Toast.tsx
+ui/MenuButton.tsx  ui/StepIndicator.tsx  ui/EntityPicker.tsx
+ui/useRowNavigation.ts  ui/useFlash.ts  ui/useDelayedFlag.ts
+ui/__tests__/*.test.tsx
+store/SalesContext.tsx  store/__tests__/SalesContext.test.tsx
+navigation.ts
+Components/AppHeader/AppHeader.tsx  Components/AppHeader/ThemeToggle.tsx
+Pages/Stock/StockProducts.tsx         (antes Pages/Stock.tsx)
+Pages/Stock/StockPage.tsx             (cabecera + segmentado Productos|Movimientos)
+Pages/Stock/StockMovements.tsx  Pages/Stock/movements.ts
+Pages/Stock/CategoryPicker.tsx  Pages/Stock/SupplierPicker.tsx
+Pages/Sells/SalesPage.tsx             (cabecera + segmentado Nueva venta|Historial)
+Pages/Sells/CartTable.tsx  Pages/Sells/EditableCell.tsx  Pages/Sells/ChangeIndicator.tsx
+Pages/SalesHistory/SaleDetailCard.tsx
+Pages/Stats/StatCard.tsx  Pages/Stats/RankingList.tsx
+test/renderWithProviders.tsx  test/fixtures.ts
+```
+
+**Eliminados** (en la fase indicada): `Pages/Header.tsx`, `Pages/Stock.tsx`, `Pages/Stock.css`, `Pages/Stock/CreateProductModal.css`, `Pages/Stock/LoadStockModal.css`, `Pages/Stock/CategorySelector.tsx` (+test), `Pages/Stock/SupplierSelector.tsx` (+test), `Pages/Sells/CartList.tsx` (+test), `Pages/Sells/Sells.css`, `Pages/Sells/SearchPopup.css`, `Pages/SalesHistory/SaleDetailModal.tsx` (+css, +test), `Pages/SalesHistory/*.css`, `Pages/Stats/Stats.css`, `Components/ExpiryAlert/ExpiryAlertWidget.css`, `Components/LotsList/LotsList.css`, `App.css`, contenido de `index.css`.
+
+---
+
+## 1. Convenciones que vas a usar en todo el plan
+
+### 1.1 Cómo correr cosas
+
+- Tests del renderer: `npm --workspace renderer test` (todos) o `npx --workspace renderer vitest run src/ui/__tests__/Modal.test.tsx` (uno).
+- Typecheck: `npm run typecheck`.
+- Lint: `npm --workspace renderer run lint` (anotá la cantidad de errores en la Fase 0; al final no puede haber **más** que al principio).
+- App real: `env -u ELECTRON_RUN_AS_NODE npm start` (Bash) o `Remove-Item Env:ELECTRON_RUN_AS_NODE; npm start` (PowerShell).
+
+### 1.2 Textos con espacio duro
+
+`Intl.NumberFormat('es-AR', {style:'currency'})` produce `"$ 1.234,50"` con un **espacio duro** (U+00A0) entre `$` y el número. En tests:
+- `screen.getByText('$ 1.234,50')` funciona (el normalizador de Testing Library colapsa espacios, incluido U+00A0).
+- `expect(x).toBe('$ 1.234,50')` **no** funciona: usá `expect(x.replace(/ /g, ' ')).toBe('$ 1.234,50')`.
+
+### 1.3 Patrón de íconos
+
+```tsx
+import { Plus } from 'lucide-react'
+<Plus size={18} strokeWidth={2} aria-hidden="true" className="ig-icon" />
+```
+Siempre `aria-hidden="true"` en íconos decorativos. Botón solo-ícono → `aria-label` obligatorio.
+
+### 1.4 Helpers de tests (se crean en el Paso 3.0)
+
+- `renderWithProviders(ui)` envuelve en `ToastProvider` + `SalesProvider`.
+- `makeProduct(overrides)` devuelve un `ProductFromApi` válido.
+
+---
+
+## Fase 0 — Preparación
+
+**0.1** `git status` → solo debe aparecer `M CLAUDE.md`, `plan.md` y `design-system/` sin trackear. Crear rama: `git checkout -b feat/ui-design-system`.
+
+**0.2** `npm install` en la raíz (el repo puede no tener `node_modules`).
+
+**0.3** Línea de base. Correr y **anotar** en tu respuesta los resultados:
+- `npm --workspace renderer test` (cantidad de tests y si pasan).
+- `npm run typecheck`.
+- `npm --workspace renderer run lint` (cantidad de errores/warnings).
+Si los tests del renderer **no** pasan en la base, frená y avisale al usuario.
+
+**0.4** Leé completos: `design-system/README.md`, las 4 guías de `design-system/guia/` y `design-system/components/bundle.css`. No sigas sin haberlos leído.
+
+---
+
+## Fase 1 — Fundaciones (estilos, fuentes, logos, tema)
+
+**1.1 Dependencia de íconos.** `npm install --workspace renderer --save-exact lucide-react@0.468.0`. Verificá que `renderer/package.json` tenga `"lucide-react": "0.468.0"` en `dependencies`.
+
+**1.2 Fuentes.** Copiá los 8 archivos `design-system/fonts/*.woff2` a `renderer/src/assets/fonts/` (mismos nombres).
+
+**1.3 Logos.** Copiá `design-system/logos/factor-integral-horizontal-oscuro.png` y `factor-integral-horizontal-claro.png` a `renderer/src/assets/brand/`.
+
+**1.4 tokens.css.** Copiá `design-system/tokens.css` a `renderer/src/styles/tokens.css` y reemplazá en las 8 reglas `@font-face` `url("fonts/` por `url("../assets/fonts/`. Nada más.
+
+**1.5 bundle.css.** Copiá `design-system/components/bundle.css` a `renderer/src/styles/bundle.css` **sin cambios**.
+
+**1.6 app.css.** Creá `renderer/src/styles/app.css` con exactamente estos agregados (son clases que el DS usa en los previews pero no define, o adaptaciones a botones en vez de `<a>`). Usá solo tokens:
+
+```css
+/* Integral — agregados propios del proyecto sobre bundle.css */
+html, body, #root { height: 100%; }
+.ig-app { height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+.app-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.ig-page { overflow: auto; }
+
+/* Header: la nav usa <button> en vez de <a> */
+.ig-nav button { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 var(--space-4); border: 0; border-radius: var(--radius-pill);
+  background: transparent; color: var(--ink-on-header-muted); font: 700 15px/20px var(--font-display); cursor: pointer; }
+.ig-nav button:hover { color: var(--ink-on-brand); background: rgba(255,255,255,.08); }
+.ig-nav button[aria-current="page"] { color: var(--brand-night); background: var(--brand-white); }
+.ig-header .ig-brand { background: none; border: 0; padding: 0; cursor: pointer; }
+.ig-header .ig-brand img.ig-logo { width: auto; height: 30px; border-radius: 0; }
+.ig-theme-toggle { color: var(--ink-on-header-muted); }
+.ig-theme-toggle:hover { color: var(--ink-on-brand); background: rgba(255,255,255,.08); }
+
+/* Toasts */
+.ig-toast-stack { position: fixed; top: calc(var(--header-height) + var(--space-4)); right: var(--space-6); z-index: var(--z-popover); display: grid; gap: var(--space-2); }
+.ig-toast.info .tone { background: var(--info-soft); color: var(--info); }
+.ig-toast .count { margin-left: auto; font: 600 12px/16px var(--font-sans); color: var(--ink-muted); }
+
+/* Popovers anclados */
+.ig-anchor { position: relative; }
+.ig-anchor > .ig-picker-pop, .ig-anchor > .ig-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: var(--z-popover); }
+.ig-anchor > .ig-expiry-pop { position: absolute; top: calc(100% + 8px); right: 0; z-index: var(--z-popover); color: var(--ink); text-align: left; }
+.ig-menu { min-width: 240px; padding: var(--space-1) 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-md); list-style: none; margin: 0; }
+.ig-menu button { display: flex; align-items: center; gap: var(--space-2); width: 100%; height: 40px; padding: 0 var(--space-4); border: 0; background: transparent; color: var(--ink); font: 400 15px/22px var(--font-sans); text-align: left; cursor: pointer; }
+.ig-menu button:hover, .ig-menu button.is-active { background: var(--surface-selected); }
+.ig-anchor-right > .ig-menu { left: auto; right: 0; }
+
+/* Tablas */
+.ig-grid:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.ig-th-sort { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; padding: 0; }
+.ig-table tbody tr.ig-row-flash td { animation: ig-flash .6s ease-out; }
+@keyframes ig-flash { from { background: var(--surface-selected); } to { background: transparent; } }
+.ig-table td.is-modified-col { color: var(--info); }
+.ig-cell-orig { font-size: 12px; line-height: 16px; color: var(--ink-subtle); text-align: right; padding-right: 10px; }
+.ig-link { border: 0; background: none; padding: 0; color: var(--link); font: inherit; text-decoration: underline; cursor: pointer; }
+.ig-muted { color: var(--ink-muted); }
+.ig-sub { color: var(--ink-muted); font-size: 13px; line-height: 18px; }
+
+/* Ventas */
+.ig-scan.is-idle .ig-scan-state { color: var(--warning); }
+.ig-scan:focus-within { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.ig-pay-row .ig-input.is-recargo { color: var(--warning); }
+.sales-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--space-3); }
+
+/* Layouts de pantallas */
+.ig-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
+.ig-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.ig-master-detail { display: grid; grid-template-columns: 1.25fr 1fr; gap: var(--space-4); flex: 1; min-height: 0; }
+.ig-master-detail > * { overflow: auto; }
+.ig-bar { height: 10px; border-radius: 5px; background: var(--surface-sunken); }
+.ig-bar > i { display: block; height: 10px; border-radius: 5px; background: var(--chart-2); }
+.ig-bar > i.is-peak { background: var(--chart-1); }
+select.ig-input { appearance: auto; }
+
+/* Modal: entrada */
+.ig-overlay { animation: ig-fade .12s ease-out; }
+.ig-overlay > .ig-modal { animation: ig-rise .16s ease-out; }
+@keyframes ig-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ig-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ig-overlay > .ig-modal { animation: ig-fade .12s ease-out; } .ig-table tbody tr.ig-row-flash td { animation: none; } }
+```
+
+**1.7 Entry del renderer.** En `renderer/src/main.tsx`:
+- Reemplazar `import './index.css'` por, en este orden:
+  ```ts
+  import './styles/tokens.css'
+  import './styles/bundle.css'
+  import './styles/app.css'
+  import { applyTheme, getStoredTheme } from './utils/theme'
+  applyTheme(getStoredTheme())
   ```
-- `started_at` y `finished_at` se guardan como **INTEGER = epoch en milisegundos** (`typeof(...) = 'integer'`). Hay que guardar `Date.now()`, **no** un `Date` ni un string.
-- `checksum` = `sha256(bytes crudos del migration.sql)` en hex, **incluyendo el BOM** si lo hay. Verificado: `20260210182056_init_stock_schema` → `704d76ae990e6a2829952f13344c050cc1aac831f5e88bf76164caf2e08e85a5`.
-- `20260213143709_barcode_to_bigint/migration.sql` **empieza con BOM UTF-8** (`\uFEFF`). El splitter de SQL lo tiene que quitar antes de ejecutar (pero el checksum se calcula sobre los bytes originales).
-- Varias migraciones usan `PRAGMA foreign_keys=OFF` y `DROP TABLE` de tablas con hijos en `ON DELETE CASCADE` (por ejemplo `Sale` → `SaleItem`). `PRAGMA foreign_keys` es **por conexión**: si las sentencias corren en conexiones distintas del pool, el `DROP TABLE "Sale"` borra en cascada los `SaleItem` (**pérdida de datos**). Por eso el migrador usa **`connection_limit=1`** y **no** envuelve las sentencias en una transacción (dentro de una transacción `PRAGMA foreign_keys` no tiene efecto).
-- `$executeRawUnsafe` de Prisma sobre SQLite ejecuta **una sola sentencia por llamada** → hay que dividir cada `migration.sql` en sentencias.
-- Cantidad de sentencias esperada por migración (cada `;` cierra una sentencia y ninguna aparece dentro de comentarios o strings): `init_stock_schema` 10, `change_barcode_to_int` 12, `barcode_to_bigint` 12, `add_applied_delta_to_stock_movement` 1, `add_sales` 17, `add_sale_discount_pct` 9, `allow_null_product_in_sale_item` 10, `add_purchase_price_snapshot` 1, `add_expiry_to_stock_movement` 3.
-- `@prisma/client@5.22.0` **no tiene `dependencies`** en runtime: copiar `node_modules/@prisma/client` + `node_modules/.prisma/client` alcanza.
-- Vite instalado (hoisted en la raíz): `7.3.2`. `@vitejs/plugin-react`: `5.2.0`. `@electron-forge/plugin-vite@8.0.1` **no** trae Vite como dependencia: usa el del proyecto.
-- Versiones a instalar (verificadas en npm): `@electron-forge/*` `8.0.1`, `@electron/fuses` `2.1.3`, `@electron/asar` `4.3.1`, `electron-squirrel-startup` `1.0.1`.
-- `window.api.listCategories()` existe (`electron/ipcContract.ts:205`, canal `category:list`) y devuelve un array.
+  (la llamada va antes de `createRoot`).
+- Borrar `renderer/src/index.css`. En `App.tsx` quitar `import "./App.css"` y borrar `renderer/src/App.css`.
 
-### Arquitectura final
-
-```
-DESARROLLO (npm start = electron-forge start)
-  electron/main.ts    ──Vite──► .vite/build/main.cjs      (package.json#main)
-  electron/preload.ts ──Vite──► .vite/build/preload.cjs
-  renderer/ (root)    ──Vite dev server──► MAIN_WINDOW_VITE_DEV_SERVER_URL
-  DB: backend/prisma/dev.db · migraciones: backend/prisma/migrations
-
-PRODUCCIÓN (npm run make)
-  out/Integral-win32-x64/
-    Integral.exe
-    resources/
-      app.asar                → package.json,
-                                .vite/build/main.cjs (cargador) + main.jsc (bytecode, Fase 11A) + preload.cjs,
-                                .vite/renderer/main_window/** (app ofuscada + vendor, Fase 11B),
-                                node_modules/@prisma/client/**, node_modules/.prisma/client/**, node_modules/bytenode/**
-      app.asar.unpacked/node_modules/.prisma/client/query_engine-windows.dll.node
-      migrations/<timestamp_nombre>/migration.sql   (extraResource)
-      LICENSE.txt                                   (extraResource, Fase 11C)
-  out/make/squirrel.windows/x64/Integral-1.0.0 Setup.exe  (+ RELEASES, *.nupkg)
-  DB: %APPDATA%\Integral\integral.db  · backups: %APPDATA%\Integral\integral.db.backup-<fecha>
-```
-
-### Archivos que se crean / modifican / borran
-
-| Acción | Archivo |
-|---|---|
-| Crear | `backend/db/migrator.ts`, `backend/__tests__/migrator.test.ts` |
-| Crear | `electron/runtimePaths.ts`, `backend/__tests__/runtime-paths.test.ts` |
-| Crear | `electron/forge-env.d.ts`, `electron/smoke.ts` |
-| Crear | `forge.config.mts`, `vite.main.config.mts`, `vite.preload.config.mts`, `vite.renderer.config.mts` |
-| Crear | `scripts/verify-package.mjs`, `scripts/smoke-packaged.mjs` |
-| Crear | `backend/__tests__/packaging-config.test.ts` |
-| Crear | `assets/icons/README.md`, `INSTALACION.md` |
-| Crear (11A) | `scripts/bytecode/compile-main.cjs` |
-| Crear (11C) | `LICENSE.txt`, `electron/license.ts`, `backend/__tests__/license.test.ts` |
-| Modificar (11A–11C) | `forge.config.mts`, `vite.renderer.config.mts`, `electron/main.ts`, `electron/smoke.ts`, `electron/runtimePaths.ts`, `scripts/verify-package.mjs`, `scripts/smoke-packaged.mjs`, `backend/__tests__/packaging-config.test.ts`, `backend/__tests__/runtime-paths.test.ts` |
-| Modificar | `electron/main.ts`, `electron/setupEnv.ts`, `renderer/index.html`, `renderer/package.json` |
-| Modificar | `package.json`, `.gitignore`, `backend/__tests__/db-path-config.test.ts`, `CLAUDE.md` |
-| Borrar | `scripts/dev.js`, carpeta `dist/` (y sacarla del índice de git) |
-
----
-
-## Fase P — Repo de GitHub privado (acción del USUARIO, no del agente)
-
-**P.1** Comprobá la visibilidad (es solo una lectura pública, no necesita credenciales):
-```
-curl -s -o /dev/null -w "%{http_code}\n" https://api.github.com/repos/Antosancho/Integral
-```
-- `200` → el repo es **público**. Avisale al usuario, con este texto: *"El repo Antosancho/Integral es público: cualquiera puede leer el código fuente completo. Hacelo privado en GitHub → Settings → General → Danger Zone → Change repository visibility → Private."* **No lo cambies vos.** Seguí con el plan (el trabajo local no depende de esto) y volvé a comprobar en la Fase 14.
-- `404` → ya es privado (o no existe). Seguí.
-
-**P.2** En el reporte final aclará que hacerlo privado **no recupera** las copias o forks que alguien haya hecho mientras estuvo público.
-
----
-
-## Fase 0 — Línea base (no modifica nada)
-
-**0.1** Confirmá que estás en la raíz: `git rev-parse --show-toplevel` → tiene que terminar en `Integral`.
-
-**0.2** Creá una rama: `git switch -c feat/electron-forge-packaging`.
-
-**0.3** Corré la suite actual y **anotá el resultado** en un archivo temporal de tu scratchpad (no en el repo):
-```
-npm run test:backend
-npm test --workspace renderer
-```
-Si algo ya falla **antes** de tocar nada, anotalo como "falla preexistente" y no lo arregles en este plan. Al final, las mismas pruebas tienen que dar el mismo resultado o mejor.
-
-**0.4** Verificá la variable de entorno peligrosa:
-- Bash: `printenv ELECTRON_RUN_AS_NODE`
-- PowerShell: `$env:ELECTRON_RUN_AS_NODE`
-
-Si imprime `1`, **cada vez** que lances Electron a mano (Fase 9) tenés que hacerlo sin ella (`env -u ELECTRON_RUN_AS_NODE npm start` en Bash, o `Remove-Item Env:ELECTRON_RUN_AS_NODE` antes, en PowerShell). Los scripts de smoke de este plan ya la manejan solos.
-
----
-
-## Fase 1 — Migrador propio (`backend/db/migrator.ts`) con TDD
-
-> Esta fase es 100% backend y no depende de Forge. Se hace primero porque es la pieza de mayor riesgo para los datos del cliente.
-
-### 1.1 Crear el archivo con la API pública (stubs)
-
-Creá `backend/db/migrator.ts`. Estilo: el mismo del resto de `backend/` (comillas dobles, sin punto y coma, comentarios en español). Exportá **exactamente** esta API:
+**1.8 utils/theme.ts.** Crear:
 
 ```ts
-import { PrismaClient } from "@prisma/client"
+export type Theme = 'light' | 'dark'
+export const THEME_STORAGE_KEY = 'integral.theme'
 
-export type MigrationFile = { name: string; sql: string; checksum: string }
-export type MigrationLogger = { info(message: string): void; warn(message: string): void }
-export type RunMigrationsOptions = {
-  databaseUrl: string          // "file:<ruta ABSOLUTA>" (lo que deja setupEnv en process.env.DATABASE_URL)
-  migrationsDir: string        // carpeta con subcarpetas <timestamp_nombre>/migration.sql
-  logger?: MigrationLogger     // default: console
-  now?: () => number           // default: Date.now (inyectable para tests)
-}
-export type RunMigrationsResult = {
-  applied: string[]            // nombres de migraciones aplicadas en ESTA corrida, en orden
-  backupPath: string | null    // ruta del backup si se hizo, si no null
-  dbCreated: boolean           // true si el archivo no existía o estaba vacío (0 bytes)
-}
-export type MigrationErrorCode = "NO_MIGRATIONS" | "FAILED_PREVIOUS" | "UNKNOWN_APPLIED" | "APPLY_FAILED" | "INVALID_URL"
-export class MigrationError extends Error {
-  constructor(public readonly code: MigrationErrorCode, message: string) { super(message); this.name = "MigrationError" }
-}
-
-export function splitSqlStatements(sql: string): string[]
-export function sqliteFilePathFromUrl(databaseUrl: string): string
-export function withSingleConnection(databaseUrl: string): string
-export function readMigrations(migrationsDir: string): MigrationFile[]
-export async function runMigrations(options: RunMigrationsOptions): Promise<RunMigrationsResult>
-```
-
-El archivo **no** importa nada de `electron` (tiene que poder correr con `ts-node`).
-
-### 1.2 Escribir los tests ANTES de implementar
-
-Creá `backend/__tests__/migrator.test.ts` siguiendo el patrón de los tests existentes (por ejemplo `testDb-helper.test.ts`): script plano con `assert(...)`, `console.log("  PASS: ...")`, `main().catch(e => { console.error(e); process.exit(1) })`. Usá `createMigratedTestDb` de `./helpers/testDb` cuando necesites una DB creada por el **CLI** de Prisma.
-
-Para las DBs que crea el migrador usá una carpeta temporal: `fs.mkdtempSync(path.join(os.tmpdir(), "integral-migrator-"))`, y armá la URL como `` `file:${dbPath.replace(/\\/g, "/")}` ``. Siempre hacé `$disconnect()` **antes** de borrar archivos (en Windows da `EBUSY`). La limpieza va en `finally`.
-
-Las migraciones reales están en `path.join(repoRoot, "backend", "prisma", "migrations")`.
-
-**Casos (cada uno es un bloque con su `PASS`):**
-
-**Grupo A — `splitSqlStatements` (puro):**
-- A1: `"\uFEFFCREATE TABLE a (x INT);"` → `["CREATE TABLE a (x INT)"]` (quita el BOM y el `;` final).
-- A2: `"-- comentario; con punto y coma\nSELECT 1;"` → `["SELECT 1"]`.
-- A3: `"/* a; b */ SELECT 1; SELECT 2"` → `["SELECT 1", "SELECT 2"]` (la última sentencia no tiene `;`).
-- A4: `"INSERT INTO t VALUES ('a;b'); SELECT 1;"` → 2 sentencias; la primera es exactamente `"INSERT INTO t VALUES ('a;b')"`.
-- A5: `"INSERT INTO t VALUES ('it''s;');"` → 1 sentencia (comilla simple escapada duplicándola).
-- A6: `'CREATE TABLE "we;ird" (x INT);'` → 1 sentencia (identificador entre comillas dobles).
-- A7: `"   \n -- solo comentario\n"` → `[]`.
-- A8: para cada migración real, la cantidad de sentencias coincide con la tabla de la sección 0 ("Cantidad de sentencias esperada"). Si algún número no coincide, **contá a mano** las sentencias de ese archivo antes de tocar el test o la implementación.
-
-**Grupo B — helpers de URL (puros):**
-- B1: `sqliteFilePathFromUrl("file:C:/x/y.db")` → `"C:/x/y.db"`; `sqliteFilePathFromUrl("file:C:/x/y.db?connection_limit=5")` → `"C:/x/y.db"`.
-- B2: `sqliteFilePathFromUrl("file:./dev.db")` lanza `MigrationError` con `code === "INVALID_URL"` (las rutas relativas son ambiguas con Prisma; la app siempre pasa rutas absolutas). Igual con `"postgres://..."`.
-- B3: `withSingleConnection("file:C:/a.db")` → `"file:C:/a.db?connection_limit=1"`; `withSingleConnection("file:C:/a.db?foo=1")` → `"file:C:/a.db?foo=1&connection_limit=1"`.
-
-**Grupo C — `readMigrations`:**
-- C1: con la carpeta real devuelve 9 elementos ordenados por nombre ascendente; ignora `migration_lock.toml`; el `checksum` de `20260210182056_init_stock_schema` es `704d76ae990e6a2829952f13344c050cc1aac831f5e88bf76164caf2e08e85a5`.
-- C2: carpeta inexistente → devuelve `[]` (no lanza; quien decide lanzar es `runMigrations`).
-
-**Grupo D — `runMigrations` sobre DB nueva:**
-- D1: ruta de DB que **no existe** → `applied.length === 9`, `dbCreated === true`, `backupPath === null`, y el archivo existe.
-- D2: **mismo schema que el CLI**. Creá otra DB con `createMigratedTestDb("migrator-ref")` y compará en ambas:
-  `SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name <> '_prisma_migrations' ORDER BY type, name`
-  → las dos listas tienen que ser **idénticas** (comparalas con `JSON.stringify`).
-- D3: **mismos checksums que el CLI**: por cada `migration_name`, `checksum` igual en ambas DBs.
-- D4: `SELECT typeof(started_at) AS ts, typeof(finished_at) AS tf, applied_steps_count FROM _prisma_migrations` → todas las filas tienen `ts === "integer"`, `tf === "integer"` y `applied_steps_count == 1` (ojo: Prisma devuelve `bigint` → compará con `Number(...)`).
-- D5: **idempotencia**: segunda corrida sobre la misma DB → `applied.length === 0`, `dbCreated === false`, `backupPath === null`.
-
-**Grupo E — compatibilidad con el CLI de Prisma (es el caso "el cliente copia su dev.db"):**
-- E1: sobre una DB de `createMigratedTestDb("migrator-cli")` → `runMigrations` devuelve `applied.length === 0` y `backupPath === null`.
-- E2: sobre la DB creada en D1, corré con `spawnSync` (`shell: true`, `cwd: repoRoot`, `env: { ...process.env, DATABASE_URL: url }`):
-  `npx prisma migrate status --schema backend/prisma/schema.prisma` → `status === 0` y el stdout contiene `Database schema is up to date`.
-- E3: idem con `npx prisma migrate deploy --schema backend/prisma/schema.prisma` → `status === 0` y el stdout contiene `No pending migrations to apply`.
-
-**Grupo F — migración parcial con datos (el test más importante: detecta pérdida de datos por FK/PRAGMA):**
-- F1: creá una carpeta temporal de migraciones y copiá **solo las 5 primeras** (hasta `20260419180243_add_sales` inclusive). Corré `runMigrations` → `applied.length === 5`.
-- F2: insertá datos con `$executeRawUnsafe` (Prisma Client tipado no sirve: el schema actual tiene columnas que todavía no existen):
-  - 1 `Category`, 1 `Supplier`, 1 `Product` (con `barcode` `7790001000011`), 1 `Sale` (`total` 100), 2 `SaleItem` de esa venta, 1 `SalePayment`, 1 `StockMovement` tipo `SALE` con `saleId` = id de la venta.
-- F3: copiá las 4 migraciones restantes a la carpeta temporal y corré `runMigrations` → `applied` es exactamente la lista de esos 4 nombres, en orden.
-- F4: **datos intactos**: `SaleItem` sigue con 2 filas, `SalePayment` con 1, `StockMovement.saleId` **no es NULL**, el `barcode` del producto sigue igual, y `Sale.discountPct` es `0` (default de la migración).
-- F5: `PRAGMA foreign_key_check` → devuelve 0 filas (`$queryRawUnsafe`).
-- F6: **backup**: `backupPath` no es `null`, el archivo existe, su nombre empieza con `<nombre de la db>.backup-`, y abierto con otro `PrismaClient` tiene 2 `SaleItem` y solo 5 filas en `_prisma_migrations` (es el estado **anterior** a migrar).
-
-**Grupo G — errores:**
-- G1: carpeta de migraciones vacía → rechaza con `MigrationError` `code === "NO_MIGRATIONS"`.
-- G2: carpeta temporal con las 9 migraciones reales + `99999999999999_broken/migration.sql` con contenido `CREATE TABLE "Rota" (;` → rechaza con `code === "APPLY_FAILED"`; el mensaje contiene `99999999999999_broken`. En `_prisma_migrations` existe la fila de `99999999999999_broken` con `finished_at IS NULL` y `logs` no vacío.
-- G3: volver a correr sobre esa misma DB (aunque se arregle el SQL) → rechaza con `code === "FAILED_PREVIOUS"` **sin** intentar aplicar nada.
-- G4: DB migrada completa + `INSERT` manual en `_prisma_migrations` de una fila terminada con nombre `99999999999999_desde_version_nueva` → rechaza con `code === "UNKNOWN_APPLIED"`.
-- G5: **checksum distinto** (modificaste un `migration.sql` ya aplicado, por ejemplo agregándole un comentario al final en la carpeta temporal) → **no** rechaza, `applied.length === 0`, y el `logger.warn` (inyectá un logger que acumule mensajes en un array) recibió al menos un mensaje que contiene el nombre de esa migración.
-
-Registrá el script en `package.json`:
-```json
-"test:migrator": "npx ts-node backend/__tests__/migrator.test.ts"
-```
-Corrélo → **tiene que fallar** (todavía no hay implementación). Así confirmás que el test realmente prueba algo.
-
-### 1.3 Implementar `splitSqlStatements`
-
-Máquina de estados que recorre carácter por carácter:
-- Si el primer carácter es `\uFEFF`, se descarta.
-- Estados: `normal`, `comillaSimple`, `comillaDoble`, `comentarioLinea`, `comentarioBloque`.
-- En `normal`: `--` → `comentarioLinea` (no se copia); `/*` → `comentarioBloque` (no se copia); `'` → `comillaSimple` (se copia); `"` → `comillaDoble` (se copia); `;` → se cierra la sentencia actual (se hace `trim()` y se agrega si no queda vacía; el `;` **no** se incluye).
-- En `comillaSimple`: `''` (dos seguidas) se copia y se sigue en el mismo estado; una sola `'` cierra. Lo mismo con `"` en `comillaDoble`.
-- `comentarioLinea` termina en `\n` (el `\n` sí se copia, como separador). `comentarioBloque` termina en `*/`.
-- Al final, si queda texto con `trim()` no vacío, se agrega como última sentencia.
-
-Corré `npm run test:migrator`: el grupo A tiene que pasar.
-
-### 1.4 Implementar `sqliteFilePathFromUrl`, `withSingleConnection` y `readMigrations`
-
-- `sqliteFilePathFromUrl`: exige el prefijo `file:`; saca el prefijo y todo lo que viene desde `?`; exige `path.isAbsolute(ruta)`; si no se cumple, lanza `MigrationError("INVALID_URL", ...)`.
-- `withSingleConnection`: agrega `connection_limit=1` con `?` o `&` según si la URL ya tiene query.
-- `readMigrations`: si la carpeta no existe → `[]`. Lista subcarpetas (`withFileTypes`, solo directorios) que contengan `migration.sql`, ordenadas con `.sort()` (el nombre empieza con timestamp). Por cada una: `buffer = fs.readFileSync(...)`, `checksum = crypto.createHash("sha256").update(buffer).digest("hex")`, `sql = buffer.toString("utf-8")`.
-
-Grupos B y C en verde.
-
-### 1.5 Implementar `runMigrations` (algoritmo exacto)
-
-```
-1. migrations = readMigrations(migrationsDir)
-   si migrations.length === 0 → throw MigrationError("NO_MIGRATIONS", `No se encontraron migraciones en ${migrationsDir}`)
-2. dbPath = sqliteFilePathFromUrl(databaseUrl)
-   fs.mkdirSync(path.dirname(dbPath), { recursive: true })
-   dbCreated = !fs.existsSync(dbPath) || fs.statSync(dbPath).size === 0
-   si !fs.existsSync(dbPath) → fs.writeFileSync(dbPath, "")      // un archivo de 0 bytes es una DB SQLite válida
-3. prisma = new PrismaClient({ datasources: { db: { url: withSingleConnection(databaseUrl) } } })
-4. try {
-   a. await prisma.$executeRawUnsafe(<DDL de _prisma_migrations de la sección 0, con CREATE TABLE IF NOT EXISTS>)
-   b. rows = await prisma.$queryRawUnsafe<Row[]>(
-        'SELECT "id", "migration_name", "checksum", "finished_at", "rolled_back_at" FROM "_prisma_migrations"')
-   c. failed = rows con finished_at == null && rolled_back_at == null
-      si hay → throw MigrationError("FAILED_PREVIOUS",
-        `Una actualización anterior de la base de datos quedó incompleta (${nombres}). ` +
-        `Restaurá el backup más reciente (${dbPath}.backup-*) o contactá a soporte.`)
-   d. applied = rows con finished_at != null && rolled_back_at == null → Map nombre → checksum
-   e. desconocidas = nombres de applied que no están en migrations
-      si hay → throw MigrationError("UNKNOWN_APPLIED",
-        `La base de datos fue actualizada por una versión más nueva de Integral (${nombres}). Instalá la versión más reciente.`)
-   f. por cada migración aplicada cuyo checksum difiere → logger.warn(`[migrator] checksum distinto en ${name} (ya aplicada; no se re-aplica)`)
-   g. pending = migrations.filter(m => !applied.has(m.name))
-      si pending.length === 0 → logger.info("[migrator] base de datos al día") y return { applied: [], backupPath: null, dbCreated }
-   h. backupPath = null
-      si applied.size > 0:
-        backupPath = `${dbPath}.backup-${AAAAMMDD-HHmmss de now()}`   // hora local, con ceros a la izquierda
-        await prisma.$executeRawUnsafe(`VACUUM INTO '${backupPath.replace(/\\/g, "/").replace(/'/g, "''")}'`)
-        logger.info(`[migrator] backup creado en ${backupPath}`)
-   i. por cada m de pending (en orden):
-        id = crypto.randomUUID()
-        await prisma.$executeRaw`INSERT INTO "_prisma_migrations" ("id","checksum","migration_name","started_at","applied_steps_count")
-                                 VALUES (${id}, ${m.checksum}, ${m.name}, ${now()}, 0)`
-        try {
-          for (const stmt of splitSqlStatements(m.sql)) await prisma.$executeRawUnsafe(stmt)
-        } catch (error) {
-          await prisma.$executeRaw`UPDATE "_prisma_migrations" SET "logs" = ${String(error)} WHERE "id" = ${id}`
-          throw new MigrationError("APPLY_FAILED",
-            `Falló la migración ${m.name}: ${mensaje del error}.` + (backupPath ? ` Backup previo: ${backupPath}` : ""))
-        }
-        await prisma.$executeRaw`UPDATE "_prisma_migrations" SET "finished_at" = ${now()}, "applied_steps_count" = 1 WHERE "id" = ${id}`
-        aplicadasEnEstaCorrida.push(m.name)
-   j. logger.info(`[migrator] ${n} migración(es) aplicada(s)`)
-   k. return { applied: aplicadasEnEstaCorrida, backupPath, dbCreated }
-   } finally { await prisma.$disconnect() }
-```
-
-**Importante (no lo cambies):**
-- **Nunca** envuelvas las sentencias en `$transaction` (rompe los `PRAGMA foreign_keys=OFF`).
-- `connection_limit=1` es obligatorio (ver la sección 0).
-- `now()` devuelve un número (ms). Pasá **números** a `started_at`/`finished_at` (test D4).
-- El migrador crea **su propio** `PrismaClient` y lo desconecta. No uses el singleton `backend/db/client.ts`.
-
-Corré `npm run test:migrator` → **todos** los grupos (A a G) en verde.
-
-### 1.6 Sumarlo a la suite
-
-En `package.json`, agregá `&& npm run test:migrator` al final del script `test:backend`. Corré `npm run test:backend` completo → mismo resultado que la línea base + migrador en verde.
-
-**Checkpoint:** proponer el commit `feat(db): migrador propio compatible con _prisma_migrations`.
-
----
-
-## Fase 2 — Rutas de runtime (`electron/runtimePaths.ts`)
-
-Funciones **puras** (sin `import ... from "electron"`) para poder testearlas con ts-node.
-
-**2.1** Creá `electron/runtimePaths.ts`:
-```ts
-import fs from "fs"
-import path from "path"
-
-export type RuntimeLocation = { isPackaged: boolean; resourcesPath: string; dirname: string }
-
-/** Carpeta de migration.sql: en prod viaja como extraResource; en dev es la del repo. */
-export function resolveMigrationsDir(loc: RuntimeLocation): string {
-  return loc.isPackaged
-    ? path.join(loc.resourcesPath, "migrations")
-    // dirname en dev = <repo>/.vite/build → sube 2 niveles hasta la raíz
-    : path.join(loc.dirname, "..", "..", "backend", "prisma", "migrations")
-}
-
-/** Ruta del motor de Prisma desempaquetado del asar, o null si no está. */
-export function findQueryEngineLibrary(resourcesPath: string): string | null {
-  const dir = path.join(resourcesPath, "app.asar.unpacked", "node_modules", ".prisma", "client")
-  if (!fs.existsSync(dir)) return null
-  const file = fs.readdirSync(dir).find((name) => /query_engine.*\.node$/.test(name))
-  return file ? path.join(dir, file) : null
-}
-```
-
-**2.2** Creá `backend/__tests__/runtime-paths.test.ts` (mismo patrón de script con `assert`):
-- `resolveMigrationsDir({ isPackaged: true, resourcesPath: "C:\\App\\resources", dirname: "x" })` → `path.join("C:\\App\\resources", "migrations")`.
-- `resolveMigrationsDir({ isPackaged: false, resourcesPath: "x", dirname: path.join(repoRoot, ".vite", "build") })` → `path.join(repoRoot, "backend", "prisma", "migrations")`, y **esa carpeta existe**.
-- `findQueryEngineLibrary`: carpeta temporal sin `app.asar.unpacked` → `null`; con `app.asar.unpacked/node_modules/.prisma/client/query_engine-windows.dll.node` (archivo vacío) → devuelve esa ruta; con solo `index.js` adentro → `null`.
-
-**2.3** Registrá `"test:runtime-paths": "npx ts-node backend/__tests__/runtime-paths.test.ts"`, agregalo a `test:backend` y corrélo → verde.
-
----
-
-## Fase 3 — Dependencias
-
-**3.1** Instalá las herramientas de build (todas exactas, todas dev):
-```
-npm install --save-dev --save-exact @electron-forge/cli@8.0.1 @electron-forge/plugin-vite@8.0.1 @electron-forge/maker-squirrel@8.0.1 @electron-forge/plugin-fuses@8.0.1 @electron-forge/shared-types@8.0.1 @electron/fuses@2.1.3 @electron/asar@4.3.1 electron-squirrel-startup@1.0.1 vite@7.3.2 @vitejs/plugin-react@5.2.0
-```
-- `electron-squirrel-startup` va en **dev** a propósito: Vite lo bundlea dentro de `main.cjs`. En `dependencies` solo van los externals de runtime (Prisma).
-- `vite`/`@vitejs/plugin-react` en la raíz con **la misma versión** que usa `renderer/`, para que haya una sola copia.
-
-**3.2** Mové `prisma` (el CLI) a devDependencies; en runtime solo se usa `@prisma/client`:
-```
-npm uninstall prisma
-npm install --save-dev --save-exact prisma@5.22.0
-```
-
-**3.3** Verificaciones:
-- `npm ls @electron-forge/cli @electron-forge/plugin-vite @electron-forge/maker-squirrel @electron-forge/plugin-fuses @electron-forge/shared-types` → todas `8.0.1`.
-- `npm ls vite` → **solo** `7.3.2` (puede aparecer `deduped`). Si aparecen dos versiones, frená y revisá.
-- En `package.json`, `dependencies` queda **solo** con `"@prisma/client": "5.22.0"`. `electron` sigue en `devDependencies`.
-- `node_modules/.prisma/client/query_engine-windows.dll.node` existe (el `postinstall` corrió `prisma generate`).
-
----
-
-## Fase 4 — Configs de Vite (raíz del repo)
-
-> Los archivos `.mts` son ESM. **No uses `__dirname`** adentro (no existe en ESM). Usá `process.cwd()`: Forge siempre se ejecuta desde la raíz vía scripts npm.
-
-**4.1** `vite.main.config.mts`:
-```ts
-import { defineConfig } from "vite"
-import { builtinModules } from "node:module"
-
-// Prisma NO se bundlea: tiene un motor nativo (.node). Lo copia el hook packageAfterPrune de forge.config.mts.
-export default defineConfig(({ mode }) => ({
-  build: {
-    sourcemap: mode === "development",
-    minify: mode === "production",
-    rollupOptions: {
-      external: [
-        "electron",
-        /^@prisma\/client(\/.*)?$/,
-        /^\.prisma\//,
-        ...builtinModules,
-        ...builtinModules.map((m) => `node:${m}`),
-      ],
-    },
-  },
-}))
-```
-
-**4.2** `vite.preload.config.mts`: igual, pero `external: ["electron"]` solamente (el preload corre en sandbox: solo puede usar `electron`).
-
-**4.3** `vite.renderer.config.mts`:
-```ts
-import { defineConfig, type Plugin } from "vite"
-import react from "@vitejs/plugin-react"
-import path from "node:path"
-
-const ROOT = process.cwd()
-
-// CSP solo en build: en dev el preámbulo inline de react-refresh y el websocket de HMR la violarían.
-const PROD_CSP = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
-  "font-src 'self' data:",
-  "connect-src 'self'",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "form-action 'none'",
-].join("; ")
-
-function cspPlugin(): Plugin {
-  return {
-    name: "integral-csp",
-    apply: "build",
-    transformIndexHtml() {
-      return [{ tag: "meta", attrs: { "http-equiv": "Content-Security-Policy", content: PROD_CSP }, injectTo: "head-prepend" }]
-    },
-  }
-}
-
-export default defineConfig({
-  root: path.join(ROOT, "renderer"),
-  plugins: [react(), cspPlugin()],
-  build: {
-    // Forge espera el renderer en .vite/renderer/<name>; como cambiamos root, lo fijamos en absoluto.
-    outDir: path.join(ROOT, ".vite", "renderer", "main_window"),
-    emptyOutDir: true,
-    sourcemap: false,
-  },
-})
-```
-`main_window` **tiene que coincidir** con el `name` del renderer en `forge.config.mts`.
-
-**4.4** `renderer/vite.config.ts` y `renderer/vitest.config.ts` **no se tocan**: siguen sirviendo para `npm run dev:renderer` y para Vitest.
-
----
-
-## Fase 5 — `forge.config.mts`
-
-**5.1** Creá `assets/icons/README.md` con este texto: "Colocar acá `icon.ico` (256×256, multi-resolución) para el ícono de la app y del instalador. Si no existe, se usa el ícono por defecto de Electron. No hace falta tocar `forge.config.mts`."
-
-**5.2** Creá `forge.config.mts` en la raíz. Las partes marcadas como **OBLIGATORIO** van tal cual:
-
-```ts
-import type { ForgeConfig } from "@electron-forge/shared-types"
-import { MakerSquirrel } from "@electron-forge/maker-squirrel"
-import { VitePlugin } from "@electron-forge/plugin-vite"
-import { FusesPlugin } from "@electron-forge/plugin-fuses"
-import { FuseV1Options, FuseVersion } from "@electron/fuses"
-import fs from "node:fs"
-import path from "node:path"
-
-const ROOT = process.cwd()
-if (!fs.existsSync(path.join(ROOT, "forge.config.mts"))) {
-  throw new Error("Ejecutar electron-forge desde la raíz del proyecto")
-}
-
-const ICON_BASE = path.join(ROOT, "assets", "icons", "icon") // sin extensión (packager agrega .ico)
-const ICON_ICO = `${ICON_BASE}.ico`
-const hasIcon = fs.existsSync(ICON_ICO)
-
-// Firma opcional: solo si el entorno define el certificado. Nunca commitear certificados ni contraseñas.
-const certificateFile = process.env.WINDOWS_CERTIFICATE_FILE
-const certificatePassword = process.env.WINDOWS_CERTIFICATE_PASSWORD
-
-// OBLIGATORIO: módulos que NO se bundlean y se copian tal cual al paquete.
-const RUNTIME_EXTERNALS = [
-  path.join("node_modules", "@prisma", "client"),
-  path.join("node_modules", ".prisma", "client"),
-]
-
-const config: ForgeConfig = {
-  packagerConfig: {
-    name: "Integral",
-    executableName: "Integral",
-    asar: { unpack: "*.node" },                                        // OBLIGATORIO: el motor de Prisma no carga desde dentro del asar
-    extraResource: [path.join(ROOT, "backend", "prisma", "migrations")], // OBLIGATORIO: → resources/migrations
-    ...(hasIcon ? { icon: ICON_BASE } : {}),
-    win32metadata: {
-      CompanyName: "Antosancho",
-      FileDescription: "Integral - Gestión de stock y ventas",
-      ProductName: "Integral",
-    },
-  },
-  rebuildConfig: {},
-  makers: [
-    new MakerSquirrel({
-      name: "Integral",
-      authors: "Antosancho",
-      description: "Gestión de stock y ventas",
-      noMsi: true,
-      ...(hasIcon ? { setupIcon: ICON_ICO } : {}),
-      ...(certificateFile ? { certificateFile, certificatePassword } : {}),
-    }),
-  ],
-  hooks: {
-    // OBLIGATORIO: copiar Prisma después del prune (si se copia antes, el pruner borra .prisma/).
-    packageAfterPrune: async (_forgeConfig, buildPath) => {
-      for (const rel of RUNTIME_EXTERNALS) {
-        const src = path.join(ROOT, rel)
-        const dst = path.join(buildPath, rel)
-        if (!fs.existsSync(src)) {
-          throw new Error(`Falta ${rel}. Corré "npm install" (genera el cliente de Prisma).`)
-        }
-        fs.cpSync(src, dst, { recursive: true, dereference: true })
-      }
-    },
-  },
-  plugins: [
-    new VitePlugin({
-      build: [
-        { entry: "electron/main.ts", config: "vite.main.config.mts", target: "main" },
-        { entry: "electron/preload.ts", config: "vite.preload.config.mts", target: "preload" },
-      ],
-      renderer: [{ name: "main_window", config: "vite.renderer.config.mts" }],
-    }),
-    new FusesPlugin({
-      version: FuseVersion.V1,
-      [FuseV1Options.RunAsNode]: false,
-      [FuseV1Options.EnableCookieEncryption]: true,
-      [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
-      [FuseV1Options.EnableNodeCliInspectArguments]: false,
-      [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
-      [FuseV1Options.OnlyLoadAppFromAsar]: true,
-    }),
-  ],
-}
-
-export default config
-```
-
-**No** setees `packagerConfig.ignore`: lo maneja el plugin de Vite (solo empaqueta `.vite/`). Por eso Prisma se copia con el hook.
-
----
-
-## Fase 6 — Código de Electron
-
-### 6.1 `electron/forge-env.d.ts` (nuevo)
-```ts
-// Globals que inyecta @electron-forge/plugin-vite en el build del main.
-declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined
-declare const MAIN_WINDOW_VITE_NAME: string
-
-declare module "electron-squirrel-startup" {
-  const started: boolean
-  export default started
-}
-```
-Sin `import`/`export` de nivel superior: tiene que ser un script global.
-
-### 6.2 `electron/setupEnv.ts`
-- **No cambies** la función `resolveDbPath` ni la línea `return path.join(__dirname, "..", "..", "backend", "prisma", "dev.db")`: `db-path-config.test.ts` la parsea con una regex. Con Vite, `__dirname` en dev es `<repo>/.vite/build`, que está a la misma profundidad que `dist/electron`, así que la ruta sigue siendo correcta.
-- Agregá `import { findQueryEngineLibrary } from "./runtimePaths"` y, al final del archivo:
-```ts
-// En la app empaquetada el motor de Prisma vive en app.asar.unpacked; se lo indicamos explícitamente.
-if (app.isPackaged && !process.env.PRISMA_QUERY_ENGINE_LIBRARY) {
-  const engine = findQueryEngineLibrary(process.resourcesPath)
-  if (engine) process.env.PRISMA_QUERY_ENGINE_LIBRARY = engine
-}
-```
-
-### 6.3 `electron/smoke.ts` (nuevo) — modo de prueba del binario empaquetado
-
-Solo se activa si existe la variable de entorno `INTEGRAL_SMOKE_RESULT` (ruta de un archivo JSON). Exportá:
-```ts
-export type SmokeResult = {
-  ok: boolean
-  stage: "migrations" | "load" | "checks" | "timeout" | "done"
-  error?: string
-  migrationsApplied?: number
-  dbCreated?: boolean
-  apiType?: string
-  rootChildren?: number
-  categoriesDirect?: number
-  categoriesViaIpc?: number
-  isPackaged: boolean
-  userDataPath: string
-}
-export function writeSmokeResultAndExit(resultPath: string, partial: Omit<SmokeResult, "isPackaged" | "userDataPath">): void
-export function runSmokeChecks(win: BrowserWindow, migration: RunMigrationsResult, resultPath: string): void
-```
-- `writeSmokeResultAndExit`: completa `isPackaged: app.isPackaged` y `userDataPath: app.getPath("userData")`, escribe el JSON con `fs.writeFileSync(resultPath, JSON.stringify(result, null, 2))` y llama a `app.exit(result.ok ? 0 : 1)`.
-- `runSmokeChecks`:
-  1. `setTimeout` de 45 s → `{ ok: false, stage: "timeout" }`.
-  2. `win.webContents.once("did-fail-load", (_e, code, desc) => ... { ok: false, stage: "load", error: \`${code} ${desc}\` })`.
-  3. `win.webContents.once("did-finish-load", async () => { ... })` con:
-     - `apiType = await win.webContents.executeJavaScript("typeof window.api")`
-     - `rootChildren = await win.webContents.executeJavaScript('new Promise(r => setTimeout(() => r(document.getElementById("root")?.childElementCount ?? 0), 1500))')`
-     - `categoriesDirect = (await listCategories()).length` (importado de `../backend/repositories`: prueba que el motor de Prisma carga en el paquete)
-     - `categoriesViaIpc = await win.webContents.executeJavaScript("window.api.listCategories().then(x => x.length)")` (prueba IPC de punta a punta)
-     - `ok = apiType === "object" && rootChildren > 0 && categoriesDirect === categoriesViaIpc`
-     - incluí `migrationsApplied: migration.applied.length` y `dbCreated: migration.dbCreated`, `stage: "done"`.
-     - cualquier excepción → `{ ok: false, stage: "checks", error: String(e) }`.
-  4. Usá un flag `finished` para escribir el resultado **una sola vez**, y `clearTimeout` al terminar.
-
-### 6.4 `electron/main.ts` (reescritura)
-
-Estructura obligatoria (respetá el orden):
-```ts
-import "./setupEnv"                                    // SIEMPRE el primer import
-import started from "electron-squirrel-startup"
-import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron"
-import path from "path"
-import { registerIpcHandlers } from "./ipcHandlers"
-import { runMigrations, type RunMigrationsResult } from "../backend/db/migrator"
-import { resolveMigrationsDir } from "./runtimePaths"
-import { runSmokeChecks, writeSmokeResultAndExit } from "./smoke"
-
-const SMOKE_RESULT = process.env.INTEGRAL_SMOKE_RESULT
-let mainWindow: BrowserWindow | null = null
-
-function createWindow(): BrowserWindow {
-  const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    show: false,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  })
-  win.once("ready-to-show", () => win.show())
-  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }))
-  win.webContents.on("will-navigate", (event, url) => {
-    if (!MAIN_WINDOW_VITE_DEV_SERVER_URL || !url.startsWith(MAIN_WINDOW_VITE_DEV_SERVER_URL)) event.preventDefault()
-  })
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)
-  } else {
-    win.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`))
-  }
-  return win
-}
-
-async function bootstrap() {
-  Menu.setApplicationMenu(null)            // se mantiene: F10 no debe abrir el menú nativo
-  let migration: RunMigrationsResult
+export function getStoredTheme(): Theme {
   try {
-    migration = await runMigrations({
-      databaseUrl: process.env.DATABASE_URL as string,
-      migrationsDir: resolveMigrationsDir({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, dirname: __dirname }),
-    })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (SMOKE_RESULT) return writeSmokeResultAndExit(SMOKE_RESULT, { ok: false, stage: "migrations", error: message })
-    dialog.showErrorBox("Integral — Error en la base de datos", message)
-    app.exit(1)
-    return
-  }
-  registerIpcHandlers(ipcMain)
-  mainWindow = createWindow()
-  if (SMOKE_RESULT) runSmokeChecks(mainWindow, migration, SMOKE_RESULT)
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow()
-  })
-}
-
-if (started) {
-  app.quit()                               // eventos de instalación/desinstalación de Squirrel
-} else if (!app.requestSingleInstanceLock()) {
-  app.quit()                               // ya hay otra instancia abierta
-} else {
-  app.on("second-instance", () => {
-    if (!mainWindow) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
-  })
-  app.whenReady().then(bootstrap)
-  app.on("window-all-closed", () => {
-    if (process.platform !== "darwin") app.quit()
-  })
-}
-```
-Nunca vuelvas a escribir `localhost:5173` en el main.
-
-### 6.5 `electron/preload.ts`
-No requiere cambios. Confirmá que **solo** importa `electron` y `./ipcContract`, y que `ipcContract.ts` en el nivel superior solo tiene `import type` (así el bundle del preload funciona con `sandbox: true`).
-
-### 6.6 `renderer/index.html`
-- Borrá la línea `<link rel="icon" type="image/svg+xml" href="/vite.svg" />` (Electron no usa favicon y las rutas absolutas `/` se rompen con `file://`).
-- Cambiá `<title>renderer</title>` por `<title>Integral</title>` y `lang="en"` por `lang="es"`.
-- `<script type="module" src="/src/main.tsx">` **se deja igual** (Vite lo reescribe en el build).
-
-### 6.7 Typecheck
-- En `renderer/package.json` agregá el script `"typecheck": "tsc -b"`.
-- En la raíz: `npx tsc --noEmit` → 0 errores (el `tsconfig.json` raíz ya incluye `electron/**/*.ts`, y por lo tanto `forge-env.d.ts`).
-- `npm run typecheck --workspace renderer` → 0 errores.
-
----
-
-## Fase 7 — `package.json`, `.gitignore` y limpieza
-
-**7.1** En `package.json` (raíz):
-- `"main": ".vite/build/main.cjs"`
-- Agregá `"productName": "Integral"` (define `%APPDATA%\Integral`).
-- `"description": "Gestión de stock y ventas"` y `"author": "Antosancho"` (Squirrel falla si están vacíos).
-- Scripts: **borrá** `build` y `dev:electron`. Cambiá/agregá:
-```json
-"dev": "electron-forge start",
-"start": "electron-forge start",
-"prepackage": "prisma generate --schema backend/prisma/schema.prisma",
-"package": "electron-forge package",
-"premake": "prisma generate --schema backend/prisma/schema.prisma",
-"make": "electron-forge make",
-"typecheck": "tsc --noEmit && npm run typecheck --workspace renderer",
-"verify:package": "node scripts/verify-package.mjs",
-"verify:make": "node scripts/verify-package.mjs --make",
-"test:smoke-packaged": "node scripts/smoke-packaged.mjs",
-"test:packaging-config": "npx ts-node backend/__tests__/packaging-config.test.ts"
-```
-- Agregá `&& npm run test:packaging-config` a `test:backend`.
-- `dev:renderer`, los `prisma:*`, `wipe:test-data` y los `test:*` existentes **quedan**.
-
-**7.2** Borrá `scripts/dev.js` (Forge lo reemplaza).
-
-**7.3** `.gitignore`: agregá al final
-```
-# Build de Electron Forge
-out/
-.vite/
-dist/
-```
-
-**7.4** Sacá `dist/` del repo: `git rm -r --cached dist` y después borrá la carpeta del disco. Confirmá con `git ls-files dist` → vacío.
-
----
-
-## Fase 8 — Tests estáticos de configuración
-
-**8.1** `backend/__tests__/db-path-config.test.ts`: cambiá
-```ts
-const runtimeDirname = path.join(repoRoot, "dist", "electron")
-```
-por
-```ts
-const runtimeDirname = path.join(repoRoot, ".vite", "build")
-```
-y actualizá el comentario de arriba (`setupEnv.ts se bundlea en .vite/build/main.cjs`). Corré `npm run test:db-path-config` → PASS.
-
-**8.2** Creá `backend/__tests__/packaging-config.test.ts`. Lee archivos como texto/JSON y verifica (un `PASS` por punto):
-1. `package.json`: `main === ".vite/build/main.cjs"`, `productName === "Integral"`, `author` y `description` no vacíos.
-2. Todas las dependencias `@electron-forge/*` tienen **la misma** versión y es exacta (`/^\d+\.\d+\.\d+$/`).
-3. `electron`, `prisma` y `electron-squirrel-startup` están en `devDependencies`. `dependencies` tiene exactamente `["@prisma/client"]`.
-4. `electron/main.ts`: contiene `preload.cjs`, `MAIN_WINDOW_VITE_DEV_SERVER_URL`, `MAIN_WINDOW_VITE_NAME`, `sandbox: true`, `electron-squirrel-startup`, `requestSingleInstanceLock`, `runMigrations`, `Menu.setApplicationMenu(null)`; **no** contiene `localhost:5173` ni `sandbox: false`.
-5. `electron/main.ts`: la primera línea con `import` es `import "./setupEnv"`.
-6. `forge.config.mts`: contiene `extraResource`, `"migrations"`, `unpack: "*.node"`, `packageAfterPrune`, `.prisma`, `@prisma`, `FuseV1Options.RunAsNode]: false`, `OnlyLoadAppFromAsar]: true`, `name: "main_window"`.
-7. `vite.renderer.config.mts`: contiene `"main_window"` y `Content-Security-Policy`.
-8. `.gitignore` contiene las líneas `out/`, `.vite/` y `dist/`.
-9. `scripts/dev.js` **no** existe.
-
-Corré `npm run test:packaging-config` → verde. Corré `npm run test:backend` → todo verde.
-
----
-
-## Fase 9 — Verificación en desarrollo (manual)
-
-**9.1** Lanzá sin la variable peligrosa: Bash `env -u ELECTRON_RUN_AS_NODE npm start`, o PowerShell `Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue; npm start`.
-
-**9.2** Chequeá y anotá cada punto:
-- [ ] Se genera `.vite/build/main.cjs` y `.vite/build/preload.cjs`. **Si en cambio se generan `main.js`/`preload.js`**, ajustá `package.json#main`, la ruta del preload en `main.ts` y los tests de la Fase 8 a los nombres reales (ver Troubleshooting T1).
-- [ ] En consola aparece `[migrator] base de datos al día` (la `dev.db` ya estaba migrada por el CLI).
-- [ ] Abre la ventana en la pantalla Stock y lista los productos de `dev.db`.
-- [ ] Ventas: escaneo/búsqueda (F2), ítem general (F10, **no** abre ningún menú), cobro y aprobar venta funcionan.
-- [ ] Alerta de vencimientos en el header (si hay datos).
-- [ ] HMR: cambiá un texto de `Header.tsx` → la ventana se actualiza sin reiniciar. Revertí el cambio.
-- [ ] Con la app abierta, ejecutá `npm start` en otra terminal → no se abre una segunda ventana (se enfoca la existente).
-- [ ] `npm run dev:renderer` sigue levantando el renderer suelto en el navegador (sin `window.api`, es lo esperado).
-
----
-
-## Fase 10 — Empaquetado + verificación estática del paquete
-
-**10.1** `npm run package`. Tiene que terminar sin errores y crear `out/Integral-win32-x64/Integral.exe`.
-
-**10.2** Creá `scripts/verify-package.mjs` (ESM, sin dependencias salvo `@electron/asar` y `@electron/fuses`). Imprime `PASS:`/`FAIL:` por chequeo y sale con código 1 si hubo algún FAIL. Constantes: `ROOT = process.cwd()`, `APP_DIR = out/Integral-win32-x64`, `RES = APP_DIR/resources`, `ASAR = RES/app.asar`.
-
-Listá el asar con `import { listPackage, extractFile } from "@electron/asar"`, y normalizá cada entrada: `\` → `/` y sin `/` inicial.
-
-**Chequeos:**
-1. Existen `APP_DIR/Integral.exe` y `ASAR`.
-2. El asar **contiene**: `package.json`, `.vite/build/main.cjs`, `.vite/build/preload.cjs`, `.vite/renderer/main_window/index.html`, `node_modules/@prisma/client/package.json`, `node_modules/.prisma/client/index.js`, `node_modules/.prisma/client/schema.prisma`.
-3. El asar **no contiene** ninguna entrada que: empiece con `backend/`, `electron/`, `renderer/`, `scripts/`, `src/`, `dist/`; termine en `.map`; termine en `.ts` sin ser `.d.ts`; termine en `.db` o `.db-journal`; o cuyo basename empiece con `.env`. (Requisito de no exponer código fuente ni datos.)
-4. Existe un archivo `/query_engine.*\.node$/` en `RES/app.asar.unpacked/node_modules/.prisma/client/`.
-5. `RES/migrations/`: mismas subcarpetas que `backend/prisma/migrations/` (sin contar `migration_lock.toml`), y cada `migration.sql` con el **mismo sha256** que el del repo.
-6. `JSON.parse(extractFile(ASAR, "package.json"))`: `main === ".vite/build/main.cjs"` y `productName === "Integral"`.
-7. `main.cjs` **del build, antes del bytecode**: leé `ROOT/.vite/build/main.cjs` del disco, **no** el del asar (desde la Fase 11A, el del asar es solo un cargador; Vite deja el bundle legible en `.vite/build/` después de `npm run package`):
-   - contiene `require("@prisma/client")` (regex `/require\(["']@prisma\/client["']\)/`);
-   - **no** contiene `localhost:5173`;
-   - **no** contiene `require("electron-squirrel-startup")` (tiene que estar bundleado);
-   - la primera aparición de `PRISMA_QUERY_ENGINE_LIBRARY` está **antes** que la primera de `PrismaClient(` (setupEnv corre antes de crear clientes).
-8. `preload.cjs`: el conjunto de módulos en `require("...")` es exactamente `{"electron"}`.
-9. `index.html` del renderer: contiene `Content-Security-Policy`; no contiene `src="/`, `href="/` ni `localhost`.
-10. **Fuses**: `import { getCurrentFuseWire, FuseV1Options, FuseState } from "@electron/fuses"`; `wire = await getCurrentFuseWire(exe)`; `RunAsNode`, `EnableNodeOptionsEnvironmentVariable` y `EnableNodeCliInspectArguments` === `FuseState.DISABLE`; `OnlyLoadAppFromAsar`, `EnableEmbeddedAsarIntegrityValidation` y `EnableCookieEncryption` === `FuseState.ENABLE`.
-11. Con el flag `--make` (Fase 12), además: `out/make/squirrel.windows/x64/` contiene un archivo que termina en `Setup.exe`, el archivo `RELEASES` y al menos un `*-full.nupkg`.
-
-**10.3** `npm run verify:package` → todo PASS. Si algo falla, ver Troubleshooting **antes** de tocar código.
-
----
-
-## Fase 11 — Smoke test del binario empaquetado
-
-**11.1** Creá `scripts/smoke-packaged.mjs` (ESM). Helper `runApp(dbPath, resultPath, extraEnv = {})`:
-- `env = { ...process.env, DATABASE_URL: "file:" + dbPath.replace(/\\/g, "/"), INTEGRAL_SMOKE_RESULT: resultPath, ...extraEnv }`, y si `extraEnv` no define `ELECTRON_RUN_AS_NODE`, hacé `delete env.ELECTRON_RUN_AS_NODE`.
-- `spawn(exe, [], { env, stdio: "inherit" })` con timeout de 90 s (si vence: `kill` + FAIL "¿hay otra instancia de Integral abierta?").
-- Devuelve `{ code, result }`, con `result` = JSON leído de `resultPath` (o `null` si no existe).
-
-**Corridas (todas en una carpeta `fs.mkdtempSync(os.tmpdir() + "/integral-smoke-")`):**
-1. **DB nueva**: `smoke.db` inexistente → `code === 0`, `result.ok`, `result.isPackaged === true`, `result.dbCreated === true`, `result.migrationsApplied === <cantidad de carpetas de migración del repo>`, `result.apiType === "object"`, `result.rootChildren > 0`, `path.basename(result.userDataPath).toLowerCase() === "integral"`.
-2. **Segunda apertura** (misma DB) → `ok`, `migrationsApplied === 0`, `dbCreated === false`.
-3. **DB del cliente (creada por el CLI)**: creá `legacy.db` con `spawnSync("npx prisma migrate deploy --schema backend/prisma/schema.prisma", { shell: true, env: { ...process.env, DATABASE_URL: <url de legacy.db> } })` → abrí la app sobre ella → `ok`, `migrationsApplied === 0`.
-4. **Fuse RunAsNode**: misma DB que la corrida 1, pero con `extraEnv = { ELECTRON_RUN_AS_NODE: "1" }` → tiene que dar `ok` igual (si el fuse no estuviera aplicado, el exe correría como Node y no escribiría el resultado).
-5. Al final borrá la carpeta temporal (salvo que se pase `--keep`). Salí con código 1 si alguna corrida falló, imprimiendo el JSON del resultado.
-
-**11.2** Cerrá cualquier Integral abierto y corré `npm run test:smoke-packaged` → 4/4 PASS.
-
-**Checkpoint:** el empaquetado sin protecciones anda. Proponer commit antes de seguir.
-
----
-
-## Fase 11A — Main process compilado a bytecode de V8 (bytenode)
-
-> Objetivo: que dentro del `app.asar` no haya JS legible de la lógica de negocio. Se hace en el hook de empaquetado, sobre la **copia** del build (`buildPath`); el `.vite/` del proyecto y `npm start` no cambian.
-
-**11A.1** Instalá bytenode como dependencia **de runtime** (se carga desde el paquete) y exacta:
-```
-npm install --save-exact bytenode@1.7.0
-```
-**No** uses 2.x: 2.0.0 y 2.0.1 se publicaron el 23 y 24-oct-2026, son demasiado nuevas. bytenode 1.7.0 no tiene dependencias propias, así que alcanza con copiar su carpeta.
-
-**11A.2** Leé `node_modules/bytenode/README.md` y confirmá dos cosas: (a) la firma de `compileFile` acepta `{ filename, output, compileAsModule }`; (b) `require("bytenode")` registra la extensión `.jsc` en `require`. Si algo difiere, adaptá **solo** el script de 11A.3 y el cargador de 11A.4.
-
-**11A.3** Creá `scripts/bytecode/compile-main.cjs` (CommonJS). Corre **dentro** de Electron en modo Node, para que el bytecode coincida con el V8 del runtime:
-```js
-// Se ejecuta con el binario de Electron del proyecto y ELECTRON_RUN_AS_NODE=1 (ver forge.config.mts).
-// El bytecode de V8 solo es válido para la misma versión de Electron/V8 y la misma arquitectura.
-const bytenode = require("bytenode")
-
-const [input, output] = process.argv.slice(2)
-if (!input || !output) {
-  console.error("uso: compile-main.cjs <entrada.cjs> <salida.jsc>")
-  process.exit(2)
-}
-
-Promise.resolve(bytenode.compileFile({ filename: input, output, compileAsModule: true }))
-  .then(() => process.exit(0))
-  .catch((error) => { console.error(error); process.exit(1) })
-```
-
-**11A.4** En `forge.config.mts`:
-- Imports nuevos: `import { spawnSync } from "node:child_process"` y `import { createRequire } from "node:module"`.
-- `const requireFromRoot = createRequire(path.join(ROOT, "package.json"))`
-- Agregá `path.join("node_modules", "bytenode")` a `RUNTIME_EXTERNALS`.
-- Agregá esta constante y esta función:
-```ts
-const BYTECODE_LOADER = [
-  '"use strict"',
-  "// Cargador: el código real del main está compilado a bytecode de V8 en main.jsc",
-  'require("bytenode")',
-  'require("./main.jsc")',
-  "",
-].join("\n")
-
-function compileMainToBytecode(buildPath: string, electronVersion: string, platform: string, arch: string) {
-  if (process.env.INTEGRAL_NO_BYTECODE === "1") {
-    console.warn("[bytecode] DESACTIVADO por INTEGRAL_NO_BYTECODE=1 (solo para depurar; verify:package va a fallar)")
-    return
-  }
-  const installed = requireFromRoot("electron/package.json").version as string
-  if (installed !== electronVersion) throw new Error(`[bytecode] Electron instalado ${installed} ≠ empaquetado ${electronVersion}`)
-  if (platform !== process.platform || arch !== process.arch) {
-    throw new Error(`[bytecode] Solo se puede compilar para el SO/arquitectura del host (${process.platform}/${process.arch}); se pidió ${platform}/${arch}`)
-  }
-  const electronExe = requireFromRoot("electron") as string // desde Node, require("electron") devuelve la ruta del ejecutable
-  const input = path.join(buildPath, ".vite", "build", "main.cjs")
-  const output = path.join(buildPath, ".vite", "build", "main.jsc")
-  const result = spawnSync(electronExe, [path.join(ROOT, "scripts", "bytecode", "compile-main.cjs"), input, output], {
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-    stdio: "inherit",
-  })
-  if (result.status !== 0 || !fs.existsSync(output)) throw new Error(`[bytecode] Falló la compilación (status ${result.status})`)
-  fs.writeFileSync(input, BYTECODE_LOADER)
-}
-```
-- Cambiá la firma del hook a `packageAfterPrune: async (_forgeConfig, buildPath, electronVersion, platform, arch) => { ... }` y, **después** del `for` que copia los externals, llamá `compileMainToBytecode(buildPath, electronVersion, platform, arch)`.
-
-Nota: el `electron.exe` de `node_modules` es el de desarrollo, **sin fuses**, por eso acepta `ELECTRON_RUN_AS_NODE`. El empaquetado sí tiene el fuse apagado.
-
-**11A.5** `electron/smoke.ts`: agregá `mainFile: string` a `SmokeResult` y completalo en `writeSmokeResultAndExit` con `path.basename(__filename)`. En el paquete tiene que dar `"main.jsc"`; en dev, `"main.cjs"`.
-
-**11A.6** `scripts/smoke-packaged.mjs`: en **las 4 corridas**, asertá `result.mainFile === "main.jsc"`.
-
-**11A.7** `scripts/verify-package.mjs`, chequeo nuevo **12 — bytecode**:
-- El asar contiene `.vite/build/main.jsc` y `node_modules/bytenode/package.json`.
-- El `.vite/build/main.cjs` **del asar** mide menos de 500 bytes y contiene `require("bytenode")` y `./main.jsc`.
-- El `main.jsc` del asar mide más de 20 KB.
-- Prueba de que no quedó código fuente: `ROOT/.vite/build/main.cjs` (bundle legible) **contiene** `setWindowOpenHandler(`, y el `main.jsc` del asar, leído como `buffer.toString("latin1")`, **no** lo contiene. (El bytecode guarda nombres de propiedades y textos, pero no el código con sus paréntesis.)
-
-**11A.8** `backend/__tests__/packaging-config.test.ts`:
-- El punto 3 pasa a: `dependencies` tiene exactamente `["@prisma/client", "bytenode"]` (ordenado) y `bytenode` es `"1.7.0"`.
-- Nuevo: `forge.config.mts` contiene `compileMainToBytecode`, `compile-main.cjs`, `ELECTRON_RUN_AS_NODE` y `"bytenode"`; existe `scripts/bytecode/compile-main.cjs`.
-
-**11A.9** Verificá en este orden: `npm run test:packaging-config` → `npm run package` (en la salida tiene que aparecer la compilación, sin `[bytecode] DESACTIVADO`) → `npm run verify:package` → `npm run test:smoke-packaged` (4/4, con `mainFile === "main.jsc"`). Después confirmá que `npm start` sigue andando (Fase 9.1, sin repetir todo el checklist).
-
----
-
-## Fase 11B — Ofuscación del renderer
-
-**11B.1** Instalá: `npm install --save-dev --save-exact javascript-obfuscator@5.9.0`
-
-**11B.2** Confirmá que en `renderer/src/Pages/Sells/Sells.tsx` existe el literal plano `'no-price'` (`kind: 'no-price'`, cerca de la línea 88). Se usa como "testigo" en la verificación. Si ya no existe, elegí otro string literal simple (no template literal) que aparezca una sola vez en `renderer/src` y usalo en 11B.4.
-
-**11B.3** En `vite.renderer.config.mts`:
-```ts
-import JavaScriptObfuscator from "javascript-obfuscator"
-
-// Opciones moderadas: protegen sin castigar la velocidad de la caja.
-// PROHIBIDO activar selfDefending, debugProtection, domainLock o cualquier opción que genere eval/new Function:
-// la CSP de producción (script-src 'self') las bloquea → pantalla en blanco.
-const OBFUSCATOR_OPTIONS = {
-  target: "browser-no-eval",
-  compact: true,
-  identifierNamesGenerator: "hexadecimal",
-  renameGlobals: false,
-  stringArray: true,
-  stringArrayThreshold: 1,
-  stringArrayEncoding: ["base64"],
-  stringArrayRotate: true,
-  stringArrayShuffle: true,
-  splitStrings: false,
-  transformObjectKeys: false,
-  controlFlowFlattening: false,
-  deadCodeInjection: false,
-  selfDefending: false,
-  debugProtection: false,
-  disableConsoleOutput: false,
-  sourceMap: false,
-} as const
-
-function obfuscatorPlugin(): Plugin {
-  return {
-    name: "integral-obfuscator",
-    apply: "build",
-    enforce: "post",
-    generateBundle(_options, bundle) {
-      if (process.env.INTEGRAL_NO_OBFUSCATE === "1") {
-        console.warn("[obfuscator] DESACTIVADO por INTEGRAL_NO_OBFUSCATE=1 (solo para depurar; verify:package va a fallar)")
-        return
-      }
-      for (const chunk of Object.values(bundle)) {
-        // Solo nuestro código: el chunk vendor (React y demás librerías) no se ofusca.
-        if (chunk.type !== "chunk" || chunk.name === "vendor") continue
-        chunk.code = JavaScriptObfuscator.obfuscate(chunk.code, OBFUSCATOR_OPTIONS).getObfuscatedCode()
-      }
-    },
-  }
-}
-```
-- Agregá `obfuscatorPlugin()` al final de `plugins` (después de `cspPlugin()`).
-- En `build` agregá:
-```ts
-rollupOptions: {
-  output: {
-    manualChunks(id) {
-      return id.includes("node_modules") ? "vendor" : undefined
-    },
-  },
-},
-```
-- Si TypeScript se queja del tipo de `OBFUSCATOR_OPTIONS` en `obfuscate(...)`, tipalo con el tipo de opciones que exporta el paquete (buscalo en `node_modules/javascript-obfuscator/typings/`). **No** uses `any`.
-
-**11B.4** `scripts/verify-package.mjs`, chequeo nuevo **13 — ofuscación** (sobre `.vite/renderer/main_window/assets/` del **asar**, listando las entradas que empiezan con ese prefijo):
-- Existe exactamente un `vendor-*.js` y al menos otro `.js` (chunks de la app).
-- Cada chunk de la app: contiene `_0x` (nombres hexadecimales) y **no** contiene el testigo `no-price`.
-- No hay ningún `.map`.
-
-**11B.5** `backend/__tests__/packaging-config.test.ts`, nuevo: `vite.renderer.config.mts` contiene `browser-no-eval`, `manualChunks`, `obfuscatorPlugin()` y `"vendor"`; y **no** contiene `selfDefending: true`, `debugProtection: true` ni `domainLock`.
-
-**11B.6** Verificá: `npm test --workspace renderer` (Vitest no usa esta config: tiene que dar igual que la línea base) → `npm run package` → `npm run verify:package` → `npm run test:smoke-packaged` (si `rootChildren` da 0, ver T17).
-
-**11B.7** Prueba manual de rendimiento con el paquete (`out/Integral-win32-x64/Integral.exe`, sin smoke), comparando con `npm start`:
-- [ ] Ventas: escanear (o tipear código + Enter) 20 productos seguidos → cada uno aparece al instante.
-- [ ] F2: escribir en el buscador → los resultados aparecen sin demora perceptible.
-- [ ] Estadísticas y Historial de ventas cargan en un tiempo similar al de dev.
-
-Si hay demora perceptible: primero bajá `stringArrayThreshold` a `0.75` y sacá `stringArrayEncoding`. Si con eso el testigo `no-price` vuelve a aparecer en claro, cambiá el chequeo 13 para exigir solo `_0x` y dejalo anotado en el reporte.
-
----
-
-## Fase 11C — Licencia de uso (EULA) aceptada en el primer arranque
-
-**11C.1** Creá `LICENSE.txt` en la raíz: UTF-8, español, **máximo 3000 caracteres** (se muestra en un diálogo nativo). La primera línea es exactamente `Licencia de uso de Integral — versión 1`. La segunda es `BORRADOR: revisar con un abogado antes de distribuir (borrar esta línea en la versión final).` Cláusulas, en este orden:
-1. **Licencia, no venta:** licencia de uso no exclusiva e intransferible, para un (1) negocio del licenciatario.
-2. **Titularidad:** el software (código, diseño, documentación) es propiedad de Antosancho y está protegido por la Ley 11.723 de Propiedad Intelectual (con el software incorporado por la Ley 25.036).
-3. **Prohibiciones:** copiar, redistribuir, sublicenciar, alquilar o vender el software; descompilar, desensamblar, extraer o modificar sus archivos (incluido `app.asar`) o aplicar ingeniería inversa, salvo en lo que la ley permita expresamente.
-4. **Datos:** los datos cargados en el sistema pertenecen al licenciatario, que es responsable de sus copias de seguridad.
-5. **Garantía y responsabilidad:** se entrega "tal cual"; la responsabilidad queda limitada al monto pagado por la licencia.
-6. **Terminación:** el incumplimiento termina la licencia.
-7. **Ley y jurisdicción:** República Argentina; tribunales de `[COMPLETAR jurisdicción]`.
-
-**11C.2** `electron/runtimePaths.ts`: agregá
-```ts
-export function resolveLicenseFile(loc: RuntimeLocation): string {
-  return loc.isPackaged
-    ? path.join(loc.resourcesPath, "LICENSE.txt")
-    : path.join(loc.dirname, "..", "..", "LICENSE.txt")
-}
-```
-y en `runtime-paths.test.ts` sumá los dos casos (empaquetado y dev); en dev el archivo **existe**.
-
-**11C.3** `forge.config.mts`: agregá `path.join(ROOT, "LICENSE.txt")` a `extraResource` (queda en `resources/LICENSE.txt`).
-
-**11C.4** Creá `electron/license.ts`: funciones puras, **sin** importar `electron` (se testean con ts-node):
-```ts
-/** Subir este número cada vez que cambie LICENSE.txt: obliga a todos a aceptar de nuevo. */
-export const LICENSE_VERSION = "1"
-
-export type LicenseAcceptance = { licenseVersion: string; acceptedAt: string } // acceptedAt en ISO 8601
-
-/** null si el archivo no existe, no es JSON válido o no tiene la forma esperada (dos strings). Nunca lanza. */
-export function readLicenseAcceptance(filePath: string): LicenseAcceptance | null
-export function isLicenseAccepted(acceptance: LicenseAcceptance | null, currentVersion: string): boolean
-/** Crea la carpeta si hace falta, escribe el JSON y devuelve lo escrito. */
-export function writeLicenseAcceptance(filePath: string, version: string, now: Date): LicenseAcceptance
-```
-
-**11C.5** Creá `backend/__tests__/license.test.ts` (mismo patrón de script con `assert`, en una carpeta temporal):
-- `readLicenseAcceptance` de un archivo inexistente → `null`; de un archivo con `"{rota"` → `null`; de uno con `{}` → `null`; de uno con `{"licenseVersion": 1, "acceptedAt": "x"}` (número) → `null`.
-- `writeLicenseAcceptance(ruta/en/subcarpeta/inexistente.json, "1", new Date("2026-01-02T03:04:05Z"))`, luego `read` → `{ licenseVersion: "1", acceptedAt: "2026-01-02T03:04:05.000Z" }`.
-- `isLicenseAccepted(null, "1")` → `false`; con versión `"1"` y current `"1"` → `true`; con `"1"` y current `"2"` → `false`.
-- `LICENSE.txt` de la raíz: existe, tiene ≤ 3000 caracteres, contiene `ingeniería inversa` y su primera línea es exactamente `` `Licencia de uso de Integral — versión ${LICENSE_VERSION}` `` (así no se desincronizan el número del archivo y el del código). Leé el archivo quitando un posible BOM inicial y separá las líneas con `/\r?\n/`.
-
-Registrá `"test:license": "npx ts-node backend/__tests__/license.test.ts"` y agregalo a `test:backend`.
-
-**11C.6** `electron/main.ts`:
-- Imports: `import fs from "fs"`, `import { LICENSE_VERSION, isLicenseAccepted, readLicenseAcceptance, writeLicenseAcceptance } from "./license"` y `resolveLicenseFile` desde `./runtimePaths`.
-- Función nueva:
-```ts
-/** Muestra la licencia si no fue aceptada (o cambió de versión). Devuelve true si se puede seguir. */
-function ensureLicenseAccepted(): boolean {
-  const acceptanceFile = path.join(app.getPath("userData"), "license-accepted.json")
-  if (isLicenseAccepted(readLicenseAcceptance(acceptanceFile), LICENSE_VERSION)) return true
-  let text: string
-  try {
-    text = fs.readFileSync(resolveLicenseFile({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, dirname: __dirname }), "utf-8")
+    return localStorage.getItem(THEME_STORAGE_KEY) === 'dark' ? 'dark' : 'light'
   } catch {
-    dialog.showErrorBox("Integral", "Falta el archivo de licencia. Reinstalá la aplicación.")
-    return false
+    return 'light'
   }
-  const choice = dialog.showMessageBoxSync({
-    type: "info",
-    title: "Integral — Licencia de uso",
-    message: "Para usar Integral tenés que aceptar la licencia de uso.",
-    detail: text,
-    buttons: ["Acepto", "No acepto"],
-    defaultId: 1,   // Enter (o un scanner) no acepta por accidente
-    cancelId: 1,
-    noLink: true,
-  })
-  if (choice !== 0) return false
-  writeLicenseAcceptance(acceptanceFile, LICENSE_VERSION, new Date())
-  return true
+}
+
+export function applyTheme(theme: Theme): void {
+  document.documentElement.dataset.theme = theme
+}
+
+export function saveTheme(theme: Theme): void {
+  try { localStorage.setItem(THEME_STORAGE_KEY, theme) } catch { /* sin storage: solo esta sesión */ }
+  applyTheme(theme)
 }
 ```
-- En `bootstrap()`, **justo después** de `Menu.setApplicationMenu(null)` y **antes** de las migraciones (si no acepta, no se toca la base):
+
+Test `renderer/src/utils/__tests__/theme.test.ts`:
+- `getStoredTheme()` devuelve `'light'` sin nada guardado.
+- Con `localStorage.setItem('integral.theme','dark')` devuelve `'dark'`; con un valor raro (`'azul'`) devuelve `'light'`.
+- Si `localStorage.getItem` lanza (`vi.spyOn(Storage.prototype,'getItem').mockImplementation(()=>{throw new Error()})`) devuelve `'light'`.
+- `saveTheme('dark')` deja `document.documentElement.dataset.theme === 'dark'` y guarda en storage.
+- `beforeEach`: `localStorage.clear(); delete document.documentElement.dataset.theme`.
+
+**1.9 Ventana mínima (único cambio en electron).** En `electron/main.ts`, en `new BrowserWindow({...})`: `width: 1366, height: 768, minWidth: 1280, minHeight: 720`. No cambies nada más del archivo.
+
+**1.10 Verificación de la fase.** Tests + typecheck. Los tests existentes siguen pasando (todavía no cambió ningún componente). Corré la app y confirmá a ojo que el fondo pasó a gris claro (`--bg`) y la tipografía a IBM Plex Sans (la UI vieja se verá rara: es esperado).
+
+---
+
+## Fase 2 — Utilidades puras (formato, parseo, texto, stock, DOM)
+
+> Todas son funciones puras con tests exhaustivos: son la base de todo lo demás. Escribí primero el test, después la función.
+
+**2.1 `utils/format.ts`** — reemplazar el contenido por:
+
 ```ts
-if (!SMOKE_RESULT && !ensureLicenseAccepted()) {
-  app.exit(0)
-  return
+const moneyFmt = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const amountFmt = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const intFmt = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 })
+const MINUS = '−' // signo menos tipográfico
+
+/** "$ 1.234,50"; negativos con "−". Si no es número devuelve el valor tal cual. */
+export function formatMoney(value: string | number): string {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return String(value)
+  const s = moneyFmt.format(Math.abs(n))
+  return n < 0 ? `${MINUS}${s}` : s
+}
+/** Valor para mostrar dentro de un input de monto, sin "$": "1.234,50". '' si no es número. */
+export function formatAmountInput(value: string | number | null): string { ... }
+/** Enteros con separador de miles: 1284 → "1.284"; negativos con "−". */
+export function formatInt(n: number): string { ... }
+/** Con signo explícito: 24 → "+24", -2 → "−2", 0 → "0". */
+export function formatSignedInt(n: number): string { ... }
+/** 12.4 → "+12,4 %", -2.3 → "−2,3 %", 0 → "0,0 %". null → "—". */
+export function formatPct(n: number | null): string { ... }
+/** Fecha local → "24/10/2026". */
+export function formatDate(d: Date): string { ... }
+/** Fecha local → "24/10". */
+export function formatDayMonth(d: Date): string { ... }
+/** Hora local → "18:42". */
+export function formatTime(d: Date): string { ... }
+/** "24/10 18:42". */
+export function formatDayMonthTime(d: Date): string { ... }
+```
+
+Implementación de fechas: con `getDate()/getMonth()/getFullYear()/getHours()/getMinutes()` y `padStart(2,'0')` (zona local, sin `Intl` para que los tests sean deterministas).
+
+Tests `utils/__tests__/format.test.ts` (normalizá U+00A0 a espacio antes de comparar):
+- `formatMoney(1234.5)` → `"$ 1.234,50"`; `formatMoney('1000')` → `"$ 1.000,00"`; `formatMoney(0)` → `"$ 0,00"`; `formatMoney(-3)` → `"−$ 3,00"`; `formatMoney('abc')` → `"abc"`.
+- `formatAmountInput(4890)` → `"4.890,00"`; `formatAmountInput('1450.5')` → `"1.450,50"`; `formatAmountInput(null)` → `''`; `formatAmountInput('x')` → `''`.
+- `formatInt(1284)` → `"1.284"`; `formatSignedInt(24)` → `"+24"`; `formatSignedInt(-2)` → `"−2"`; `formatSignedInt(0)` → `"0"`.
+- `formatPct(12.4)` → `"+12,4 %"`; `formatPct(-2.345)` → `"−2,3 %"`; `formatPct(0)` → `"0,0 %"`; `formatPct(null)` → `"—"`.
+- `formatDate(new Date(2026, 9, 4))` → `"04/10/2026"`; `formatDayMonthTime(new Date(2026, 9, 24, 8, 5))` → `"24/10 08:05"`.
+
+> Ojo: `formatMoney` ahora usa `−` en negativos. Buscá usos que concatenen `-` delante (`SaleDetailModal`) — se reescriben en la Fase 10. En `Pages/Stats/statsUtils.ts` seguí re-exportando `formatMoney` desde `utils/format`.
+
+**2.2 `utils/parse.ts`** — crear:
+
+```ts
+/**
+ * Parseo de montos es-AR.
+ * "1.234,50" | "1234,50" | "1234.50" | "$ 1.234" | "−5" → número; vacío o inválido → null.
+ * Regla de puntos sin coma: si el texto es /^\d{1,3}(\.\d{3})+$/ los puntos son de miles ("1.500" → 1500);
+ * si no, el punto es decimal ("2.5" → 2.5).
+ */
+export function parseDecimal(input: string): number | null {
+  const s = input.trim().replace(/[\s$ ]/g, '').replace(/−/g, '-')
+  if (s === '') return null
+  let norm: string
+  if (s.includes(',')) norm = s.replace(/\./g, '').replace(',', '.')
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) norm = s.replace(/\./g, '')
+  else norm = s
+  if (!/^-?\d+(\.\d+)?$/.test(norm)) return null
+  const n = Number(norm)
+  return Number.isFinite(n) ? n : null
+}
+
+/** Enteros: "24" → 24, "−2"/"-2" → -2, " 7 " → 7; "2,5", "abc", "" → null. */
+export function parseInteger(input: string): number | null { ... }
+
+/** "DD/MM/AAAA" → Date local 00:00; valida día/mes reales (31/02 → null). */
+export function parseDateAR(input: string): Date | null { ... }
+
+/** Máscara mientras se tipea: deja solo dígitos (máx 8) e inserta "/" → "24102026" → "24/10/2026", "241" → "24/1". */
+export function maskDateInput(raw: string): string { ... }
+```
+
+Tests `utils/__tests__/parse.test.ts` (uno por línea, con `it.each`):
+- parseDecimal: `"1.234,50"→1234.5`, `"1234,50"→1234.5`, `"1234.50"→1234.5`, `"1.500"→1500`, `"2.5"→2.5`, `"$ 1.234"→1234`, `"−5"→-5`, `"-5,5"→-5.5`, `"0"→0`, `""→null`, `"  "→null`, `"abc"→null`, `"1,2,3"→null`, `"1..2"→null`, `"10.000,00"→10000`.
+- parseInteger: `"24"→24`, `"−2"→-2`, `"-2"→-2`, `" 7 "→7`, `"0"→0`, `"2,5"→null`, `"2.5"→null`, `"abc"→null`, `""→null`.
+- parseDateAR: `"24/10/2026"` → Date con `getFullYear()==2026, getMonth()==9, getDate()==24, getHours()==0`; `"31/02/2026"→null`; `"00/10/2026"→null`; `"24/13/2026"→null`; `"2026-10-24"→null`; `""→null`; `"1/1/2026"→null` (exige 2 dígitos).
+- maskDateInput: `"24102026"→"24/10/2026"`, `"241"→"24/1"`, `"24"→"24"`, `"24/10/2026x"→"24/10/2026"`, `"240"→"24/0"`, `"123456789"→"12/34/5678"`.
+
+**2.3 `utils/text.ts`** — crear:
+
+```ts
+/** Quita tildes y pasa a minúsculas, conservando el largo (1 carácter → 1 carácter). */
+export function foldText(s: string): string {
+  return Array.from(s).map((ch) => ch.normalize('NFD')[0].toLowerCase()).join('')
+}
+/** Divide `text` en segmentos marcando la primera coincidencia de `query` (sin tildes ni mayúsculas). */
+export function splitMatch(text: string, query: string): { text: string; match: boolean }[] { ... }
+/** true si `text` contiene `query` ignorando tildes y mayúsculas. Query vacía → true. */
+export function includesFolded(text: string, query: string): boolean { ... }
+```
+
+`splitMatch` usa `foldText(text).indexOf(foldText(query.trim()))` y corta `text` (original) con esos índices. Query vacía o sin coincidencia → `[{ text, match: false }]`.
+
+Tests `utils/__tests__/text.test.ts`:
+- `foldText('Serenísima')` → `'serenisima'` y mismo largo que el original.
+- `splitMatch('Yerba Playadito', 'yer')` → `[{text:'Yer',match:true},{text:'ba Playadito',match:false}]`.
+- `splitMatch('La Serenísima', 'serenisima')` → `[{text:'La ',match:false},{text:'Serenísima',match:true}]`.
+- `splitMatch('Leche', 'xyz')` → `[{text:'Leche',match:false}]`; `splitMatch('Leche','')` igual.
+- `includesFolded('Serenísima','SERENI')` → true; `includesFolded('Leche','yerba')` → false; `includesFolded('x','')` → true.
+
+**2.4 `utils/stock.ts`** — crear:
+
+```ts
+export type StockTone = 'negative' | 'low' | null
+/** negativo si stock < 0; bajo si 0 <= stock <= minStock; si no, null. */
+export function stockTone(p: { stock: number; minStock: number }): StockTone { ... }
+export function hasValidSalePrice(p: { salePrice: string }): boolean { ... } // número finito > 0 (misma regla que hoy usa Sells.hasValidPrice)
+```
+
+Tests: `{stock:-3,minStock:5}→'negative'`, `{stock:0,minStock:0}→'low'`, `{stock:6,minStock:8}→'low'`, `{stock:8,minStock:8}→'low'`, `{stock:9,minStock:8}→null`. `hasValidSalePrice`: `'0'→false`, `''→false`, `'abc'→false`, `'10'→true`, `'0.5'→true`.
+
+**2.5 `utils/dom.ts`** — crear:
+
+```ts
+/** true si el target es un campo editable (input, textarea, select o contentEditable). */
+export function isEditableTarget(t: EventTarget | null): boolean {
+  if (!(t instanceof HTMLElement)) return false
+  return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable
+}
+/** scrollIntoView seguro (happy-dom no lo implementa). */
+export function scrollIntoViewSafe(el: Element | null): void {
+  if (el && typeof (el as HTMLElement).scrollIntoView === 'function') (el as HTMLElement).scrollIntoView({ block: 'nearest' })
 }
 ```
-El modo smoke saltea la licencia porque el diálogo bloquearía la prueba automática. No sirve para evitar la licencia: en modo smoke la app se cierra sola apenas termina los chequeos.
 
-**11C.7** `scripts/verify-package.mjs`, chequeo nuevo **14 — licencia**: existe `RES/LICENSE.txt` y su sha256 es igual al del `LICENSE.txt` del repo.
+Tests: input/textarea/select → true; div/button/null → false.
 
-**11C.8** `packaging-config.test.ts`, nuevo: `main.ts` contiene `ensureLicenseAccepted`, `LICENSE_VERSION` y `!SMOKE_RESULT && !ensureLicenseAccepted()`; `forge.config.mts` contiene `LICENSE.txt`.
-
-**11C.9** Verificá: `npm run test:backend` → `npm run package` → `npm run verify:package` → `npm run test:smoke-packaged`. Prueba manual en **dev** (`npm start`; dev y la app instalada comparten `%APPDATA%\Integral`, así que borrá `%APPDATA%\Integral\license-accepted.json` antes de empezar):
-- [ ] Aparece el diálogo con el texto completo y legible (si se corta, acortá `LICENSE.txt`).
-- [ ] "No acepto" (o Esc, o cerrar el diálogo) → la app se cierra y **no** se crea `license-accepted.json`.
-- [ ] Volver a abrir → se pide de nuevo. "Acepto" → abre normal y se crea el JSON.
-- [ ] Volver a abrir → **no** se pide.
-- [ ] Cambiá temporalmente `LICENSE_VERSION` a `"2"` → se vuelve a pedir. **Revertí** a `"1"`.
+**2.6 Verificación de la fase.** Tests + typecheck. Revisá que los tests viejos que usan `formatMoney` sigan pasando (debería: solo cambia negativos).
 
 ---
 
-## Fase 12 — Instalador (make) y prueba de instalación
+## Fase 3 — Componentes base del DS (`renderer/src/ui/`)
 
-**12.1** `npm run make` → crea `out/make/squirrel.windows/x64/Integral-1.0.0 Setup.exe` (el nombre exacto puede variar levemente).
-**12.2** `npm run verify:make` → todo PASS (incluye los chequeos de la Fase 10 + el 11).
-**12.3** Prueba manual de instalación (idealmente en otra cuenta de Windows o en una VM limpia). Marcá cada punto:
-- [ ] Al ejecutar `Setup.exe` aparece SmartScreen ("editor desconocido") → "Más información" → "Ejecutar de todas formas". **Esperado** sin firma.
-- [ ] Se instala sin pedir admin y abre la app sola, mostrando primero la **licencia de uso**. "No acepto" cierra la app; al reabrir la vuelve a pedir; "Acepto" entra a Stock.
-- [ ] Hay acceso directo "Integral" en el escritorio y en el menú Inicio.
-- [ ] Existe `%APPDATA%\Integral\integral.db`.
-- [ ] Crear categoría + proveedor + producto, cargar stock, hacer una venta. Cerrar y reabrir → los datos siguen ahí.
-- [ ] F10 abre el popup de ítem general (no un menú). Flujo de scanner OK.
-- [ ] Doble clic en el acceso directo con la app abierta → no abre otra ventana.
-- [ ] Desinstalar desde "Aplicaciones instaladas" → `%APPDATA%\Integral\integral.db` **sigue existiendo** (los datos del negocio no se borran).
-- [ ] Reinstalar → aparecen los datos anteriores y **no** se vuelve a pedir la licencia (`license-accepted.json` sigue en `%APPDATA%\Integral`).
-- [ ] Extracción: `npx @electron/asar extract "%LOCALAPPDATA%\Integral\app-1.0.0\resources\app.asar" <carpeta temporal>` → en `.vite/build/` hay un `main.cjs` de 3 líneas y un `main.jsc` binario; los `.js` de la app en `.vite/renderer/main_window/assets/` están ofuscados (`_0x...`). Borrá la carpeta temporal.
-- [ ] **Actualización**: subí `version` a `1.0.1` en `package.json`, `npm run make`, ejecutá el nuevo `Setup.exe` sobre la instalación existente → abre con los datos intactos. Volvé `version` a `1.0.0` si no se va a publicar.
+> Cada componente: archivo `.tsx` + test en `ui/__tests__/`. Copiá las clases del `preview.html` correspondiente. Ningún componente de `ui/` llama a `window.api`.
 
----
+**3.0 Helpers de test.**
+- `renderer/src/test/fixtures.ts`: `export function makeProduct(o: Partial<ProductFromApi> = {}): ProductFromApi` con defaults: `id:1, name:'Producto 1', barcode:7790000000001n, purchasePrice:'500', salePrice:'1000', stock:10, minStock:2, createdAt:new Date(2026,0,1), categoryId:1, supplierId:1, category:{id:1,name:'Almacén'}, supplier:{id:1,name:'Distribuidora Sur',phone:null,notes:null}`.
+- `renderer/src/test/renderWithProviders.tsx`: `render(<ToastProvider><SalesProvider>{ui}</SalesProvider></ToastProvider>)` (crealo recién cuando existan ambos providers: Pasos 3.11 y 4.2; hasta ahí exportá solo `ToastProvider`).
 
-## Fase 13 — Documentación
+**3.1 `Kbd.tsx`.** `export function Kbd({ children }: { children: string })` → `<kbd className="ig-kbd" aria-hidden="true">{children}</kbd>`. Test: renderiza el texto con clase `ig-kbd` y `aria-hidden`.
 
-**13.1** Creá `INSTALACION.md` (público: quien instala en el negocio; lenguaje simple):
-- Requisitos: Windows 10/11 x64. No hace falta Node ni Git.
-- Instalación nueva: ejecutar `Integral-x.y.z Setup.exe` (aviso de SmartScreen y cómo seguir). En la primera apertura hay que aceptar la licencia de uso; si se rechaza, la app se cierra.
-- **Migración desde la versión de código fuente (cliente actual)**, en este orden:
-  1. Cerrar la versión vieja (`npm run dev`).
-  2. Hacer una copia de seguridad de `backend\prisma\dev.db` en un pendrive o en la nube.
-  3. Crear la carpeta `%APPDATA%\Integral` (pegar esa ruta en la barra del Explorador).
-  4. Copiar `dev.db` ahí y **renombrarlo** a `integral.db`. Si existe un `dev.db-journal`, la versión vieja no se cerró bien: volver al paso 1.
-  5. Recién ahí ejecutar el instalador. Al abrir, la app actualiza la base si hace falta (y deja un backup `integral.db.backup-<fecha>` al lado).
-  6. Verificar que aparezcan productos y ventas.
-  - Si ya se instaló antes de copiar: cerrar Integral, reemplazar `%APPDATA%\Integral\integral.db` por la copia renombrada y volver a abrir.
-- Dónde están los datos: `%APPDATA%\Integral\integral.db`. Backup manual: copiar ese archivo con la app cerrada.
-- Actualizar: ejecutar el `Setup.exe` nuevo; los datos se conservan.
-- Desinstalar: no borra los datos.
-- Errores al iniciar ("Error en la base de datos"): no borrar nada; restaurar el `integral.db.backup-*` más reciente renombrándolo a `integral.db`, o contactar a soporte.
+**3.2 `ShortcutBar.tsx`.** Props `{ items: { keys: string[]; label: string }[] }`. Render: `<div className="ig-shortcuts">` y por ítem `<span>{keys.map(k => <Kbd key={k}>{k}</Kbd>)} {label}</span>`. Para combinaciones (`['Ctrl','Enter']`) intercalá un `+` entre Kbds. Test: 2 ítems → 2 spans, el texto `Elegir` visible.
 
-**13.2** Actualizá `CLAUDE.md`:
-- Tabla **Stack**: "Main process: TypeScript bundleado con Vite (Electron Forge v8) a `.vite/build/`"; agregar la fila "Empaquetado: Electron Forge 8 + Squirrel.Windows".
-- **Estructura de carpetas**: agregar `forge.config.mts`, `vite.*.config.mts`, `electron/runtimePaths.ts`, `electron/smoke.ts`, `electron/forge-env.d.ts`, `backend/db/migrator.ts`, `scripts/verify-package.mjs`, `scripts/smoke-packaged.mjs`, `scripts/bytecode/compile-main.cjs`, `electron/license.ts`, `LICENSE.txt`, `assets/icons/`; sacar `scripts/dev.js`.
-- Sección **DATABASE_URL**: el dev `__dirname` es `.vite/build`; agregar `PRISMA_QUERY_ENGINE_LIBRARY` en prod. **Reemplazar** el párrafo "Pendiente para producción" por la descripción del migrador (algoritmo resumido, `connection_limit=1`, sin transacción, backup con `VACUUM INTO`, códigos de error, compatibilidad con `_prisma_migrations`).
-- Nueva sección **Empaquetado**: comandos (`npm start`, `npm run package`, `npm run make`, `verify:package`, `verify:make`, `test:smoke-packaged`), la trampa `ELECTRON_RUN_AS_NODE`, la firma por variables de entorno (`WINDOWS_CERTIFICATE_FILE`, `WINDOWS_CERTIFICATE_PASSWORD`), el ícono opcional, y la regla: **toda migración nueva de Prisma viaja sola en el instalador** (no hay que hacer nada extra), pero **nunca hay que editar un `migration.sql` ya publicado**.
-- Nueva sección **Protección del código y licencia**:
-  - Main compilado a bytecode con bytenode 1.7.0 en el hook `packageAfterPrune`. Atado a la versión exacta de Electron: **al actualizar Electron no hay que hacer nada extra** (se recompila en cada `package`), pero el empaquetado debe correr en Windows x64. `INTEGRAL_NO_BYTECODE=1` solo sirve para depurar.
-  - Renderer ofuscado con javascript-obfuscator 5.9.0 (`browser-no-eval`; prohibido `selfDefending`/`debugProtection`/`domainLock` por la CSP). El chunk `vendor` no se ofusca. `INTEGRAL_NO_OBFUSCATE=1` solo sirve para depurar.
-  - Si un cambio de código depende de `Function.prototype.toString()` en el main, se rompe en el paquete (el bytecode no conserva el fuente).
-  - EULA: `LICENSE.txt` + `LICENSE_VERSION` en `electron/license.ts`. **Regla:** si cambia el texto, subir `LICENSE_VERSION` y la primera línea del archivo (el test `test:license` exige que coincidan).
-  - Límites: siguen visibles `schema.prisma`, los `migration.sql`, el preload y la base SQLite.
-- Tabla MVP/Futuro: agregar "Empaquetado e instalador Windows: **Implementado**", "Protección de código (bytecode + ofuscación) y EULA: **Implementado**" y "Auto-update / firma de código: Futuro".
-
----
-
-## Fase 14 — Cierre
-
-**14.1** Corré la batería completa y compará con la línea base de la Fase 0:
+**3.3 `Button.tsx`.**
+```ts
+type ButtonProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'> & {
+  variant?: 'primary' | 'secondary' | 'ghost' | 'edit' | 'danger'   // default 'secondary'
+  size?: 'sm' | 'md' | 'lg' | 'xl'                                   // default 'md'
+  icon?: LucideIcon
+  iconOnly?: boolean   // agrega ig-btn-icon; exige aria-label
+  shortcut?: string    // muestra <Kbd> a la derecha
+  children?: React.ReactNode
+}
 ```
-npm run typecheck
-npm run test:backend
-npm test --workspace renderer
-npm run make
-npm run verify:make
-npm run test:smoke-packaged
-```
-Volvé a correr el `curl` de la Fase P.1 e incluí el resultado.
+Clases: `ig-btn ig-btn-{variant}` + (`ig-btn-sm|lg|xl` si no es md) + (`ig-btn-icon` si iconOnly) + `className`. `type="button"` por defecto. Ícono: `size` 16 si sm, 22 si xl, si no 18. Usá `forwardRef`.
+Tests: clases por variante/tamaño; `shortcut="F2"` muestra `F2` y el nombre accesible del botón **no** incluye "F2" (`getByRole('button',{name:'Buscar'})`); `disabled` funciona; default `type="button"`.
 
-**14.2** Reportá al usuario:
-- qué se cambió y el resultado de cada comando;
-- los checklists de las Fases 9, 11B.7, 11C.9 y 12;
-- el estado del repo de GitHub (público/privado);
-- lo pendiente: **revisión legal de `LICENSE.txt`** (sacar la línea BORRADOR y completar la jurisdicción), firma de código, ícono real y auto-update/publisher;
-- el límite de la protección (sección 0, decisión 11).
+**3.4 `Badge.tsx`.** Props `{ tone: 'neutral'|'danger'|'warning'|'success'|'info'; icon?: LucideIcon; children; title? }` → `<span className={`ig-badge ig-badge-${tone}`}>`. Ícono 14px. Test simple.
+
+**3.5 `Segmented.tsx`.**
+```ts
+type SegmentedProps<V extends string> = { options: { value: V; label: string; icon?: LucideIcon }[]; value: V; onChange: (v: V) => void; ariaLabel: string }
+```
+`<div className="ig-seg" role="tablist" aria-label>` con `<button role="tab" aria-selected>`. Tab-stop único: el seleccionado `tabIndex=0`, el resto `-1`. ←/→ cambian la selección (llaman `onChange`) y mueven el foco. Tests: click llama `onChange`; ArrowRight desde el primero llama `onChange` con el segundo; `aria-selected` correcto.
+
+**3.6 `Field.tsx`.** Componente contenedor + inputs:
+```ts
+type FieldProps = { label: string; htmlFor: string; required?: boolean; help?: React.ReactNode; error?: string | null; className?: string; children: React.ReactNode }
+```
+Render: `<div className={`ig-field ${className??''}`}><label className="ig-label" htmlFor>{label}{required && <span className="req">*</span>}</label>{children}{error ? <span className="ig-error" id={`${htmlFor}-error`}><CircleAlert size={16}/>{error}</span> : help ? <span className="ig-help" id={`${htmlFor}-help`}>{help}</span> : null}</div>`.
+- Agregá `export const inputClass = (opts: { error?: boolean; amount?: boolean; lg?: boolean; mono?: boolean }) => string` que arma `ig-input` + `is-error` + `ig-input-amount` + `ig-input-lg`. Para mono usá `style={{ fontFamily: 'var(--font-mono)' }}` en el input (permitido: no es color).
+- El input hijo debe llevar `aria-invalid={!!error}` y `aria-describedby` apuntando al id de error/ayuda (responsabilidad del que lo usa; documentalo en un comentario).
+Tests: label asociado (`getByLabelText('Nombre')` encuentra el input hijo), muestra `*`, muestra error en lugar de ayuda.
+
+**3.7 `DateField.tsx`.** Input de texto con máscara:
+```ts
+type DateFieldProps = { id: string; label: string; value: string; onChange: (masked: string) => void; error?: string | null; help?: string; required?: boolean; className?: string; inputRef?: React.Ref<HTMLInputElement>; onKeyDown?: React.KeyboardEventHandler<HTMLInputElement> }
+```
+Usa `Field` + `<input type="text" inputMode="numeric" placeholder="DD/MM/AAAA" maxLength={10} className="ig-input" value onChange={e => onChange(maskDateInput(e.target.value))}/>`. Tests: tipear `24102026` (fireEvent.change) llama `onChange('24/10/2026')`; placeholder correcto; label asociado.
+
+**3.8 `InlineAlert.tsx`.** Props `{ tone; title?: string; children?; action?: ReactNode }`. Ícono por tono: danger `TriangleAlert`, warning `ArrowDown`, info `Info`, success `CircleCheck`. Markup: `<div className={`ig-alert ig-alert-${tone}`} role="status"><Icon/><div className="ig-alert-body">{title && <strong>{title}</strong>}{children && <span>{children}</span>}</div>{action}</div>`. Test: renderiza título, texto y acción.
+
+**3.9 `EmptyState.tsx`.** Props `{ icon: LucideIcon; title: string; description?: string; action?: ReactNode; tone?: 'neutral'|'danger' }`. Markup como `States/preview.html`: `<div className="ig-empty"><div className="ico" ...>` (tone danger → `style={{ background:'var(--danger-soft)', color:'var(--danger)' }}`). Test simple.
+
+**3.10 `useDelayedFlag.ts` + `TableSkeleton.tsx`.**
+- `useDelayedFlag(active: boolean, delayMs = 300): boolean` → devuelve `true` solo si `active` sigue `true` después de `delayMs` (para que el skeleton no parpadee).
+- `TableSkeleton({ rows = 8, cols = 4, label = 'Cargando…' })` → `<div className="ig-card" style={{padding:20, display:'grid', gap:18}} aria-busy="true">` con filas de `<i className="ig-skel"/>` en grilla y `<div className="ig-help" style={{textAlign:'center'}}>{label}</div>`.
+- Tests con `vi.useFakeTimers()`: `useDelayedFlag(true)` es false al inicio y true tras `vi.advanceTimersByTime(300)`; si pasa a false antes, queda false. `TableSkeleton rows={3}` renderiza 3 filas.
+
+**3.11 `Toast.tsx` (ToastProvider + useToast).**
+
+```ts
+export type ToastTone = 'danger' | 'warning' | 'success' | 'info'
+export type ToastOptions = { tone: ToastTone; title: string; detail?: string }
+type ToastItem = ToastOptions & { id: number; key: string; count: number; version: number }
+```
+Reglas (de `Alert/README.md`):
+- `show(opts)`: `key = tone|title|detail`. Si ya existe un toast con esa key → `count+1`, `version+1` (reinicia su timer) y lo sube arriba. Si no, lo agrega **arriba**. Máximo 3: se descartan los más viejos.
+- Duración: 4000 ms; 6000 ms si tiene `detail`. Hover pausa (onMouseEnter limpia el timer; onMouseLeave lo reinicia completo).
+- No toma foco. Contenedor `<div className="ig-toast-stack">`; cada toast `<div className={`ig-toast ${tone}`} role="status" aria-live="polite">` con `<span className="tone">` (ícono: danger `CircleAlert`, warning `TriangleAlert`, success `CircleCheck`, info `Info`, 16px), `<div>{title}{detail && <small>{detail}</small>}</div>` y `{count>1 && <span className="count">×{count}</span>}`.
+- Cada toast es un subcomponente con su propio `useEffect` que arma `setTimeout(onExpire, dur)` y depende de `version`.
+- `useToast()` lanza `Error('useToast fuera de ToastProvider')` si no hay provider.
+
+Tests `ui/__tests__/Toast.test.tsx` (fake timers; un componente de prueba con botones que llaman `show`):
+1. muestra título y detalle; `role="status"`.
+2. desaparece a los 4000 ms sin detalle y a los 6000 ms con detalle (no antes).
+3. mismo toast dos veces → un solo toast con `×2`, y el timer se reinicia (a los 4000 ms del segundo show recién desaparece).
+4. 4 toasts distintos → quedan 3, el más nuevo primero.
+5. no roba el foco: con un input enfocado, `show()` no cambia `document.activeElement`.
+6. `useToast` sin provider lanza.
+
+**3.12 `modalStack.ts` + `Modal.tsx`.**
+
+`modalStack.ts`:
+```ts
+let openCount = 0
+export function pushModal(): void { openCount += 1 }
+export function popModal(): void { openCount = Math.max(0, openCount - 1) }
+export function openModalCount(): number { return openCount }
+```
+
+`Modal.tsx`:
+```ts
+type ModalProps = {
+  open: boolean
+  title: string
+  subtitle?: React.ReactNode
+  size?: 'sm' | 'md' | 'lg'              // default 'md'
+  onClose: () => void
+  onEscape?: () => void                  // default: onClose
+  closeOnOverlay?: boolean               // default false
+  headerExtra?: React.ReactNode          // va entre el título y la X (ej. ShortcutBar "F2 cierra" o StepIndicator)
+  hideCloseButton?: boolean
+  shortcuts?: { keys: string[]; label: string }[]  // pie, a la izquierda
+  footer?: React.ReactNode               // pie, a la derecha (botones)
+  initialFocusRef?: React.RefObject<HTMLElement | null>
+  children: React.ReactNode
+}
+```
+Comportamiento (implementarlo **exactamente** así):
+1. Si `!open` → `return null`.
+2. Se renderiza con `createPortal(..., document.body)`: `<div className="ig-overlay" onMouseDown={e => { if (closeOnOverlay && e.target === e.currentTarget) onClose() }}><div className={`ig-modal ${size==='sm'?'ig-modal-sm':size==='lg'?'ig-modal-lg':''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} ref={dialogRef} onKeyDown={handleKeyDown}>`.
+3. Cabecera `ig-modal-head`: `<div><h2 id={titleId}>{title}</h2>{subtitle && <p>{subtitle}</p>}{headerExtra}</div>` + botón `Button variant="ghost" size="sm" iconOnly icon={X} aria-label="Cerrar" onClick={onClose}` (salvo `hideCloseButton`). `titleId` con `useId()`.
+4. Cuerpo `ig-modal-body`; pie `ig-modal-foot` solo si hay `shortcuts` o `footer`.
+5. Al abrir (`useEffect` con `[open]`): `pushModal()`; guardar `document.activeElement` en un ref (`returnFocus`); `setTimeout(0)` → enfocar `initialFocusRef.current` o, si no hay, el primer focusable dentro de `.ig-modal-body`, o el diálogo. Cleanup: `popModal()` y, si `returnFocus.current` sigue en el documento, `focus()`.
+6. `handleKeyDown`:
+   - `Escape` y `!e.defaultPrevented` → `e.preventDefault(); e.stopPropagation(); (onEscape ?? onClose)()`.
+   - `Tab` → focus trap: lista de focusables con el selector `'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'` dentro del diálogo; si `shiftKey` y el activo es el primero → enfocar el último y `preventDefault`; si no `shiftKey` y es el último → el primero.
+   - El `stopPropagation` en Escape es obligatorio: los eventos de React atraviesan portales, y sin esto un modal anidado cerraría también al de afuera.
+
+Tests `ui/__tests__/Modal.test.tsx`:
+1. `open=false` no renderiza nada.
+2. `open` → `role="dialog"` con nombre = title; subtitle visible.
+3. Escape llama `onClose`; con `onEscape` llama `onEscape` y **no** `onClose`.
+4. Click (mouseDown) en el overlay: con `closeOnOverlay` cierra; sin él no.
+5. Foco inicial va al primer input del cuerpo (usar `await waitFor`).
+6. Focus trap: con foco en el último botón, `Tab` lleva al primero; `Shift+Tab` desde el primero al último (`fireEvent.keyDown(dialog,{key:'Tab'})` y verificar `document.activeElement`).
+7. Al cerrar (rerender con `open=false`), el foco vuelve al botón que lo abrió.
+8. `openModalCount()` vale 1 con el modal abierto y 0 al cerrarlo.
+9. Modal anidado: Escape en el interno cierra solo el interno.
+
+**3.13 `MenuButton.tsx`** (menú ⋮ y filtro de categoría).
+```ts
+type MenuItem = { id: string; label: string; icon?: LucideIcon; checked?: boolean; onSelect: () => void }
+type MenuButtonProps = { label: string; items: MenuItem[]; iconOnly?: boolean; icon?: LucideIcon; variant?: 'secondary'|'ghost'; size?: 'sm'|'md'; align?: 'left'|'right'; buttonText?: React.ReactNode }
+```
+- Contenedor `<div className={`ig-anchor ${align==='right'?'ig-anchor-right':''}`}>`; botón con `aria-haspopup="menu"` y `aria-expanded`; si `iconOnly` → `aria-label={label}`.
+- Abierto: `<ul className="ig-menu" role="menu">` con `<li role="none"><button role="menuitem" ...>`; si `checked` mostrar ícono `Check`.
+- Abrir con click, Enter, Espacio o ↓ → foco al primer ítem. ↑/↓ mueven entre ítems; Enter/click → `onSelect()` y cerrar; Esc → cerrar, `stopPropagation`, foco vuelve al botón. Click afuera (listener `mousedown` en `document`) cierra.
+Tests: abre con click y muestra ítems; ↓ mueve foco; Enter ejecuta `onSelect` y cierra; Esc cierra y devuelve el foco; click afuera cierra.
+
+**3.14 `StepIndicator.tsx`.** Props `{ steps: string[]; current: number }` (0-based). Markup de `ScreenLoadStock/preview.html`: `ig-steps` con `step is-done` (dot con ícono `Check`), `step is-current`, `line` entre pasos. Test: con `current=1` el primero tiene `is-done` y el segundo `is-current`.
+
+**3.15 `useRowNavigation.ts`.**
+```ts
+/** Navegación por teclado de una tabla con un único tab-stop (patrón grid). */
+export function useRowNavigation<K extends string | number>(opts: {
+  keys: K[]; activeKey: K | null; setActiveKey: (k: K) => void; onActivate?: (k: K) => void; rowDomId: (k: K) => string
+}): (e: React.KeyboardEvent) => void
+```
+El handler devuelto: `ArrowDown`/`ArrowUp` → siguiente/anterior (si `activeKey` es null, el primero), `Home`/`End` → primero/último, `Enter` → `onActivate(activeKey)`. Siempre `preventDefault` en esas teclas y `scrollIntoViewSafe(document.getElementById(rowDomId(k)))`. No hace nada con listas vacías.
+Tests con un componente de prueba: ↓ desde null activa el primero; ↓ en el último se queda; End va al último; Enter llama `onActivate` con el activo.
+
+**3.16 `useFlash.ts`.** `useFlash<K>(): [K | null, (k: K) => void]` — setea la key y la limpia a los 600 ms (timer limpiado en unmount). Test con fake timers.
+
+**3.17 Verificación de la fase.** Tests + typecheck. Nada visible cambió todavía en la app.
+
+---
+
+## Fase 4 — Shell de la app (navegación, header, tema, toasts, store de ventas)
+
+**4.1 `navigation.ts`** (reemplaza `renderTypes.ts`):
+
+```ts
+export type Section = 'stock' | 'sells' | 'stats'
+export type StockView = 'products' | 'movements'
+export type SalesView = 'new' | 'history'
+export type NavState = {
+  section: Section
+  stockView: StockView
+  salesView: SalesView
+  /** Producto con el que se abre Movimientos (desde ⋮ o desde Estadísticas). */
+  movementsProduct: { id: number; name: string } | null
+  /** Venta a seleccionar al abrir el Historial (desde Movimientos). */
+  historySaleId: number | null
+}
+export const initialNav: NavState = { section: 'stock', stockView: 'products', salesView: 'new', movementsProduct: null, historySaleId: null }
+export type Navigate = (patch: Partial<NavState>) => void
+```
+Borrá `renderTypes.ts` y reemplazá sus imports por `navigation.ts`.
+
+**4.2 `store/SalesContext.tsx`.**
+
+```ts
+type SalesContextValue = {
+  cart: CartState
+  dispatchCart: React.Dispatch<CartAction>
+  discountPct: number
+  setDiscountPct: (n: number) => void
+  payments: PaymentsDraft
+  setPayments: React.Dispatch<React.SetStateAction<PaymentsDraft>>
+  /** Vacía carrito, descuento a 0 y pagos a ''. */
+  resetSale: () => void
+}
+export function SalesProvider({ children }: { children: React.ReactNode }) { /* useReducer(cartReducer, initialCart) + useState */ }
+export function useSales(): SalesContextValue  // lanza Error('useSales fuera de SalesProvider')
+```
+Tests `store/__tests__/SalesContext.test.tsx`: agregar un producto vía `dispatchCart({type:'ADD',...})` y verlo reflejado; `resetSale` deja todo vacío/0/''; el estado **sobrevive** a desmontar y volver a montar un hijo (renderizar el provider con un hijo condicional, ocultarlo y mostrarlo de nuevo, y verificar que el carrito sigue con 1 línea); `useSales` sin provider lanza.
+
+Ahora completá `test/renderWithProviders.tsx` (Paso 3.0).
+
+**4.3 `Components/AppHeader/ThemeToggle.tsx`.** Botón `ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon ig-theme-toggle`; estado inicial `getStoredTheme()`; ícono `Moon` cuando el tema es claro (aria-label `"Activar tema oscuro"`) y `Sun` cuando es oscuro (aria-label `"Activar tema claro"`); click → `saveTheme(next)`. Test: click cambia `document.documentElement.dataset.theme` a `dark` y el aria-label; segundo click vuelve a `light`.
+
+**4.4 `Components/AppHeader/AppHeader.tsx`.** Props `{ section: Section; onNavigate: (s: Section) => void }`. Markup (de `AppHeader/preview.html`):
+```tsx
+<header className="ig-header">
+  <button type="button" className="ig-brand" aria-label="Factor Integral — ir a Stock" onClick={() => onNavigate('stock')}>
+    <img className="ig-logo" src={logoDark} alt="Factor Integral" />
+  </button>
+  <nav className="ig-nav" aria-label="Secciones">
+    {/* 3 botones: Stock (Package) · Ventas (ShoppingCart) · Estadísticas (ChartColumn); ícono 16px; aria-current="page" en el activo; title con el atajo ("Ctrl+1") */}
+  </nav>
+  <div className="ig-spacer" />
+  <ExpiryAlertWidget />
+  <ThemeToggle />
+</header>
+```
+`logoDark` = `import logoDark from '../../assets/brand/factor-integral-horizontal-oscuro.png'`.
+Tests `Components/AppHeader/__tests__/AppHeader.test.tsx` (mockeá `window.api.listExpiringStockMovements` → `[]`): muestra botones Stock/Ventas/Estadísticas; el activo tiene `aria-current="page"`; click en "Ventas" llama `onNavigate('sells')`; click en el logo llama `onNavigate('stock')`; **no** existe botón "Historial".
+
+**4.5 `ExpiryAlertWidget` (re-skin).** Archivo `Components/ExpiryAlert/ExpiryAlertWidget.tsx`. Mantener toda la lógica de datos (carga, `sessionDismissed`, `dismissStockMovementExpiry`, clasificación con `classifyExpiry`). Cambia solo el render:
+- Si `loading || error || visible.length === 0` → `null` (igual que hoy).
+- Contenedor `<div className="ig-anchor" ref={wrapperRef}>`.
+- Botón `<button type="button" className="ig-expiry" aria-haspopup="dialog" aria-expanded={popupOpen}>` con `<TriangleAlert size={16}/>` y los segmentos: `"{n} vencido(s)"` y `"{n} vence(n) hoy"` separados por `<span className="sep">·</span>` (singular/plural correcto: "1 vencido", "2 vencidos", "1 vence hoy", "3 vencen hoy"). **Sin** `aria-label` (el texto visible es el nombre). **Sin** el glifo ⚠.
+- Popup `<div className="ig-expiry-pop" role="dialog" aria-label="Lotes a revisar">` con cabecera `ig-modal-head` (`<h2>Lotes a revisar</h2><p>Sacalos de la góndola o recordalos más tarde.</p>` + botón cerrar `X`), grupos `<div className="ig-expiry-group">Vencidos · {n}</div>` y `Vencen hoy · {n}`, y filas:
+  ```tsx
+  <div className="ig-expiry-row">
+    <div className="what"><strong>{m.product.name}</strong><span>{detalle}</span></div>
+    <Button size="sm" variant="secondary" onClick={...}>Recordame luego</Button>
+    <Button size="sm" variant="primary" icon={Check} onClick={...}>Ya lo saqué</Button>
+  </div>
+  ```
+  Detalle: vencido → `Venció el {formatDate(expiryDate)} · lote cargado el {formatDayMonth(m.date)} · {m.quantity} u.`; vence hoy → `Vence hoy · {m.quantity} u.`.
+- Esc con el popup abierto lo cierra y devuelve el foco al botón (`onKeyDown` en el popup). Click afuera cierra (ya existe).
+- Cuando `visible` queda vacío el componente devuelve `null` (el popup desaparece solo).
+- Borrar `ExpiryAlertWidget.css` y su import.
+
+Actualizar `Components/ExpiryAlert/__tests__/ExpiryAlertWidget.test.tsx`: reemplazar `getByRole('button', { name: /Ver lotes vencidos/i })` por `getByRole('button', { name: /vencid|vence/i })`; ajustar los textos de fila al nuevo detalle; agregar tests: (a) "1 vencido" en singular y "2 vencidos · 3 vencen hoy" combinado; (b) Esc cierra el popup; (c) no aparece el carácter `⚠` (`expect(container.textContent).not.toContain('⚠')`).
+
+**4.6 `App.tsx`.** Reescribir:
+```tsx
+export default function App() {
+  const [nav, setNav] = useState<NavState>(initialNav)
+  const navigate: Navigate = useCallback((patch) => setNav((n) => ({ ...n, ...patch })), [])
+
+  // Ctrl+1/2/3 → secciones (ignorar si hay un modal abierto)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey || e.metaKey || openModalCount() > 0) return
+      const map: Record<string, Section> = { '1': 'stock', '2': 'sells', '3': 'stats' }
+      const s = map[e.key]
+      if (s) { e.preventDefault(); navigate({ section: s }) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [navigate])
+
+  return (
+    <ToastProvider>
+      <SalesProvider>
+        <div className="ig-app">
+          <AppHeader section={nav.section} onNavigate={(section) => navigate({ section })} />
+          <div className="app-body">
+            {nav.section === 'stock' && <StockPage nav={nav} navigate={navigate} />}
+            {nav.section === 'sells' && <SalesPage nav={nav} navigate={navigate} />}
+            {nav.section === 'stats' && <Stats navigate={navigate} />}
+          </div>
+        </div>
+      </SalesProvider>
+    </ToastProvider>
+  )
+}
+```
+Hasta que existan `StockPage`/`SalesPage` (Fases 5 y 9), creá versiones mínimas temporales que rendericen lo viejo: `StockPage` → `<Stock />` y `SalesPage` → `nav.salesView==='history' ? <SalesHistory/> : <Sells/>` + un `Segmented` Nueva venta|Historial. **`Sells` ahora debe usar `useSales()`** en lugar de su `useReducer`/`useState` locales para carrito, descuento y pagos (cambio mínimo: reemplazar esas 3 declaraciones por `const { cart, dispatchCart: dispatch, discountPct, setDiscountPct, payments, setPayments, resetSale } = useSales()` y en el éxito de la venta usar `resetSale()`).
+Borrar `Pages/Header.tsx`.
+
+Tests:
+- `src/__tests__/App.test.tsx` (nuevo; mockeá todo `window.api` que usan las pantallas con arrays vacíos): arranca en Stock (botón Stock con `aria-current`); `Ctrl+2` cambia a Ventas; `Ctrl+3` a Estadísticas; con un modal abierto (abrí "Nuevo producto" si ya existe, o simulá con `pushModal()`/`popModal()` en el test) `Ctrl+2` no navega.
+- Actualizar `Pages/Sells/__tests__/Sells.confirm.test.tsx` para renderizar con `renderWithProviders`.
+
+**4.7 Verificación de la fase.** Tests + typecheck. Corré la app: header azul noche con logo, nav con píldora blanca, widget de vencimientos (si hay datos), botón luna/sol que cambia el tema.
+
+---
+
+## Fase 5 — Stock › Productos
+
+**5.1 `Pages/Stock/StockPage.tsx`.** Props `{ nav: NavState; navigate: Navigate }`. Renderiza `<main className="ig-page">` con:
+- Cabecera `<div className="ig-page-head"><h1>Stock</h1><Segmented ariaLabel="Vista de stock" options=[{value:'products',label:'Productos'},{value:'movements',label:'Movimientos'}] value={nav.stockView} onChange={(v)=>navigate({stockView:v, movementsProduct: null})}/><div className="ig-spacer"/>{acciones}</div>`.
+- Las acciones (Buscar F2 / Cargar stock / Nuevo producto) son de la vista Productos: `StockProducts` las recibe por un slot. Implementación simple: `StockPage` renderiza la cabecera y le pasa a `StockProducts` un prop `renderHeadActions` **o** (más simple) `StockProducts` renderiza su propia cabecera completa recibiendo el `Segmented` como prop `viewSwitcher`. **Usá la segunda opción**: `StockPage` solo decide qué vista montar y le pasa `viewSwitcher` (el `<Segmented>` ya armado) a ambas vistas; cada vista arma su `ig-page-head`.
+- `nav.stockView==='products'` → `<StockProducts viewSwitcher navigate />`; `'movements'` → `<StockMovements viewSwitcher navigate product={nav.movementsProduct} />` (Fase 8; hasta entonces un placeholder `<EmptyState icon={History} title="Próximamente" />`).
+
+**5.2 Mover y reescribir `Pages/Stock.tsx` → `Pages/Stock/StockProducts.tsx`.** Borrá `Pages/Stock.tsx` y `Pages/Stock.css`. Estado:
+```ts
+products: ProductFromApi[]; loading: boolean; error: boolean; reloadKey: number
+query: string                 // buscador inline
+categoryId: number | null     // null = Todas
+onlyLow: boolean
+showLots: boolean             // toggle "Vencimientos" (D5)
+sort: { key: 'name' | 'salePrice' | 'stock'; dir: 'asc' | 'desc' }  // default name asc
+activeId: number | null       // fila seleccionada
+modal: { kind: 'none' } | { kind: 'create'; initial?: { name?: string; barcode?: string } } | { kind: 'edit'; product: ProductFromApi } | { kind: 'load'; product?: ProductFromApi } | { kind: 'search' }
+lotsByProduct: Map<number, StockMovementFromApi[]>
+```
+Carga: `window.api.listProducts({ take: 5000 })` (antes 100: ahora el filtrado es en cliente). Manejo de error: `error=true` y `console.error`.
+
+**5.3 Filtrado y orden (función pura).** Crear `Pages/Stock/productFilters.ts`:
+```ts
+export function filterProducts(list: ProductFromApi[], f: { query: string; categoryId: number | null; onlyLow: boolean }): ProductFromApi[]
+export function sortProducts(list: ProductFromApi[], s: { key: 'name'|'salePrice'|'stock'; dir: 'asc'|'desc' }): ProductFromApi[]
+```
+- query: `includesFolded(p.name, q)` **o** el barcode (`p.barcode?.toString()`) contiene `q.trim()`.
+- onlyLow: `stockTone(p) !== null` (incluye negativos).
+- Orden por nombre con `localeCompare(b, 'es', { sensitivity: 'base' })`; precio con `Number(salePrice)`; no mutar el array original.
+Tests `Pages/Stock/__tests__/productFilters.test.ts`: query por nombre sin tildes ("serenisima" encuentra "Serenísima"); query por parte del código; filtro de categoría; onlyLow incluye bajos y negativos y excluye normales; orden por nombre asc/desc con tildes; orden por stock; no muta el input.
+
+**5.4 Cabecera de Productos.** Dentro de `StockProducts`:
+```tsx
+<div className="ig-page-head">
+  <h1>Stock</h1>{viewSwitcher}<div className="ig-spacer" />
+  <Button size="sm" variant="ghost" icon={Search} shortcut="F2" onClick={openSearch}>Buscar</Button>
+  <Button variant="secondary" icon={PackagePlus} onClick={() => openLoad()}>Cargar stock</Button>
+  <Button variant="primary" icon={Plus} onClick={() => openCreate()}>Nuevo producto</Button>
+</div>
+```
+
+**5.5 Toolbar.**
+```tsx
+<div className="ig-toolbar">
+  <div className="ig-input-wrap" style={{ width: 380 }}>
+    <Search className="ig-icon" size={18} aria-hidden="true" />
+    <input ref={searchRef} className="ig-input" placeholder="Buscar por nombre o código (Ctrl+F)" aria-label="Buscar productos" value={query} onChange=... onKeyDown={onSearchKeyDown} />
+  </div>
+  <MenuButton label="Filtrar por categoría" buttonText={`Categoría: ${nombre ?? 'Todas'}`} icon={ListFilter} size="sm" items={[{id:'all',label:'Todas',checked:categoryId===null,...}, ...categorías únicas de products ordenadas]} />
+  <Button size="sm" variant="secondary" icon={ArrowDown} aria-pressed={onlyLow} onClick={toggle}>Solo stock bajo</Button>
+  <Button size="sm" variant="secondary" icon={CalendarClock} aria-pressed={showLots} onClick={toggle}>Vencimientos</Button>
+  <div style={{ flex: 1 }} />
+  <span className="ig-help">{visibles.length} {visibles.length === 1 ? 'producto' : 'productos'}</span>
+</div>
+```
+Para que el estado "presionado" se vea: en `app.css` agregá `.ig-btn[aria-pressed="true"] { background: var(--primary-soft); color: var(--on-primary-soft); border-color: var(--primary); }`.
+`onSearchKeyDown`: Enter con query solo dígitos → buscar `products.find(p => p.barcode?.toString() === q)`; si existe, `setActiveId(p.id)` y hacer scroll a su fila; si no, toast danger `Producto no encontrado` / `Código {q}`.
+
+**5.6 Alertas inline.**
+- Si hay ≥1 negativo: `InlineAlert tone="danger"` con título `Hay 1 producto con stock negativo` / `Hay {n} productos con stock negativo`; texto (1) `«{nombre}» tiene {formatInt(stock)} unidades. Revisá las ventas o cargá stock.` o (n) `Revisá las ventas o cargá stock.`; acción `Button size="sm" icon={PackagePlus}` "Cargar stock" → `openLoad(primerNegativo)` (abre el modal directo en el paso 2).
+- Si hay ≥1 bajo (no negativo) y `!onlyLow`: `InlineAlert tone="warning"` título `{n} producto(s) por debajo del stock mínimo` + acción "Filtrar" → `setOnlyLow(true)`.
+
+**5.7 Tabla.** Markup de `ScreenStock/preview.html` + `Table/README.md`:
+```tsx
+<div className="ig-table-wrap ig-grid" style={{ flex: 1, overflow: 'auto' }} tabIndex={0} role="grid"
+     aria-label="Productos" aria-activedescendant={activeId ? `stock-row-${activeId}` : undefined} onKeyDown={onGridKeyDown}>
+  <table className="ig-table">
+    <thead><tr>
+      <th>Código de barras</th>
+      <th aria-sort=...><button className="ig-th-sort" onClick={() => toggleSort('name')}>Nombre {flecha}</button></th>
+      <th className="r" aria-sort=...><button className="ig-th-sort" ...>Precio</button></th>
+      <th className="r" aria-sort=...><button className="ig-th-sort" ...>Stock</button></th>
+      <th className="r">Stock mín.</th>
+      <th>Categoría / Proveedor</th>
+      {showLots && <th>Vencimientos</th>}
+      <th className="actions">Acciones</th>
+    </tr></thead>
+    <tbody>{filas}</tbody>
+  </table>
+  <div className="ig-table-foot">...</div>
+</div>
+```
+Fila:
+- `<tr id={`stock-row-${p.id}`} className={[activeId===p.id&&'is-selected', flashId===p.id&&'ig-row-flash'].filter(Boolean).join(' ')} onClick={() => setActiveId(p.id)} onDoubleClick={() => openEdit(p)} aria-selected={activeId===p.id}>`
+- `td.code` barcode o `—`; `td.name` nombre; `td.r` `formatMoney(p.salePrice)`; stock: tono `negative` → `td.r.is-negative` con `<span className="ig-stock"><TriangleAlert size={16}/>{formatInt(stock)}</span>`, `low` → `td.r.is-low` con `ArrowDown`, normal → `td.r`; `td.r` con `className="r ig-muted"` para mínimo; categoría + `<div className="ig-sub">{proveedor}</div>`; lotes → `<LotsList lots=.../>` (si `showLots`); acciones → `Button variant="edit" size="sm" icon={Pencil}` "Editar" (con `e.stopPropagation()`) + `MenuButton iconOnly icon={EllipsisVertical} label={`Más acciones para ${p.name}`} variant="ghost" size="sm" align="right" items=[{id:'mov',label:'Ver movimientos',icon:History,onSelect:()=>navigate({stockView:'movements', movementsProduct:{id:p.id,name:p.name}})},{id:'load',label:'Cargar stock de este producto',icon:PackagePlus,onSelect:()=>openLoad(p)}]`.
+- Flecha de orden: `ArrowUp`/`ArrowDown` de 14px solo en la columna activa; `aria-sort="ascending|descending|none"`.
+- `onGridKeyDown` = `useRowNavigation({ keys: visibles.map(p=>p.id), activeKey: activeId, setActiveKey: setActiveId, onActivate: id => openEdit(byId(id)), rowDomId: id => `stock-row-${id}` })`. Ignorá eventos cuyo `target` no sea el contenedor del grid (para no interferir con los botones de la fila): `if (e.target !== e.currentTarget) return`.
+- Pie: `<span>{n} productos{neg>0 && <> · <b style={{color:'var(--danger)'}}>{neg} con stock negativo</b></>}{low>0 && <> · <b style={{color:'var(--warning)'}}>{low} con stock bajo</b></>}</span>` + `<ShortcutBar items={[{keys:['↑','↓'],label:'Moverse'},{keys:['Enter'],label:'Editar'},{keys:['Ctrl','N'],label:'Nuevo'},{keys:['Ctrl','L'],label:'Cargar stock'}]} />`.
+
+**5.8 Estados.**
+- Cargando: si `useDelayedFlag(loading)` → `<TableSkeleton rows={8} cols={4} label="Cargando productos…" />`; antes de los 300 ms, nada.
+- Error: `EmptyState tone="danger" icon={CircleAlert} title="No pudimos leer los productos" description="Revisá que la base de datos esté disponible y probá de nuevo." action={<Button icon={RotateCcw} onClick={reload}>Reintentar</Button>}`.
+- Vacío (sin productos en la base): `EmptyState icon={Package} title="Todavía no hay productos" description="Cargá el primero para empezar a vender." action={<Button variant="primary" icon={Plus} onClick={openCreate}>Nuevo producto</Button>}` dentro de `div.ig-card`.
+- Sin resultados de filtro: una fila `<tr><td colSpan={n} className="c ig-muted">No encontramos «{query}»</td></tr>` (si no hay query: `Ningún producto coincide con los filtros`).
+
+**5.9 Atajos de la vista** (un `useEffect` con listener en `window`):
+- `F2` → si `openModalCount() > (modal.kind==='search' ? 1 : 0)` no hacer nada; si no, alternar el popup de búsqueda.
+- Con `openModalCount() > 0` ignorar todo lo siguiente.
+- `Ctrl+N` → `openCreate()`; `Ctrl+L` → `openLoad()`; `Ctrl+F` → `searchRef.current.focus(); select()`. Todos con `preventDefault`.
+- Dígito (`/^\d$/`), sin Ctrl/Alt, con target **no** editable (`isEditableTarget`) → `setQuery('')` y `searchRef.current.focus()` (sin `preventDefault`, así el dígito entra al input). Esto implementa "escanear estando en Stock filtra la tabla".
+
+**5.10 Integración con modales.**
+- `ProductFormModal` crear: `open={modal.kind==='create'}`, `initialValues={modal.initial}`; edición: `product={modal.product}`. `onSuccess(product)` → cerrar, `reloadKey++`, `setActiveId(product.id)`, `flash(product.id)`; después de recargar, scroll a la fila (un `useEffect` que, cuando cambia `products` y hay `activeId`, llama `scrollIntoViewSafe`).
+- `LoadStockModal`: `open={modal.kind==='load'}`, `initialProduct={modal.product}`, `onSuccess(productId)` → igual que arriba; `onRequestCreate(query)` → `setModal({kind:'create', initial: /^\d+$/.test(query) ? {barcode:query} : {name:query}})`.
+- `SearchPopup` (F2): `open={modal.kind==='search'}`, `allowNumericEnter`, `showExpiry`, `onSelect={(p) => setModal({kind:'edit', product:p})}`.
+
+**5.11 `LotsList` (re-skin).** En `Components/LotsList/LotsList.tsx` cambiar el render a badges: cada lote `<Badge tone={vencido?'danger':venceHoy?'info':'neutral'} icon={vencido?CalendarX:venceHoy?Clock:undefined}>{qty} u. · {fecha DD/MM/AAAA o 'sin vencimiento'}</Badge>` dentro de un `<div style={{display:'flex',flexWrap:'wrap',gap:4}}>`; vacío → `<span className="ig-muted">—</span>`. Borrar `LotsList.css`. Actualizar `LotsList.test.tsx`: la fecha ahora es `01/05/2026` (no `2026-05-01`); las clases `lots-list__item--expired` pasan a `ig-badge-danger`, `--today` a `ig-badge-info`.
+
+**5.12 Tests de Stock.** Reescribir `Pages/Stock/__tests__/Stock.search.test.tsx` y `Pages/__tests__/Stock.expiryColumn.test.tsx` contra `StockProducts` (render con `renderWithProviders`, props `viewSwitcher={null}` y `navigate={vi.fn()}`). Casos mínimos:
+1. Muestra skeleton solo después de 300 ms de carga (fake timers con una promesa que no resuelve).
+2. Lista productos con precio `$ 1.000,00` y la columna Categoría/Proveedor.
+3. Stock negativo: celda con clase `is-negative` + alerta "Hay 1 producto con stock negativo"; su botón "Cargar stock" abre el modal "Cargar stock" con el producto ya elegido (paso 2: aparece el label "Cantidad a agregar (negativo = merma)").
+4. Stock bajo: clase `is-low` + alerta warning; "Filtrar" activa "Solo stock bajo" (`aria-pressed="true"`) y oculta los productos normales.
+5. Buscador inline: tipear "serenisima" deja solo "Leche La Serenísima"; contador "1 producto".
+6. Enter en el buscador con un código exacto selecciona la fila (`aria-selected="true"`).
+7. Orden: click en "Precio" ordena ascendente; segundo click descendente (`aria-sort`).
+8. Teclado: foco en el grid, ↓ selecciona la primera fila, Enter abre "Editar producto".
+9. Doble click en una fila abre "Editar producto".
+10. Menú ⋮ → "Ver movimientos" llama `navigate({ stockView: 'movements', movementsProduct: { id, name } })`.
+11. F2 abre el popup de búsqueda (mantené el `vi.mock('../../Sells/SearchPopup', …)` existente ajustando la ruta); elegir un producto abre Editar producto.
+12. `Ctrl+N` abre "Nuevo producto"; `Ctrl+F` enfoca el buscador.
+13. Toggle "Vencimientos" agrega la columna y llama `listLotsByProductIds` con los ids (portar los casos de `Stock.expiryColumn.test.tsx`).
+14. Error de carga → "No pudimos leer los productos"; "Reintentar" vuelve a llamar `listProducts`.
+15. Base vacía → "Todavía no hay productos".
+
+**5.13 Verificación de la fase.** Tests + typecheck + revisión visual contra `design-system/components/ScreenStock/preview.html`.
+
+---
+
+## Fase 6 — Selector con alta en el momento + modal de Producto
+
+**6.1 `ui/EntityPicker.tsx`** (de `Picker/README.md` y `preview.html`):
+```ts
+type Entity = { id: number; name: string }
+type EntityPickerProps = {
+  id: string; label: string; required?: boolean
+  entityName: 'categoría' | 'proveedor'          // plural: categorías / proveedores
+  items: Entity[]; loading?: boolean
+  valueId: number                                // 0 = sin selección
+  onChange: (id: number) => void
+  onCreate: (name: string, extra?: { phone?: string; notes?: string }) => Promise<Entity>
+  withExtraFields?: boolean                      // proveedor: teléfono y notas
+  error?: string | null
+  triggerRef?: React.Ref<HTMLButtonElement>
+}
+```
+Comportamiento:
+1. Cerrado: `<div className="ig-field"><label className="ig-label" htmlFor={id}>…</label><div className="ig-anchor"><button id={id} type="button" className="ig-picker" aria-haspopup="listbox" aria-expanded={open} aria-invalid={!!error}>{seleccionado ? <span>{nombre}</span> : <span className="placeholder">Elegí o creá {entityName === 'categoría' ? 'una categoría' : 'un proveedor'}</span>}<ChevronsUpDown size={16}/></button>{popover}</div>{error}</div>`.
+2. Abre con click, Enter, Espacio o ↓. Foco al buscador interno (`ig-pop-search` con `ig-input-wrap` + `Search`).
+3. Lista `ul.ig-picker-list role="listbox"`: ítems filtrados con `includesFolded`, nombre resaltado con `splitMatch` (`<b>`), `li.is-active role="option" aria-selected`. Ícono por ítem: `Tag` (categoría) o `Building2` (proveedor).
+4. Botón fijo final `button.ig-picker-create` con `Plus` y texto `Crear «{query}»` — solo si `query.trim()!==''`. Si no hay coincidencias: `li` informativo `No hay categorías con «x»` / `No hay proveedores con «x»` y el botón crear queda activo (Enter crea).
+5. ↑/↓ mueven el activo (incluyendo el botón crear como último elemento); Enter elige (llama `onChange(id)`, cierra, foco al trigger) o abre el formulario de alta.
+6. Formulario de alta `div.ig-picker-new`: `<div className="ig-overline">Nueva categoría|Nuevo proveedor</div>`, campo Nombre* (precargado con la query), y si `withExtraFields` una grilla 2 columnas con Teléfono y Notas (placeholder "Opcional"); botones `Cancelar` (ghost sm, vuelve a la lista) y `Crear y elegir` (primary sm). Validación: nombre vacío → `Ingresá un nombre.`; nombre repetido (comparar `foldText(trim)` contra `items`) → `Ya existe «{nombre existente}». Elegilo de la lista.`. Error de `onCreate` → mostrar `No se pudo crear. Probá de nuevo.` (y `console.error`).
+7. Éxito de `onCreate` → `onChange(created.id)`, cerrar, foco al trigger.
+8. Esc: si está el formulario de alta → volver a la lista; si no → cerrar y foco al trigger. **Siempre** `e.preventDefault(); e.stopPropagation()` (que no cierre el modal de producto).
+9. Click afuera cierra (listener `mousedown` en `document`).
+10. Enter dentro del picker nunca debe propagarse al formulario (`stopPropagation`).
+
+Tests `ui/__tests__/EntityPicker.test.tsx` (props mock, sin `window.api`):
+1. Placeholder "Elegí o creá una categoría" sin selección; con `valueId` muestra el nombre.
+2. Click abre, el buscador recibe foco, la lista muestra todos los ítems.
+3. Tipear "alm" filtra y resalta (`<b>` con "Alm").
+4. ↓ + Enter elige el segundo ítem → `onChange(id)` y se cierra.
+5. Sin coincidencias → "No hay categorías con «xyz»"; Enter abre el formulario con el nombre precargado.
+6. "Crear y elegir" llama `onCreate('Bebidas', undefined)` y luego `onChange(nuevoId)`.
+7. Nombre repetido ("almacén" vs "Almacén") → "Ya existe «Almacén». Elegilo de la lista." y **no** llama `onCreate`.
+8. Proveedor con `withExtraFields`: completa Teléfono y Notas → `onCreate('Distri', { phone: '123', notes: 'x' })`.
+9. Esc cierra el popover y devuelve el foco al trigger; un `onKeyDown` espía en un contenedor padre **no** recibe el Escape.
+10. Click afuera cierra.
+
+**6.2 `Pages/Stock/CategoryPicker.tsx` y `SupplierPicker.tsx`.** Wrappers que cargan con `window.api.listCategories()` / `listSuppliers()` al montar, y pasan `onCreate` = `createCategory({name})` / `createSupplier({name, phone: phone||null, notes: notes||null})` (agregando el creado a su lista local). Props: `{ id, valueId, onChange, error, triggerRef }`. Error de carga → `<span className="ig-error">No pudimos cargar las categorías.</span>` (o "los proveedores").
+Tests `CategoryPicker.test.tsx` y `SupplierPicker.test.tsx`: llaman a la API al montar; crear agrega y selecciona; error de carga muestra el mensaje.
+Borrar `CategorySelector.tsx`, `SupplierSelector.tsx` y sus tests.
+
+**6.3 `validateProductForm.ts`.** Cambios:
+- Precios: usar `parseDecimal` (acepta `1.650,00`). Vacío o inválido o `< 0` → `Ingresá un precio mayor o igual a 0.`
+- Nombre vacío → `Ingresá el nombre del producto.`
+- Categoría 0 → `Elegí o creá una categoría.`; proveedor 0 → `Elegí o creá un proveedor.`
+- Barcode con no-dígitos **o** > 20 → `El código solo puede tener números (hasta 20).`
+- Stock / stock mínimo inválidos → `Ingresá un número entero, 0 o mayor.` (usar `parseInteger`).
+- Agregar `export function priceToPayload(raw: string): string` → `String(parseDecimal(raw))` (lanza si es null; solo se llama después de validar).
+- Agregar `export const FIELD_ORDER = ['name','categoryId','supplierId','purchasePrice','salePrice','barcode','stock','minStock'] as const`.
+- Agregar `export function marginInfo(purchase: string, sale: string): { pct: number; profit: number } | null` → null si alguno no parsea o `purchase <= 0`; `pct = (sale - purchase) / purchase * 100`.
+Actualizar `validateProductForm.test.ts` a los mensajes nuevos y agregar: `"1.650,00"` es válido; `marginInfo('1650','2390')` → `{ pct ≈ 44.85, profit: 740 }`; `marginInfo('0','10')` → null; `priceToPayload('1.650,50')` → `'1650.5'`.
+
+**6.4 `ProductFormModal.tsx` (reescritura del render, misma lógica de submit).** Props nuevas: `initialValues?: { name?: string; barcode?: string }`. Usar `Modal` con:
+- `title` = `Nuevo producto` / `Editar producto`; `subtitle` = `Los campos con * son obligatorios.` (crear) / nombre actual (editar); `size="md"`; `closeOnOverlay={false}`.
+- `onEscape` → si hay cambios (`dirty`) abrir confirmación; si no, `onClose()`.
+- `shortcuts=[{keys:['Esc'],label:'Cancelar'},{keys:['Ctrl','Enter'],label:'Guardar'}]`.
+- `footer` = `<Button variant="ghost" onClick={requestClose}>Cancelar</Button><Button variant="primary" onClick={handleSubmit} disabled={submitting}>{submitting ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Guardar producto'}</Button>`.
+- Cuerpo `div.ig-form-grid` con este orden (orden de Tab):
+  1. Nombre* (`span-2`, `initialFocusRef`).
+  2. Categoría* (`CategoryPicker`) · 3. Proveedor* (`SupplierPicker`).
+  4. Precio de compra* · 5. Precio de venta* — ambos `ig-input-wrap` con `<span className="ig-prefix">$</span>` + `input.ig-input.ig-input-amount inputMode="decimal"`; en blur reformatear con `formatAmountInput(parseDecimal(v))` si parsea. Bajo venta: si `marginInfo` → ayuda `Margen: {pct con 1 decimal y coma} % · ganancia {formatMoney(profit)} por unidad`; si `profit < 0` → ayuda en warning (`style={{color:'var(--warning)'}}`) `Estás vendiendo por debajo del costo.` (no bloquea).
+  6. Código de barras (`span-2`): `ig-input-wrap` con `ScanBarcode` + input mono `inputMode="numeric"`; ayuda `Podés escanearlo con el lector. Solo números, hasta 20.`; **Enter** en este input → `preventDefault` y foco al siguiente campo (Stock inicial en crear, Stock mínimo en editar).
+  7. Stock inicial (crear) / Stock (editar, `readOnly`, clase `is-readonly`, ayuda `Para modificar el stock usá «Cargar stock».`).
+  8. Stock mínimo — ayuda `Avisamos cuando quede igual o menos.`
+  9. Vencimiento del lote (`span-2`, solo crear y si `parseInteger(stock) > 0`): `DateField` con ayuda `Opcional. Aparece porque cargaste stock inicial.`; validar con `parseDateAR`; inválido → `Revisá la fecha (DD/MM/AAAA).`
+- Edición: precargar precios con `formatAmountInput(p.purchasePrice)`.
+- `Ctrl+Enter` en cualquier parte del modal → `handleSubmit()` (handler `onKeyDown` en un `div` que envuelve el cuerpo).
+- Validación al guardar: mostrar **todos** los errores; foco al primer campo con error según `FIELD_ORDER` (mapa de refs; para categoría/proveedor el ref es el trigger del picker).
+- Payload: `purchasePrice: priceToPayload(...)`, `salePrice: priceToPayload(...)`, `minStock: parseInteger(...) ?? 0`, `stock` (crear) `parseInteger(...) ?? 0`, `expiryDate` solo si corresponde.
+- Error del backend: si hay barcode y el mensaje matchea `/unique|barcode/i` → `const other = await window.api.getProductByBarcode(barcode)`; si `other && other.id !== product?.id` → error en el campo barcode `Ese código ya lo usa «{other.name}». Usá otro o dejalo vacío.` y foco al campo. En cualquier otro caso → `InlineAlert tone="danger"` arriba del pie: `No se pudo guardar el producto. Probá de nuevo.` + `console.error(e)`. El modal **no** se cierra.
+- Confirmación de descarte: un segundo `Modal size="sm" title="¿Descartar los cambios?" subtitle="Lo que tipeaste se va a perder."` con footer `Seguir editando` (primary, cierra la confirmación) y `Descartar` (ghost, cierra todo).
+- `dirty` = el draft difiere del inicial o hay fecha tipeada.
+- Borrar `CreateProductModal.css` y su import.
+
+**6.5 Tests de `ProductFormModal.test.tsx`.** Reescribir sobre los mismos escenarios (Suite A crear, Suite B editar) adaptando consultas:
+- Los selects de categoría/proveedor ahora son pickers: abrir con `getByRole('button', { name: /categoría/i })` y elegir con `getByRole('option', { name: 'Almacén' })`.
+- Botón crear: `Guardar producto` (antes `Crear producto`).
+- El vencimiento se tipea como `01052026` (máscara) y se espera `expiryDate` = `new Date(2026, 4, 1)`.
+Casos obligatorios (además de portar los existentes):
+1. Guardar vacío muestra los 5 errores obligatorios con los copys nuevos y el foco queda en "Nombre".
+2. Precios con coma y puntos (`1.650,00`) se envían como `'1650'`.
+3. Margen en vivo: compra 1650, venta 2390 → "Margen: 44,8 % · ganancia $ 740,00 por unidad"; venta < compra → "Estás vendiendo por debajo del costo." y **igual** permite guardar.
+4. Vencimiento: no aparece con stock 0; aparece con stock 12; fecha inválida `31022026` → "Revisá la fecha (DD/MM/AAAA)." y no llama a la API.
+5. Enter en "Código de barras" no guarda y mueve el foco a "Stock inicial".
+6. `Ctrl+Enter` guarda.
+7. Código duplicado: `createProduct` rechaza con `Error('Unique constraint failed on barcode')` y `getProductByBarcode` devuelve "Yerba" → error "Ese código ya lo usa «Yerba». Usá otro o dejalo vacío." y el modal sigue abierto.
+8. Otro error del backend → "No se pudo guardar el producto. Probá de nuevo."
+9. Esc sin cambios cierra; Esc con cambios muestra "¿Descartar los cambios?"; "Seguir editando" vuelve; "Descartar" llama `onClose`.
+10. Edición: subtítulo con el nombre, Stock solo lectura con la ayuda, botón "Guardar cambios", el payload **no** incluye `stock`, precios precargados `1.000,00`.
+11. `initialValues={{ barcode: '779123' }}` precarga el código.
+
+**6.6 Verificación de la fase.** Tests + typecheck + revisión visual contra `ScreenProductNew` y `ScreenProductEdit`.
+
+---
+
+## Fase 7 — Modal Cargar stock
+
+**7.1 Props nuevas de `LoadStockModal`:** `initialProduct?: ProductFromApi` (si viene, abre directo en el paso 2), `onSuccess: (productId: number) => void` (antes sin argumento), `onRequestCreate?: (query: string) => void`.
+
+**7.2 Render con `Modal`** (`size="md"`, `title="Cargar stock"`, `headerExtra={<StepIndicator steps={['Buscar producto','Cantidad']} current={step==='search'?0:1} />}`, `closeOnOverlay={false}`):
+- `onEscape`: en `search` → `onClose()`; en `confirm` → volver a `search` (si `initialProduct` vino de afuera, Esc en confirm **también** vuelve a search). Quitar el listener global de Escape que existe hoy (lo reemplaza `onEscape`).
+- **Paso 1:** input grande con ícono (`ig-input-wrap` + `Search` + `input.ig-input.ig-input-lg`, placeholder `Buscá por nombre o escaneá el código`) y tabla (`ig-table-wrap` con `boxShadow:none`) Código de barras | Nombre (coincidencia en `<b>` con `splitMatch`) | Stock actual (con tonos `is-low`/`is-negative` e íconos como en Stock). Fila seleccionada `is-selected`. Teclado igual que hoy (↑/↓/Enter). **Escaneo:** Enter con query solo dígitos → `await window.api.getProductByBarcode(q)`; si existe → paso 2 con ese producto; si no, seguir con la lógica normal (resultados). Estados: skeleton de 3 filas tras 300 ms; sin resultados → `EmptyState icon={SearchX} title="No encontramos «{q}»" description="¿Es un producto nuevo?" action={onRequestCreate && <Button variant="primary" icon={Plus} onClick={() => onRequestCreate(q)}>Crear producto</Button>}`. Pie: `shortcuts=[↑↓ Elegir, Enter Continuar, Esc Cerrar]`.
+- **Paso 2:** `ig-form-grid`:
+  - Producto (`span-2`, readonly `is-readonly`, valor `{nombre} · stock actual {stock}`).
+  - Cantidad* (label exacto `Cantidad a agregar (negativo = merma)`, `ig-input ig-input-amount ig-input-lg`, `inputMode="numeric"`, foco inicial). Vista previa debajo (calcular con `parseInteger`, aceptando `−`):
+    - `n > 0` → ayuda success con `ArrowUp`: `Reposición: el stock queda en {stock+n}`.
+    - `n < 0` y resultado ≥ 0 → warning con `ArrowDown`: `Merma: el stock queda en {stock+n}` (el texto del input también en warning).
+    - resultado < 0 → danger con `TriangleAlert`: `El stock quedará en {formatInt(stock+n)}` (no bloquea).
+  - Vencimiento del lote (`DateField`, ayuda `Opcional`).
+  - Notas (`span-2`, opcional).
+  - Error de cantidad: `Ingresá una cantidad distinta de 0, sin decimales.` Fecha inválida: `Revisá la fecha (DD/MM/AAAA).` Error del backend: `InlineAlert danger` `No se pudo cargar el stock. Probá de nuevo.`
+  - **Enter** en cualquier input del paso 2 → `handleSubmit()`.
+  - Pie: `shortcuts=[Esc Volver, Enter Confirmar]`, footer `Button variant="secondary" icon={ArrowLeft}` Volver + `Button variant="primary"` `Cargar stock` (`Cargando…` mientras envía).
+- Envío: igual que hoy (`createStockMovement` tipo `IN`), con `expiryDate` de `parseDateAR`. Éxito → `onSuccess(product.id)`.
+- Borrar `LoadStockModal.css`.
+
+**7.3 Tests `LoadStockModal.test.tsx`** (portar los existentes y agregar):
+1. Paso 1: busca con debounce y lista resultados con la coincidencia en negrita.
+2. Escaneo: query `7790001` + Enter con `getProductByBarcode` → producto ⇒ salta al paso 2.
+3. Sin resultados: "No encontramos «xyz»" + "Crear producto" llama `onRequestCreate('xyz')`.
+4. `initialProduct` abre directo en el paso 2 con "Leche · stock actual 24".
+5. Vista previa: `24` → "Reposición: el stock queda en 48"; `-2` → "Merma: el stock queda en 22"; `-30` → "El stock quedará en −6".
+6. `0` o `2,5` → "Ingresá una cantidad distinta de 0, sin decimales." y no llama la API.
+7. Enter en Cantidad envía con `{ productId, type:'IN', quantity:24 }`; con fecha `30062027` envía `expiryDate: new Date(2027,5,30)`.
+8. Esc en paso 2 vuelve al paso 1; Esc en paso 1 llama `onClose`.
+9. Éxito llama `onSuccess(productId)`.
+10. Indicador de pasos: en paso 2 el primer paso tiene `is-done`.
+
+**7.4 Verificación de la fase.** Tests + typecheck + revisión visual contra `ScreenLoadStock`.
+
+---
+
+## Fase 8 — Stock › Movimientos (pantalla nueva)
+
+**8.1 `Pages/Stock/movements.ts`** (puro):
+```ts
+export type MovementKind = 'sale' | 'restock' | 'shrink' | 'initial' | 'adjustment'
+export type MovementInfo = { kind: MovementKind; label: string; tone: 'neutral'|'success'|'warning'|'info'; delta: number | null }
+export function classifyMovement(m: { type: string; quantity: number; appliedDelta: number | null }): MovementInfo {
+  if (m.type === 'SALE') return { kind: 'sale', label: 'Venta', tone: 'neutral', delta: -m.quantity }
+  if (m.type === 'IN' && m.appliedDelta === 0 && m.quantity > 0) return { kind: 'initial', label: 'Alta inicial', tone: 'info', delta: m.quantity }
+  if (m.type === 'IN' && m.quantity < 0) return { kind: 'shrink', label: 'Merma', tone: 'warning', delta: m.quantity }
+  if (m.type === 'IN') return { kind: 'restock', label: 'Reposición', tone: 'success', delta: m.quantity }
+  return { kind: 'adjustment', label: 'Ajuste', tone: 'neutral', delta: m.appliedDelta }
+}
+export type MovementTypeFilter = 'all' | 'sale' | 'restock' | 'shrink' | 'adjustment'
+/** 'restock' incluye también 'initial'. */
+export function matchesTypeFilter(info: MovementInfo, f: MovementTypeFilter): boolean
+/** Últimos 7 días: desde hoy-6 00:00 hasta hoy 23:59:59.999 (zona local). */
+export function lastSevenDays(now?: Date): { from: Date; to: Date }
+```
+Tests `Pages/Stock/__tests__/movements.test.ts`: los 5 casos de `classifyMovement` (incluido `IN` con `appliedDelta: null` → restock y `ADJUSTMENT` con `appliedDelta: null` → delta null); `matchesTypeFilter` (`initial` matchea `restock`; `all` matchea todo); `lastSevenDays(new Date(2026,9,24,15))` → from `18/10/2026 00:00`, to `24/10/2026 23:59:59.999`.
+
+**8.2 `Pages/Stock/StockMovements.tsx`.** Props `{ viewSwitcher: ReactNode; navigate: Navigate; product: { id: number; name: string } | null }`. Layout de `ScreenStockMovements/preview.html`:
+- `ig-page-head`: `<h1>Stock</h1>{viewSwitcher}`.
+- `div.ig-filters`:
+  - Producto: `Field` + `ig-input-wrap` con `Search`, placeholder `Nombre o código`; si `product` viene por navegación, el input arranca con su nombre y se filtra por `productId` en la API; al tipear se descarta el `productId` y se filtra en el cliente (`includesFolded` sobre nombre o barcode contiene).
+  - Tipo: `Segmented` Todos / Ventas / Reposiciones / Mermas / Ajustes.
+  - Período: dos `DateField` "Desde" y "Hasta" (default `lastSevenDays()`, formateados con `formatDate`). Solo se recarga cuando ambas fechas parsean y desde ≤ hasta.
+- Carga: `window.api.listStockMovements({ fromDate, toDate, productId?, take: 500 })` con debounce 250 ms al cambiar filtros de API.
+- Tabla: Fecha (`formatDayMonthTime`) · Tipo (`Badge` con tono/label de `classifyMovement`) · Producto (`td.name`) · Cantidad (`td.r`, `formatSignedInt(delta)`; color: success si `delta>0`, warning si `shrink`, `var(--ink)` bold si venta; `delta===null` → `<span className="ig-muted">ajuste a {quantity}</span>`) · Detalle (`ig-muted`): venta con `saleId` → `<button className="ig-link" onClick={() => navigate({ section:'sells', salesView:'history', historySaleId: m.saleId })}>Venta #{saleId}</button>`; si no, `notes`; si tiene `expiryDate` agregar `Lote vence {formatDate}` (unir partes con ` · `).
+- **No** hay columna "Stock resultante" (D1).
+- Orden: el backend ya devuelve más reciente primero.
+- Estados: skeleton (300 ms); error → `EmptyState danger` "No pudimos leer los movimientos" + Reintentar; vacío → `EmptyState icon={History} title="Todavía no hay movimientos" description="Cambiá el período o el producto para ver otros movimientos."`.
+
+**8.3 Conectar en `StockPage`** (reemplazar el placeholder del Paso 5.1).
+
+**8.4 Tests `StockMovements.test.tsx`:**
+1. Llama `listStockMovements` con el rango de 7 días por defecto.
+2. Con `product={{id:5,name:'Leche'}}` llama con `productId: 5` y el input muestra "Leche".
+3. Badges: Venta / Reposición / Merma / Alta inicial con sus clases (`ig-badge-neutral`, `-success`, `-warning`, `-info`).
+4. Cantidades `−4`, `+24`, `−2`.
+5. Click en "Venta #1282" llama `navigate({ section:'sells', salesView:'history', historySaleId:1282 })`.
+6. Segmentado "Mermas" deja solo las mermas.
+7. Tipear en Producto filtra en el cliente.
+8. Detalle "Lote vence 08/11/2026".
+9. Vacío y error.
+
+**8.5 Verificación.** Tests + typecheck + visual contra `ScreenStockMovements`.
+
+---
+
+## Fase 9 — Ventas › Nueva venta
+
+**9.1 `payments.ts`.** Cambios:
+- `parsePaymentAmount(raw)` → usa `parseDecimal`; `null` o negativo → 0. (**Crítico:** hoy `"10.000,00"` da 0.)
+- `PAYMENT_EPSILON = 0.005`.
+- Nueva `fillRemaining(state, method, total): PaymentsDraft` → `remaining = total - sumPayments(state)`; si `remaining <= PAYMENT_EPSILON` devuelve `state` sin cambios; si no, `state[method] = formatAmountInput(parsePaymentAmount(state[method]) + remaining)`.
+- Nueva `formatPaymentOnBlur(raw: string): string` → `''` si no parsea o es ≤ 0; si no, `formatAmountInput(n)`.
+- Nueva `export type ChangeState = { kind: 'due' | 'exact' | 'return'; amount: number }` y `changeState(paid: number, total: number): ChangeState` → `diff = paid - total`; `diff < -0.005` → `{kind:'due', amount: -diff}`; `|diff| <= 0.005` → `{kind:'exact', amount: 0}`; si no `{kind:'return', amount: diff}`.
+- Nuevo `PAYMENT_TITLE_LABELS: Record<PaymentMethod,string>` = Efectivo, Débito, Crédito, Transferencia, Otros.
+- Nuevo `PAYMENT_ICONS: Record<PaymentMethod, LucideIcon>` = CASH `Banknote`, DEBIT `CreditCard`, CREDIT `CreditCard`, TRANSFER `ArrowLeftRight`, OTHER `Wallet`.
+- Mantené `autoFillFor` solo si algún test lo usa; si no, borralo (Sells usará `fillRemaining`).
+Actualizar `payments.test.ts` y agregar: `parsePaymentAmount('10.000,00') === 10000`; `fillRemaining` con total 1500 y CASH `'1000'` en TRANSFER → TRANSFER `'500,00'`; con todo cubierto no cambia nada; sumando a un método que ya tenía monto (`CASH '1000'`, total 1500 → CASH `'1.500,00'`); `changeState` en los 3 casos y en el borde (diff = −0.004 → exact); `formatPaymentOnBlur('20000') === '20.000,00'`, `('abc') === ''`.
+
+**9.2 `amount.ts`.** `validateGeneralAmount` usa `parseDecimal` (acepta `1.500,50`); mensajes: vacío o ≤ 0 o inválido → `Ingresá un monto mayor a 0.`; el `value` devuelto es `String(n)` con punto. Actualizar `amount.test.ts` (los textos viejos "Ingresá un monto" / "Ingresá un monto positivo" pasan al nuevo copy) y agregar `'1.500,50'` → `'1500.5'`.
+
+**9.3 `BarcodeInput.tsx`.** Nueva API:
+```ts
+type Props = { onScan: (code: string) => Promise<boolean>; onArrowDown: () => void }
+export type BarcodeInputHandle = { focus: () => void }
+```
+Markup (de `ScreenSales/preview.html`): `<div className={`ig-scan ${focused ? 'is-focus' : 'is-idle'}`}><ScanBarcode size={22}/><input ref aria-label="Código de barras" placeholder="Escaneá o escribí un código de barras" autoFocus .../><span className="ig-scan-state">{focused ? <><CircleCheck size={16}/>Listo para escanear</> : <><TriangleAlert size={16}/>Hacé click acá o tocá Esc para escanear</>}</span></div>`.
+- Enter con valor → `const ok = await onScan(v)`; `ok` → limpiar; `!ok` → conservar el texto y `input.select()`.
+- ↓ → `preventDefault(); onArrowDown()`.
+- Debajo del `ig-scan`, en `Sells`, va la `ShortcutBar` (no dentro de este componente).
+- Quitar el botón "F2" viejo (ahora está en la cabecera).
+Test `BarcodeInput.test.tsx` (nuevo): Enter con `onScan`→true limpia; →false conserva y selecciona; muestra "Listo para escanear" con foco y "Hacé click acá o tocá Esc para escanear" sin foco; ↓ llama `onArrowDown`.
+
+**9.4 `EditableCell.tsx`.**
+```ts
+type Props = {
+  kind: 'int' | 'money'
+  value: string | number          // valor confirmado (precio con punto, ej. "1450.5")
+  ariaLabel: string
+  modified?: boolean              // precio distinto al de lista → clase is-modified
+  onCommit: (n: number) => void   // solo con valor válido y distinto
+  onNavigate?: (dir: -1 | 1) => void  // ↑/↓ dentro de la celda
+  onExit?: () => void             // Enter/Esc: devolver foco a la fila
+  inputRef?: (el: HTMLInputElement | null) => void
+}
+```
+- Muestra: sin edición → `kind==='money' ? formatAmountInput(value) : String(value)`.
+- `onFocus` → `draft = display` y `select()`. `onChange` → draft. Clase `ig-cell-edit` + `is-editing` mientras `draft !== null` + `is-modified`.
+- Commit (blur, Enter, ↑/↓): `int` → `parseInteger(draft)` válido si `>= 1`; `money` → `parseDecimal(draft)` válido si `>= 0`. Inválido o vacío → descartar **en silencio**. Válido y distinto → `onCommit(n)`. Siempre `draft = null`.
+- Enter → commit + `onExit()`. Esc → descartar + `onExit()` + `preventDefault()` + `stopPropagation()`. ↑/↓ → commit + `onNavigate(dir)` + `preventDefault()`.
+- `type="text"`, `inputMode` `numeric`/`decimal`.
+Tests `EditableCell.test.tsx` (portar la lógica de `CartList.test.tsx`): valor inicial `1.450,00`; tipear `1.200,00` + Enter → `onCommit(1200)` y `onExit`; vacío → no commit; `0` en int → no commit; letras → no commit y vuelve al valor; Esc descarta y no propaga; ↓ hace commit y llama `onNavigate(1)`; blur hace commit.
+
+**9.5 `CartTable.tsx`** (reemplaza `CartList.tsx`; borrar `CartList.tsx` y su test cuando este esté verde):
+```ts
+type Props = {
+  lines: CartLine[]
+  flashLineId: string | null
+  onQuantityChange: (lineId: string, q: number) => void
+  onUnitPriceChange: (lineId: string, price: string) => void
+  onRemove: (lineId: string) => void
+  onExit: () => void              // foco al input de código
+}
+export type CartTableHandle = { focusFirstRow: () => void }
+```
+Markup de `Cart/preview.html` (`ig-table-wrap` > `table.ig-table.ig-cart`), columnas Producto · Cantidad (`th.r`) · Precio unit. (`th.r`) · Total (`th.r`) · `th.actions` con `<span className="ig-sr">Quitar</span>`.
+- Fila `tr tabIndex={-1} data-line-id` con `is-selected` cuando tiene el foco (estado `activeId` actualizado en `onFocus` de la fila o de cualquier hijo) y `ig-row-flash` si `flashLineId`.
+- Producto: `td.name` nombre; si `quantity > product.stock` → `<Badge tone="warning" icon={TriangleAlert} title="Sin stock suficiente">Sin stock</Badge>`. Línea general: `<span className="general"><Receipt size={16}/>General <Badge tone="neutral">F10</Badge></span>`.
+- Cantidad: `EditableCell kind="int"`. Precio: `EditableCell kind="money"` con `modified` si es línea de producto y `Number(unitPrice) !== Number(product.salePrice)`; en ese caso, debajo `<div className="ig-cell-orig"><s>{formatMoney(product.salePrice)}</s></div>`. `onCommit` de precio → `onUnitPriceChange(lineId, String(n))`.
+- Total: `td.r.line-total` `formatMoney(lineTotal(line))`.
+- Quitar: `Button variant="ghost" size="sm" iconOnly icon={X} aria-label={`Quitar ${nombre}`}`.
+- Teclado en la fila (solo si `e.target === e.currentTarget`): ↓/↑ → foco a la fila siguiente/anterior; Enter → foco al input de cantidad; `Delete` → `onRemove` y foco a la siguiente fila (o la anterior si era la última; si el carrito queda vacío, `onExit()`); `Escape` → `onExit()`.
+- En las celdas: `onNavigate(dir)` → foco a la misma celda de la fila de arriba/abajo; `onExit` → foco a su fila.
+- Para manejar foco tras borrar, guardá el índice antes de `onRemove` y usá un `useEffect` sobre `lines.length` para enfocar la fila en ese índice (o la anterior).
+- Vacío (`lines.length===0`): no se renderiza la tabla; en su lugar (lo hace `Sells`) el estado vacío del Paso 9.9.
+Tests `CartTable.test.tsx`: columnas; badge "Sin stock" cuando cantidad > stock; precio modificado con `is-modified` y el precio original tachado; línea General con "General" y "F10"; ✕ llama `onRemove`; Delete en una fila llama `onRemove` y el foco pasa a la siguiente; Delete con foco en un input **no** borra la línea; Esc en una fila llama `onExit`; ↓ en la fila mueve el foco a la siguiente; Enter en la fila enfoca el input de cantidad; `focusFirstRow()` enfoca la primera fila.
+
+**9.6 `ChangeIndicator.tsx`.** Props `{ paid: number; total: number }`. Usa `changeState`. Markup de `ChangeIndicator/preview.html`:
+- due → `ig-change is-due`, ícono `CircleAlert`, `Falta cubrir`, monto `formatMoney(amount)`.
+- exact → `is-exact`, `Equal`, `Pago exacto`, `$ 0,00`.
+- return → `is-return`, `HandCoins`, `Vuelto`, monto.
+- Accesibilidad: el bloque visible sin `aria-live`; aparte `<span className="ig-sr" aria-live="polite">{label}</span>` cuyo texto es solo la etiqueta (cambia solo al cambiar de categoría).
+Test: los 3 estados con su clase, etiqueta e ícono (verificar por clase y texto); sin pagos y total 100 → "Falta cubrir $ 100,00".
+
+**9.7 `PaymentPanel.tsx` (reescritura).**
+```ts
+type Props = {
+  subtotal: number; total: number
+  discountPct: number; onDiscountChange: (pct: number) => void
+  payments: PaymentsDraft
+  onPaymentChange: (m: PaymentMethod, value: string) => void
+  onPaymentBlur: (m: PaymentMethod) => void
+  onFillRemaining: (m: PaymentMethod) => void
+  canApprove: boolean; disabledReason: string | null
+  onApprove: () => void; saving: boolean
+}
+export type PaymentPanelHandle = { focusMethod: (m: PaymentMethod) => void }
+```
+Markup exacto de `PaymentPanel/preview.html`:
+- `<section className="ig-pay" aria-label="Pago">` → `div.ig-pay-left` y `div.ig-pay-sum`.
+- Izquierda, línea 1 (`ig-pay-line`): `ig-pay-row` Subtotal con `span.v formatMoney(subtotal)`; `ig-pay-row` con `<label htmlFor="discount-input">{discountPct < 0 ? 'Recargo' : 'Descuento'}</label>` + `ig-input-wrap` con `input#discount-input.ig-input aria-label="Descuento" inputMode="decimal" style={{paddingRight:28}}` (+ `is-recargo` si negativo) y `<span className="ig-suffix">%</span>` + `<span className="ig-help">positivo = descuento · negativo = recargo</span>`. Mantener el patrón de draft actual (commit en blur/Enter, Esc restaura, rango [−200, 200], fuera de rango vuelve al último válido) pero parseando con `parseDecimal`.
+- Izquierda, línea 2: `<div className="ig-overline" style={{marginBottom:8}}>Medios de pago</div>` + `div.ig-pay-methods` con 5 `div.ig-pay-method` (+ `is-filled` si `parsePaymentAmount(value) > 0`): `<button type="button" className="ig-pay-tag" aria-label={`Autocompletar ${PAYMENT_LABELS[m]}`} title="Completar con lo que falta">{icono 16}{PAYMENT_LABELS[m]}</button>` y `<input className="ig-input" aria-label={PAYMENT_LABELS[m]} placeholder="0,00" inputMode="decimal" value onChange onBlur={() => onPaymentBlur(m)} ref/>`.
+- Click en la etiqueta → `onFillRemaining(m)` y luego `setTimeout(0)` → foco al input de ese medio y `select()`.
+- Derecha: `div.ig-pay-total` (`span.k` TOTAL, `span.v` `formatMoney(total)`); `<ChangeIndicator paid={sumPayments(payments)} total={total} />`; botón `Button variant="primary" size="xl" icon={Check} shortcut="F12" disabled={!canApprove || saving}` con texto `saving ? 'Guardando…' : 'APROBAR VENTA'`; si `disabledReason && !saving` → `<div className="ig-hint" style={{justifyContent:'center'}}><Info size={16}/>{disabledReason}</div>`.
+- **No** hay hint de líneas General (D2).
+Actualizar `PaymentPanel.test.tsx`: reemplazar `getByText('VUELTO')` por los estados del `ChangeIndicator`; mantener consultas por `aria-label` (`EFECTIVO`, `Autocompletar EFECTIVO`, `Descuento`, botón `APROBAR VENTA`). Agregar: label cambia a "Recargo" con descuento negativo; `is-filled` con monto; hint visible con `disabledReason`; "Guardando…" con `saving`; click en etiqueta enfoca y selecciona su input (`await waitFor` sobre `document.activeElement`); `onPaymentBlur` se llama en blur.
+
+**9.8 `SearchPopup.tsx` (re-skin; lo usan Ventas y Stock).** Props nuevas opcionales: `warnMissingPrice?: boolean` (Ventas: mostrar badge "Sin precio"). Usar `Modal size="lg" title="Buscar producto" subtitle="Por nombre o por código de barras." closeOnOverlay headerExtra={<ShortcutBar items={[{keys:['F2'],label:'cierra'}]} />} shortcuts=[↑↓ Elegir, Enter (Ventas: "Agregar al carrito" / Stock: "Abrir"), Esc Cerrar]`.
+- Input `ig-input-wrap` + `Search` + `input.ig-input.ig-input-lg` (foco inicial).
+- Tabla (`ig-table-wrap`, `boxShadow:'none'`): Código de barras (`td.code`) | Nombre (`td.name` con `splitMatch` → `<b>`; si `warnMissingPrice && !hasValidSalePrice(p)` → `<Badge tone="danger">Sin precio</Badge>`) | Stock (`td.r` con tonos) | Vencimientos (si `showExpiry`, con `LotsList`). Fila activa `is-selected`, `onMouseEnter` la activa, click selecciona.
+- Si `!allowNumericEnter && /^\d+$/.test(query.trim())` → debajo de la tabla `InlineAlert tone="info"` `Si buscás solo números se busca el código exacto: hacé click en el producto para agregarlo.`
+- Sin resultados (query no vacía, no cargando) → fila única `No encontramos «{query}»`. Cargando → `TableSkeleton rows={3}` tras 300 ms.
+- La lógica de teclado/búsqueda/lotes se mantiene; Escape ahora lo maneja `Modal` (quitar el `case 'Escape'` del input). Borrar `SearchPopup.css`.
+Actualizar `SearchPopup.test.tsx`: `.search-popup__overlay` → `.ig-overlay`; agregar: resaltado `<b>`; hint info con query numérica en modo Ventas (y no en modo Stock); badge "Sin precio"; "No encontramos «zzz»".
+
+**9.9 `GeneralAmountPopup.tsx` (re-skin).** `Modal size="sm" title="Ítem general" closeOnOverlay shortcuts=[Enter Agregar, Esc Cancelar]`. Cuerpo: `Field label="Monto" htmlFor="general-amount" help="Mayor a 0. Podés usar coma o punto." error=…` con `ig-input-wrap` + `ig-prefix $` + `input#general-amount.ig-input.ig-input-amount.ig-input-lg inputMode="decimal"`. Enter valida con `validateGeneralAmount`; error `Ingresá un monto mayor a 0.` sin cerrar. Actualizar `GeneralAmountPopup.test.tsx` (nuevo copy; `1.500,50` → `onConfirm('1500.5')`).
+
+**9.10 `Sells.tsx` (reescritura).** Usa `useSales()`. Estructura (ver `ScreenSales/preview.html`):
+```tsx
+<>
+  <main className="ig-page" style={{ paddingBottom: 16, gap: 12 }}>
+    <div className="ig-page-head">
+      <h1>Ventas</h1>{viewSwitcher}<div className="ig-spacer" />
+      <Button size="sm" icon={Search} shortcut="F2" onClick={toggleSearch}>Buscar</Button>
+      <Button size="sm" icon={Receipt} shortcut="F10" onClick={toggleGeneral}>Ítem general</Button>
+    </div>
+    <BarcodeInput ref={barcodeRef} onScan={handleScan} onArrowDown={() => cartRef.current?.focusFirstRow()} />
+    <ShortcutBar items={[{keys:['F2'],label:'Buscar producto'},{keys:['F10'],label:'Ítem general'},{keys:['↓'],label:'Ir al carrito'},{keys:['Supr'],label:'Quitar línea'},{keys:['F12'],label:'Aprobar venta'}]} />
+    {cart.lines.length === 0
+      ? <div className="ig-card"><div className="ig-cart-empty"><div className="ig-empty"><div className="ico"><ScanBarcode size={22}/></div></div><h3>Escaneá un producto para empezar</h3><ShortcutBar items={[{keys:['F2'],label:'Buscar por nombre'},{keys:['F10'],label:'Monto suelto'}]} /></div></div>
+      : <CartTable ref={cartRef} ... />}
+  </main>
+  {cart.lines.length > 0 && <PaymentPanel ref={payRef} ... />}
+  <SearchPopup open={popupOpen} warnMissingPrice ... />
+  <GeneralAmountPopup ... />
+</>
+```
+Props: `{ viewSwitcher: ReactNode }`.
+Lógica:
+- `subtotal`, `total = Math.max(0, subtotal * (1 - discountPct/100))`, `paid = sumPayments(payments)`.
+- `disabledReason`: carrito vacío → `Agregá al menos un producto`; `paid < total - PAYMENT_EPSILON` → `Falta cubrir ${formatMoney(total - paid)}`; si no `null`. `canApprove = disabledReason === null`. (Sin regla de líneas General: D2.)
+- `addProduct(p)`: sin precio (`!hasValidSalePrice`) → toast danger `El producto no tiene un precio cargado` / `«${p.name}» — no se agregó` y devuelve false. Si no, igual que hoy + `flash(lineId)`; si `cantidad > stock` → toast warning `Sin stock suficiente` / `«${p.name}» se agregó igual`. Devuelve true.
+- `handleScan(code)`: `getProductByBarcode`; null o excepción → toast danger `Producto no encontrado` / `Código ${code}` y `return false`; si no `return addProduct(p)` (si no tiene precio también devuelve false → el texto queda seleccionado).
+- `handleApprove()`: si `!canApprove || saving` return; `setSaving(true)`; `createSale({ items: buildSaleItems(cart.lines), payments: PAYMENT_METHODS.map(...parsePaymentAmount...).filter(a>0), total: Math.round(total*100)/100, discountPct })`; éxito → `resetSale()`, foco al barcode; error → `console.error(e)` + toast danger `No se pudo guardar la venta. Probá de nuevo.` (no se vacía nada); `finally setSaving(false)`.
+- `onPaymentBlur(m)` → `setPayments(p => ({...p, [m]: formatPaymentOnBlur(p[m])}))`; `onFillRemaining(m)` → `setPayments(p => fillRemaining(p, m, total))`.
+- Al cerrar F2/F10 el foco vuelve al barcode (mantener los efectos actuales con `prevOpenRef`).
+- **Listener global en `window`** (`keydown`):
+  - `F2` / `F10`: toggle excluyente (como hoy) — permitido aunque haya un modal **de Ventas** abierto; si hay otro modal (`openModalCount() > (popupOpen||generalOpen ? 1 : 0)`) no hacer nada.
+  - Si `openModalCount() > 0` → ignorar el resto.
+  - `F12` → `preventDefault(); handleApprove()`.
+  - `Alt+1…Alt+5` (con `e.altKey` y `e.key` `'1'..'5'`) → `preventDefault()`; método `PAYMENT_METHODS[n-1]`; si hay líneas: `onFillRemaining(m)` y `payRef.current?.focusMethod(m)`.
+  - `Escape` sin `defaultPrevented` → foco al barcode.
+  - Dígito sin Ctrl/Alt/Meta y target **no** editable → `barcodeRef.current?.focus()` (sin `preventDefault`).
+  - Usá refs (`useRef`) para leer el estado más reciente dentro del listener (o `useEffect` con dependencias completas) para evitar closures viejas.
+- Borrar el `alert-banner` viejo y `Sells.css`.
+
+**9.11 `Pages/Sells/SalesPage.tsx`.** Props `{ nav; navigate }`. `viewSwitcher = <Segmented ariaLabel="Vista de ventas" options=[{value:'new',label:'Nueva venta'},{value:'history',label:'Historial'}] value={nav.salesView} onChange={v => navigate({ salesView: v, historySaleId: null })} />`. `new` → `<Sells viewSwitcher />`; `history` → `<SalesHistory viewSwitcher initialSaleId={nav.historySaleId} />`. Reemplaza la versión temporal del Paso 4.6.
+
+**9.12 Tests de Ventas** (`Sells.confirm.test.tsx` reescrito + `Sells.keyboard.test.tsx` nuevo; render con `renderWithProviders(<Sells viewSwitcher={null} />)`):
+1. Carrito vacío: "Escaneá un producto para empezar" y **no** hay panel de pago.
+2. Escanear agrega la línea; el panel aparece; el input queda vacío y con foco.
+3. Escanear el mismo código suma 1 (una sola fila, cantidad 2).
+4. Código inexistente → toast "Producto no encontrado" con "Código 999"; el input conserva "999".
+5. Stock insuficiente → toast "Sin stock suficiente" + badge "Sin stock" en la fila; la línea **sí** se agrega.
+6. Producto sin precio → toast "El producto no tiene un precio cargado" y no se agrega.
+7. APROBAR deshabilitado con hint "Falta cubrir $ 1.000,00"; click en "Autocompletar EFECTIVO" completa `1.000,00`, el hint desaparece, se ve "Pago exacto" y APROBAR se habilita.
+8. Pago `20000` en EFECTIVO + blur → input `20.000,00` y "Vuelto $ 19.000,00".
+9. Pago combinado: EFECTIVO `1000` sobre total 1500 → "Falta cubrir $ 500,00"; etiqueta TRANSFERENCIA → `500,00` y "Pago exacto".
+10. Aprobar: `createSale` recibe `items`, `payments` (solo > 0, con montos numéricos), `total` y `discountPct`; después el carrito queda vacío, el foco en el input y no hay toast.
+11. `createSale` rechaza → toast "No se pudo guardar la venta. Probá de nuevo." y el carrito **sigue** con la línea.
+12. Línea General (F10, monto 850,50) → se puede aprobar (D2): `createSale` con un ítem sin `productId`.
+13. Teclado: `F12` aprueba cuando está habilitado (y no hace nada si no); `Alt+1` completa EFECTIVO; `F2` abre "Buscar producto" y `F10` lo cierra y abre "Ítem general"; `Escape` con foco en un botón devuelve el foco al input; un dígito con foco en `document.body` mueve el foco al input de código; ↓ desde el input enfoca la primera fila del carrito.
+14. Descuento 10 → TOTAL recalculado; descuento `-10` → label "Recargo".
+15. Persistencia (D6): renderizar `<SalesProvider>` con `Sells` condicional, agregar un producto, desmontar `Sells` y volver a montarlo → la línea sigue.
+
+**9.13 Verificación.** Tests + typecheck + visual contra `ScreenSales`, `ScreenSalesSearch`, `ScreenSalesGeneral`. Probá en la app real una venta completa **sin mouse**: escanear (o tipear código + Enter) → `Alt+1` → `F12`.
+
+---
+
+## Fase 10 — Ventas › Historial
+
+**10.1 `salesHistoryFilters.ts`.** Nuevo modelo:
+```ts
+export type SalesMethodFilter = '' | 'CASH' | 'DEBIT' | 'CREDIT' | 'TRANSFER' | 'OTHER' | 'MIXED'
+export interface SalesHistoryFilters {
+  fromDate: string   // "DD/MM/AAAA" o ''
+  toDate: string     // "DD/MM/AAAA" o ''
+  product: string    // texto: nombre o código
+  method: SalesMethodFilter
+  fromTime: string; toTime: string      // "HH:MM" o ''  (extras, D3)
+  minTotal: string; maxTotal: string    // texto es-AR o '' (extras, D3)
+}
+export function defaultFilters(now = new Date()): SalesHistoryFilters  // hoy-hoy, resto vacío
+export function hasActiveFilters(f: SalesHistoryFilters, now = new Date()): boolean  // distinto del default
+export function buildApiFilters(f): ListSalesFiltersPayload   // fechas con parseDateAR (to = 23:59:59.999); method solo si es uno de los 5 simples; min/max con parseDecimal
+export function filterSalesClientSide(sales: SaleFromApi[], f): SaleFromApi[]  // hora (filterByTime existente) + producto (includesFolded en item.product?.name o barcode contiene) + MIXED (payments.length > 1)
+export function lastSevenDaysFilters(now = new Date()): SalesHistoryFilters
+export function formatMethods(payments: SaleFromApi['payments']): string  // "Efectivo + Transferencia"; sin pagos "—"
+```
+Conservar `filterByTime` y `getSaleLocalTime`. Actualizar `salesHistoryFilters.test.ts` a fechas `DD/MM/AAAA` y agregar tests de `hasActiveFilters`, `MIXED`, filtro por producto (con y sin tildes), `formatMethods`, `buildApiFilters` (method `MIXED` no se envía; `minTotal '1.000,50'` → `1000.5`).
+
+**10.2 `SaleDetailCard.tsx`** (reemplaza `SaleDetailModal`; borrar el modal, su CSS y su test). Props `{ sale: SaleFromApi }`. Markup de `ScreenSalesHistory/preview.html` (tarjeta derecha):
+- `ig-card-head`: `<div><h3>Venta #{id}</h3><div className="ig-help">{formatDate(date)} · {formatTime(date)}</div></div>` + `Badge tone="success" icon={Check}` "Pagada". (Sin "Cajero": no existe el dato.)
+- Tabla ítems: Producto (`item.product?.name ?? 'General'`) · Cant. · Precio · Total.
+- `ig-card-body` con filas `ig-pay-row`: Subtotal; si `pct>0` `Descuento {pct} %` con `−{formatMoney(subtotal*pct/100)}` (el `−` ya lo pone formatMoney si pasás negativo: usá `formatMoney(-x)`); si `pct<0` `Recargo {|pct|} %` con `+{formatMoney(...)}`; Total en `amount-lg`; `<div className="ig-overline">Pagos</div>`; una fila por pago con `PAYMENT_ICONS` + `PAYMENT_TITLE_LABELS`; Vuelto (success) si `Σpagos − total > 0.005`.
+- Pie reservado (comentario `{/* Futuro: Reimprimir ticket · Anular venta (admin) */}`), sin botones.
+Tests `SaleDetailCard.test.tsx` (portar los de `SaleDetailModal.test.tsx`): título, ítem "General" para `product: null`, descuento y recargo, pagos con labels "Efectivo", vuelto.
+
+**10.3 `CajaSummary.tsx` (re-skin).** `div.ig-card` con `ig-card-head` `<h3>Resumen de caja</h3>` y `ig-card-body` con `ig-pay-row` (Total del período en negrita + una fila por medio). Borrar `CajaSummary.css`. Actualizar su test si consultaba clases.
+
+**10.4 `SalesHistory.tsx` (reescritura).** Props `{ viewSwitcher: ReactNode; initialSaleId: number | null }`.
+- `<main className="ig-page">` + `ig-page-head` (`<h1>Ventas</h1>{viewSwitcher}`).
+- `div.ig-filters`: `DateField` Desde, `DateField` Hasta, Producto (`ig-input-wrap` + `Search`, placeholder `Nombre o código`, ancho 260), Medio de pago (`<select className="ig-input" style={{width:200}}>` con Todos, Efectivo, Débito, Crédito, Transferencia, Otros, Combinado), `Button variant="ghost"` "Más filtros" (`aria-expanded`), `Button variant="ghost"` "Limpiar filtros" **solo** si `hasActiveFilters`, espaciador, y resumen a la derecha `<div style={{textAlign:'right'}}><div className="ig-help">{n} ventas · {rango legible}</div><div className="amount-lg num">{formatMoney(total)}</div></div>`.
+- "Más filtros" despliega una segunda `ig-filters` con Desde hora / Hasta hora (`<input type="time" className="ig-input">`) y Monto mín / Monto máx (`ig-input ig-input-amount inputMode="decimal"`).
+- Los filtros aplican **al instante** con debounce de 250 ms (no hay botón "Buscar").
+- `div.ig-master-detail`: izquierda tabla en `ig-table-wrap ig-grid` (tab-stop único, `useRowNavigation`, `aria-activedescendant`) con N° (`td.code` `#id`) · Fecha y hora (`formatDayMonthTime`) · Ítems (`td.r`, suma de cantidades) · Medio de pago (`formatMethods`) · Total (`td.r.name`). Selección por defecto: la primera; ↑/↓ cambian el detalle. Derecha: `<div style={{display:'grid', gap:16, alignContent:'start'}}><SaleDetailCard sale={seleccionada}/><CajaSummary sales={ventas}/></div>`.
+- `initialSaleId`: al montar, `getSaleById(id)`; si existe, poner `fromDate=toDate=formatDate(sale.date)` y seleccionarla.
+- Estados: skeleton; error → `EmptyState danger` "No pudimos leer las ventas" + Reintentar; vacío → `EmptyState icon={Receipt} title="No hay ventas en este período" action={<Button onClick={() => setFilters(lastSevenDaysFilters())}>Ver últimos 7 días</Button>}`.
+- Borrar `SalesHistory.css`.
+
+**10.5 Tests `SalesHistory.test.tsx`** (reescribir):
+1. Al montar llama `listSales` con `fromDate`/`toDate` de hoy.
+2. Lista ventas y la primera aparece en el detalle ("Venta #N").
+3. ↓ en la tabla cambia el detalle a la siguiente venta.
+4. Medio "Combinado" deja solo ventas con >1 pago (sin pasar `method` a la API).
+5. Producto "yerba" filtra en el cliente.
+6. "Limpiar filtros" aparece solo con filtros activos y restaura los de hoy.
+7. "Más filtros" muestra los campos de hora y monto.
+8. Vacío → "No hay ventas en este período"; "Ver últimos 7 días" vuelve a llamar `listSales` con el rango de 7 días.
+9. `initialSaleId=5` llama `getSaleById(5)` y la deja seleccionada.
+10. Resumen: "2 ventas" y la suma de totales.
+(Usá fake timers o `await waitFor` por el debounce de 250 ms.)
+
+**10.6 Verificación.** Tests + typecheck + visual contra `ScreenSalesHistory`.
+
+---
+
+## Fase 11 — Estadísticas
+
+**11.1 `statsUtils.ts`.** Agregar (y testear en `statsUtils.test.ts`):
+- `formatRange(r: DateRange): string` → mismo mes y año: `"1 – 24 oct 2026"`; distinto mes: `"28 sep – 4 oct 2026"`; distinto año: `"28 dic 2025 – 3 ene 2026"`. Meses abreviados: `['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']`.
+- `comparedToLabel(preset: PeriodPreset, prev: DateRange): string` → today `vs. ayer`, week `vs. semana anterior`, month `vs. {nombre del mes de prev.from en minúscula}` (ej. `vs. septiembre`), custom `vs. período anterior`.
+- `HOUR_LABEL(label: string)` → `'18'` → `"18–19 h"`.
+- `formatPctChange` pasa a usar `formatPct` de `utils/format` (`+12,4 %`). Actualizar los tests que esperaban el formato viejo.
+- `peakIndex(rows: SalesByPeriodFromApi[]): number` → índice con mayor `saleCount` (−1 si vacío).
+
+**11.2 `Pages/Stats/StatCard.tsx`.** Props `{ label: string; icon: LucideIcon; value: string; deltaPct: number | null; comparedTo: string; empty?: boolean }`. Markup de `StatCard/preview.html` (`ig-card ig-kpi` → `span.k`, `span.v`, delta). Reglas: `empty` → valor `—` y sin delta; `deltaPct === null` → `<span className="ig-help">Sin datos para comparar</span>`; `> 0` → `ig-delta up` + `TrendingUp`; `< 0` → `down` + `TrendingDown`; `0` → `flat` + `Minus`; texto `formatPct(deltaPct)` + `<span>{comparedTo}</span>`.
+Tests: los 4 casos de delta + empty.
+
+**11.3 `Pages/Stats/RankingList.tsx`.** Props `{ items: { id: number; name: string; value: number }[]; format: (v: number) => string; onSelect?: (id: number, name: string) => void }`. `ol.ig-rank`; `li` con `span.pos`, nombre (si `onSelect`: `<button className="ig-link" style={{textDecoration:'none', color:'var(--ink)', textAlign:'left'}}>`), `span.val`, `span.bar > i` con `width: {value/max*100}%`. Vacío → `<EmptyState icon={ChartColumn} title="Sin ventas en este período" />`. Tests: anchos (primero 100 %), click llama `onSelect(id, name)`, vacío.
+
+**11.4 `Stats.tsx` (reescritura del render; misma carga en `Promise.all`).** Props `{ navigate: Navigate }`.
+- `ig-page-head`: `<h1>Estadísticas</h1><div className="ig-spacer"/><span className="ig-help">{formatRange(actual)} · comparado con {formatRange(anterior)}</span>` + `Segmented` (Hoy · Esta semana · Este mes · Personalizado con ícono `Calendar`).
+- Personalizado: fila `ig-filters` debajo con `DateField` Desde / Hasta y dos `Button size="sm" variant="ghost"` "Últimos 7 días" y "Mes pasado" que completan las fechas. Solo carga cuando ambas fechas parsean y desde ≤ hasta.
+- `div.ig-kpi-grid` con 4 `StatCard` en este orden: Ventas totales (`Banknote`), Cantidad de ventas (`Receipt`, valor `formatInt`), Ticket promedio (`ShoppingBasket`), Ganancia total (`PiggyBank`). `deltaPct = calcPctChange(cur, prev)`. `empty = summary.saleCount === 0`.
+- `div.ig-grid-2` con 4 tarjetas `ig-card`:
+  1. "Productos más vendidos" (`ig-help` `top 5 · unidades`) → `RankingList` con `format={v => `${formatInt(v)} u.`}`.
+  2. "Productos que más facturan" (`top 5 · monto`) → `RankingList` con `formatMoney`.
+  3. "Cuándo se vende más" con `Segmented` Por hora / Por día de semana en la cabecera; tabla Franja · Ventas (`td` con `div.ig-bar > i` ancho proporcional al máximo, `is-peak` en el pico) · Tickets (`td.r`) · Monto (`td.r`). Etiquetas: hora `HOUR_LABEL`, día `WEEKDAY_LABELS`. Vacía → EmptyState "Sin ventas en este período".
+  4. "Menor rotación" (`10 menos vendidos`) → tabla # · Producto · Vendidos (`{n} u.`); muestra 5 y un `Button variant="ghost" size="sm"` "Ver los 10" / "Ver menos" en `ig-table-foot`. (Sin "Última venta": D1.)
+- Click en un producto de los rankings o de Menor rotación → `navigate({ section:'stock', stockView:'movements', movementsProduct:{ id, name } })`.
+- Cargando → `TableSkeleton` por tarjeta (tras 300 ms); error → `EmptyState danger` "No pudimos calcular las estadísticas" + Reintentar.
+- Borrar `Stats.css`.
+
+**11.5 Tests `Stats.test.tsx`** (reescribir): llama las 7 funciones de la API; default "Este mes" seleccionado (`aria-selected`); KPIs con montos `$ …` y delta `+…%` y "vs. {mes}"; período anterior en 0 → "Sin datos para comparar"; sin ventas → KPIs "—" y "Sin ventas en este período"; cambiar a "Hoy" recarga; "Personalizado" muestra Desde/Hasta y "Últimos 7 días" dispara la carga; tab "Por día de semana" muestra días; click en un producto del ranking llama `navigate` con `movementsProduct`; "Ver los 10" muestra 10 filas.
+
+**11.6 Verificación.** Tests + typecheck + visual contra `ScreenStats`.
+
+---
+
+## Fase 12 — Limpieza y barrido de calidad
+
+**12.1** Borrá todos los archivos de la lista "Eliminados" (sección 0.5) que sigan existiendo y sus imports. `git status` para revisar.
+
+**12.2 Barridos con Grep** en `renderer/src` (excluyendo `styles/tokens.css` y `__tests__`). Cada uno debe dar **0 resultados**; si no, corregí:
+- `#[0-9a-fA-F]{3,8}\b` en `.tsx`/`.css` (colores hardcodeados). Excepción permitida: ninguna.
+- `type="number"`.
+- `⚠|✕`.
+- `type="date"`.
+- `className="(stock-|cart-list|payment-panel|search-popup|load-stock|create-product|sales-history|stats-|expiry-alert__|lots-list|modal-overlay|Header)` (clases viejas).
+- `alert\(|confirm\(` (diálogos nativos).
+
+**12.3** `npm --workspace renderer run lint` → no más errores que en la Fase 0. Arreglá los que introdujiste (en especial `jsx-a11y`: `onClick` en elementos no interactivos — las filas `<tr>` con click deben tener `aria-selected`/rol de grid, o desactivá la regla puntual con comentario justificado).
+
+**12.4** Tema oscuro: con la app corriendo, alterná el tema y recorré todas las pantallas. Nada debe quedar con texto ilegible ni fondos blancos fuera del widget de vencimientos (que es blanco en ambos temas por diseño).
+
+**12.5 Verificación.** Tests + typecheck.
+
+---
+
+## Fase 13 — Verificación final y documentación
+
+**13.1** `npm --workspace renderer test`, `npm run typecheck`, `npm run test:backend` (debe seguir igual que en la base: no tocamos backend).
+
+**13.2 Checklist de aceptación del DS** (de `guia/04-implementacion.md`), verificado **en la app real** (`npm start`). Marcá cada ítem en tu respuesta final:
+- [ ] Ninguna pantalla usa colores, tamaños o radios fuera de los tokens.
+- [ ] Todo elemento interactivo muestra el anillo de foco al navegar con Tab (también en el header, en celeste).
+- [ ] En Ventas se completa una venta entera sin mouse.
+- [ ] Un escaneo (tipear dígitos + Enter) con el foco fuera del input igual agrega el producto.
+- [ ] Ningún input numérico tiene spinners; todos aceptan coma y punto.
+- [ ] Montos `$ 1.234,50`, alineados a la derecha con cifras tabulares.
+- [ ] Las alertas de stock no impiden agregar; los toasts no roban el foco.
+- [ ] APROBAR deshabilitado siempre muestra el motivo.
+- [ ] Vuelto: los 3 estados se distinguen por palabra e ícono.
+- [ ] Widget de vencimientos oculto si no hay alertas; "Recordame luego" vuelve al reabrir la app.
+- [ ] Tema claro y oscuro se ven bien y el elegido se recuerda al reabrir.
+- [ ] Todas las vistas de datos tienen estado vacío, cargando y error.
+- [ ] El carrito sobrevive a ir a Stock y volver (D6).
+- [ ] Ventana no se puede achicar por debajo de 1280×720.
+
+**13.3 Empaquetado** (las fuentes y PNG deben viajar y la CSP/ofuscación no debe romper nada): cerrá Integral, `npm run package`, `npm run verify:package`, `npm run test:smoke-packaged`. Abrí `out/Integral-win32-x64/Integral.exe` y confirmá que se ven las fuentes Plus Jakarta / IBM Plex y el logo. Si las fuentes no cargan, revisá en DevTools la CSP (`font-src 'self' data:` ya las permite) y la ruta de `@font-face`.
+
+**13.4 Actualizar `CLAUDE.md`** (sin tocar la sección "Diseño" que agregó el usuario):
+- Estructura de carpetas del renderer: agregar `styles/`, `ui/`, `store/`, `navigation.ts`, `Components/AppHeader/`, los archivos nuevos de Stock/Sells/Stats y quitar los eliminados (`Header.tsx`, `HomeScreen.tsx`, `Stock.tsx`, `Stock.css`, `renderTypes.ts`).
+- Tabla "Estado del frontend": Stock (Productos + Movimientos) implementado con el DS; Ventas (Nueva venta + Historial) implementado; Estadísticas implementado; tema claro/oscuro.
+- Nueva subsección "UI / Design system en el código": tokens en `renderer/src/styles/tokens.css` (copiado de `design-system/tokens.css`), clases `ig-` en `styles/bundle.css` (copia sin cambios) y agregados en `styles/app.css`; componentes base en `renderer/src/ui/`; íconos `lucide-react@0.468.0`; fechas `DD/MM/AAAA` con `DateField`; montos con `parseDecimal`/`formatAmountInput`; toasts con `useToast`; modales con `Modal` (focus trap, `modalStack`); carrito en `store/SalesContext.tsx`; atajos (tabla de `design-system/guia/02-teclado-y-foco.md`, ahora implementados).
+- Decisiones D2 (líneas General se aprueban) y D3 (Historial dentro de Ventas, con extras).
+- Quitar de "Iteración actual" lo que ya no aplica (botón "Historial" del header, `alert-banner`, etc.).
+
+**13.5** Proponé al usuario el commit final (o uno por fase si no los hizo) con mensaje tipo `feat(ui): nueva UI/UX con el design system Integral` y la línea de atribución que corresponda.
 
 ---
 
 ## Troubleshooting
 
-| # | Síntoma | Causa probable | Solución |
-|---|---|---|---|
-| T1 | Forge genera `main.js`/`preload.js` en vez de `.cjs` | Comportamiento de la versión del plugin | Usá los nombres reales en `package.json#main`, en `main.ts` (preload), en `packaging-config.test.ts` y en `verify-package.mjs`. No fuerces el nombre por config. |
-| T2 | `npm start` no abre ventana; la terminal queda "colgada" o sale enseguida | `ELECTRON_RUN_AS_NODE=1` en el entorno | Fase 0.4 / 9.1. |
-| T3 | Error `The plugin vite requires main to contain .vite/` (o similar) | `package.json#main` mal | Fase 7.1. |
-| T4 | Ventana en blanco en el paquete; `did-fail-load` en el smoke | `outDir` del renderer distinto de `.vite/renderer/main_window` | Revisá que exista `.vite/renderer/main_window/index.html` después de `npm run package`; corregí `outDir`/`name` (Fase 4.3 / 5.2). |
-| T5 | `window.api` es `undefined` (`apiType: "undefined"`) | Preload con nombre equivocado, o el preload hace `require` de algo distinto de `electron` con sandbox | Chequeo 8 de verify-package; revisá `ipcContract.ts` (solo `import type` arriba). |
-| T6 | `PrismaClientInitializationError: Query engine library ... could not be found` en el paquete | Motor no desempaquetado o `PRISMA_QUERY_ENGINE_LIBRARY` sin setear | Chequeos 4 y 7 de verify-package. Confirmá `asar.unpack: "*.node"` y el bloque de la Fase 6.2. |
-| T7 | `Cannot find module '@prisma/client'` o `.prisma/client/default` en el paquete | El hook no copió los módulos | Chequeo 2. Si `packageAfterPrune` no corrió (agregá un `console.log` en el hook para verlo), mové la misma lógica a `packageAfterCopy` y verificá de nuevo que `.prisma/client` sobreviva al prune. |
-| T8 | `MigrationError NO_MIGRATIONS` en el paquete | `extraResource` no copió las migraciones | Chequeo 5. Revisá la ruta absoluta en `extraResource`. |
-| T9 | Test F4 falla (se perdieron `SaleItem` o `saleId` quedó NULL) | Las sentencias corrieron en conexiones distintas o dentro de una transacción | Confirmá `withSingleConnection` en el `PrismaClient` del migrador y que no haya `$transaction`. |
-| T10 | Error de Prisma "multiple statements" o un `migration.sql` aplicado a medias | El splitter no dividió bien | Grupo A del test; revisá el manejo del BOM y de los comentarios. |
-| T11 | `make` falla en Squirrel con "description"/"authors" | Metadatos vacíos | Fase 7.1 (`author`, `description`) y `MakerSquirrel({ authors, description })`. |
-| T12 | `EBUSY` al borrar DBs temporales en los tests | Cliente Prisma sin desconectar | `await prisma.$disconnect()` antes de `rmSync`. |
-| T13 | Error al cargar `forge.config.mts` por `__dirname` / `import.meta` | Uso de rutas ESM | Usá `process.cwd()` como en la Fase 5.2. |
-| T14 | `getCurrentFuseWire` no existe en `@electron/fuses` | Cambio de API | Usá el CLI: `npx @electron/fuses read --app out/Integral-win32-x64/Integral.exe`, mirá el formato de la salida y parseá el estado de cada fuse. |
-| T15 | La smoke test da timeout | Hay otra instancia abierta (single instance lock) o la app quedó esperando un diálogo | Cerrá Integral. Si persiste, corré el exe a mano con las mismas variables de entorno y mirá la consola. |
-| T16 | Tras la Fase 11A la app empaquetada se cierra al instante o el error dice `Invalid or incompatible cached data` | Bytecode generado con otra versión de Electron/V8 o restos de un build anterior | Borrá `out/` y `.vite/`, y volvé a correr `npm run package`. Revisá que `requireFromRoot("electron/package.json").version` coincida con el `electronVersion` del hook. Para aislar el problema: `INTEGRAL_NO_BYTECODE=1 npm run package` + smoke (si pasa, el problema es el bytecode). |
-| T17 | Tras la Fase 11B el smoke da `rootChildren: 0` (pantalla en blanco) | El ofuscador generó `eval`/`new Function` (bloqueado por la CSP) o rompió los imports entre chunks | Confirmá `target: "browser-no-eval"` y que ninguna opción prohibida esté activa. Aislá con `INTEGRAL_NO_OBFUSCATE=1 npm run package` + smoke. Si pasa así, desactivá opciones de a una (empezando por `stringArrayEncoding` y `stringArrayRotate`). |
-| T18 | `compile-main.cjs` falla con `Cannot find module 'bytenode'` | bytenode no instalado en la raíz | `npm ls bytenode` → `1.7.0`; repetí 11A.1. |
-| T19 | El diálogo de licencia se ve cortado o enorme | Texto demasiado largo para un diálogo nativo | Acortá `LICENSE.txt` (el test exige ≤ 3000 caracteres; apuntá a menos si hace falta). |
-| T20 | En `npm start` aparece el diálogo de licencia en cada arranque | No se pudo escribir `license-accepted.json` | Revisá permisos de `%APPDATA%\Integral` y que `writeLicenseAcceptance` cree la carpeta (`mkdirSync` con `recursive: true`). |
-
----
-
-## Definition of Done
-
-- [ ] `npm run typecheck` sin errores.
-- [ ] `npm run test:backend` verde (incluye `migrator`, `runtime-paths`, `packaging-config` y `db-path-config` actualizado).
-- [ ] `npm test --workspace renderer` igual o mejor que la línea base.
-- [ ] `npm start` funciona con HMR (checklist de la Fase 9 completo).
-- [ ] `npm run make` + `npm run verify:make` todo PASS.
-- [ ] `npm run test:smoke-packaged` 4/4 PASS, con `mainFile === "main.jsc"`.
-- [ ] `verify:make` incluye en PASS los chequeos 12 (bytecode), 13 (ofuscación) y 14 (licencia).
-- [ ] `test:license` en verde y checklists de las Fases 11B.7 (rendimiento) y 11C.9 (licencia) completos.
-- [ ] Estado del repo de GitHub informado al usuario (Fase P).
-- [ ] Checklist de instalación de la Fase 12 completo.
-- [ ] `INSTALACION.md` creado y `CLAUDE.md` actualizado.
-- [ ] `dist/` fuera del repo; `out/` y `.vite/` ignorados.
+| Síntoma | Causa probable | Qué hacer |
+|---|---|---|
+| `lucide-react` no exporta un ícono | Nombre nuevo no presente en 0.468.0 | Usar el alias viejo (sección 0.3). |
+| Test con `toBe('$ 1.234,50')` falla | Espacio duro U+00A0 | Normalizar (sección 1.2) o usar `getByText`. |
+| Escape en un selector/celda cierra el modal entero | Falta `stopPropagation` | Ver Paso 3.12 punto 6 y 6.1 punto 8. |
+| Un atajo de página se dispara con un modal abierto | Falta el chequeo de `openModalCount()` | Agregarlo al inicio del handler. |
+| `scrollIntoView is not a function` en tests | happy-dom | Usar `scrollIntoViewSafe`. |
+| El dígito redirigido no aparece en el input en tests | happy-dom no reenvía el carácter al cambiar el foco | En tests verificar solo que el foco se movió. En la app real sí entra. |
+| Montos `10.000,00` se guardan como 0 | Se usó `replace(',', '.')` en vez de `parseDecimal` | Ver Paso 9.1. |
+| Pantalla en blanco en el `.exe` | Error de runtime ofuscado o CSP | Correr `INTEGRAL_NO_OBFUSCATE=1 npm run package` para depurar; nunca activar `selfDefending`. |
+| `npm start` no abre ventana | `ELECTRON_RUN_AS_NODE=1` heredado | Ver sección 1.1. |
+| Closures viejas en listeners globales (F12 aprueba con datos viejos) | `useEffect` con dependencias incompletas | Leer estado desde refs actualizadas en cada render. |

@@ -1,66 +1,27 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeAmount, validateGeneralAmount } from '../amount'
+import { validateGeneralAmount } from '../amount'
 
-describe('normalizeAmount', () => {
-  it("'150.50' → '150.50'", () => {
-    expect(normalizeAmount('150.50')).toBe('150.50')
-  })
-
-  it("'  150,50 ' → '150.50' (trim + coma → punto)", () => {
-    expect(normalizeAmount('  150,50 ')).toBe('150.50')
-  })
-
-  it("'' → '' (vacío no se normaliza)", () => {
-    expect(normalizeAmount('')).toBe('')
-  })
-
-  it("' 200 ' → '200' (trim)", () => {
-    expect(normalizeAmount(' 200 ')).toBe('200')
-  })
-})
+const ERROR = 'Ingresá un monto mayor a 0.'
 
 describe('validateGeneralAmount', () => {
-  it("'500' → válido, value='500'", () => {
-    expect(validateGeneralAmount('500')).toEqual({ ok: true, value: '500' })
+  it.each([
+    ['500', '500'],
+    ['150.50', '150.5'],
+    ['150,50', '150.5'],
+    [' 200 ', '200'],
+    ['1.500,50', '1500.5'],
+    ['1.234,56', '1234.56'],
+    ['1500', '1500'],
+    ['$ 850,50', '850.5']
+  ])('%j → válido, value=%j (formato máquina)', (raw, value) => {
+    expect(validateGeneralAmount(raw)).toEqual({ ok: true, value })
   })
 
-  it("'150.50' → válido, value='150.50'", () => {
-    expect(validateGeneralAmount('150.50')).toEqual({ ok: true, value: '150.50' })
+  it.each(['', '   ', '0', '-3', '-3,5', 'abc', 'NaN', '0,001'])('%j → inválido con el copy del design system', (raw) => {
+    expect(validateGeneralAmount(raw)).toEqual({ ok: false, error: ERROR })
   })
 
-  it("'150,50' → válido, value='150.50' (coma normalizada a punto)", () => {
-    expect(validateGeneralAmount('150,50')).toEqual({ ok: true, value: '150.50' })
-  })
-
-  it("' 200 ' → válido, value='200' (trim)", () => {
-    expect(validateGeneralAmount(' 200 ')).toEqual({ ok: true, value: '200' })
-  })
-
-  it("'1.234,56' → inválido (múltiples separadores)", () => {
-    expect(validateGeneralAmount('1.234,56').ok).toBe(false)
-  })
-
-  it("'' → inválido, error='Ingresá un monto'", () => {
-    expect(validateGeneralAmount('')).toEqual({ ok: false, error: 'Ingresá un monto' })
-  })
-
-  it("'0' → inválido (no es positivo)", () => {
-    expect(validateGeneralAmount('0').ok).toBe(false)
-  })
-
-  it("'-3' → inválido (negativo)", () => {
-    expect(validateGeneralAmount('-3').ok).toBe(false)
-  })
-
-  it("'-3,5' → inválido (negativo con coma)", () => {
-    expect(validateGeneralAmount('-3,5').ok).toBe(false)
-  })
-
-  it("'abc' → inválido (NaN)", () => {
-    expect(validateGeneralAmount('abc').ok).toBe(false)
-  })
-
-  it("'NaN' → inválido (string 'NaN')", () => {
-    expect(validateGeneralAmount('NaN').ok).toBe(false)
+  it('redondea a centavos para que el valor guardado nunca tenga 3 decimales', () => {
+    expect(validateGeneralAmount('100,129')).toEqual({ ok: true, value: '100.13' })
   })
 })

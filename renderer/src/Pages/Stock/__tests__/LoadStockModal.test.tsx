@@ -1,158 +1,265 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { describe, it, beforeEach, vi, expect, beforeAll } from 'vitest'
+import { describe, it, beforeEach, vi, expect } from 'vitest'
 import type { ProductFromApi } from '../../../electron-api'
+import { makeProduct } from '../../../test/fixtures'
 import LoadStockModal from '../LoadStockModal'
 
-const mockCreateStockMovement = vi.fn()
+const listProducts = vi.fn()
+const getProductByBarcode = vi.fn()
+const createStockMovement = vi.fn()
 
-beforeAll(() => {
-  ;(window as unknown as { api: unknown }).api = {
-    listProducts: vi.fn().mockResolvedValue([]),
-    getProductByBarcode: vi.fn().mockResolvedValue(null),
-    createStockMovement: mockCreateStockMovement
-  }
-})
-
-function mockProduct(overrides: Partial<ProductFromApi> = {}): ProductFromApi {
-  return {
-    id: 1,
-    name: 'Yerba Mate',
-    purchasePrice: '500',
-    salePrice: '800',
-    categoryId: 1,
-    supplierId: 1,
-    barcode: null,
-    stock: 10,
-    minStock: 2,
-    createdAt: new Date(),
-    category: { id: 1, name: 'Infusiones' },
-    supplier: { id: 1, name: 'ProvTest', phone: null, notes: null },
-    ...overrides
-  }
-}
+const leche = (o: Partial<ProductFromApi> = {}) => makeProduct({ id: 5, name: 'Leche', stock: 24, barcode: 7790001n, ...o })
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  listProducts.mockReset().mockResolvedValue([])
+  getProductByBarcode.mockReset().mockResolvedValue(null)
+  createStockMovement.mockReset().mockResolvedValue({})
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  ;(window as unknown as { api: unknown }).api = { listProducts, getProductByBarcode, createStockMovement }
 })
 
-/** Avanza el modal al paso "confirm" seleccionando un producto mockeado. */
-async function goToConfirmStep() {
-  const product = mockProduct()
-  ;(window.api.listProducts as ReturnType<typeof vi.fn>).mockResolvedValueOnce([product])
-  const user = userEvent.setup()
-  render(<LoadStockModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />)
-  const searchInput = screen.getByPlaceholderText(/Buscar por nombre o código/i)
-  await user.type(searchInput, 'Yerba')
-  await waitFor(() => screen.getByText('Yerba Mate'))
-  await user.click(screen.getByText('Yerba Mate'))
-  await waitFor(() => screen.getByText('Yerba Mate', { selector: '.load-stock-modal__product-name' }))
-  return { user, product }
+type Props = Partial<React.ComponentProps<typeof LoadStockModal>>
+
+function renderModal(props: Props = {}) {
+  const onClose = props.onClose ?? vi.fn()
+  const onSuccess = props.onSuccess ?? vi.fn()
+  const utils = render(
+    <LoadStockModal
+      open={props.open ?? true}
+      onClose={onClose}
+      onSuccess={onSuccess}
+      initialProduct={props.initialProduct}
+      onRequestCreate={props.onRequestCreate}
+    />,
+  )
+  return { ...utils, onClose, onSuccess }
 }
 
-describe('LoadStockModal', () => {
+const searchBox = () => screen.getByRole('textbox', { name: 'Buscar producto' })
+const quantityInput = () => screen.getByLabelText(/Cantidad a agregar/) as HTMLInputElement
+const expiryInput = () => screen.getByLabelText(/Vencimiento del lote/) as HTMLInputElement
+const dialog = () => screen.getByRole('dialog', { name: 'Cargar stock' })
+const type = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } })
+
+/**
+ * Celda de nombre por texto completo. No se usa `getByRole('cell', { name })` porque happy-dom
+ * trata <b> como bloque y el nombre accesible queda partido ("Lec he").
+ */
+const nameCell = (text: string) =>
+  screen.findByText((_, el) => el?.tagName === 'TD' && el.textContent === text)
+
+/** Busca "leche" y elige el resultado con click → paso 2. */
+async function goToConfirmStep() {
+  listProducts.mockResolvedValue([leche()])
+  renderModal()
+  type(searchBox(), 'leche')
+  fireEvent.click(await nameCell('Leche'))
+  await screen.findByLabelText(/Cantidad a agregar/)
+}
+
+describe('LoadStockModal — estructura', () => {
   it('open=false no renderiza nada', () => {
     render(<LoadStockModal open={false} onClose={vi.fn()} onSuccess={vi.fn()} />)
-    expect(screen.queryByRole('heading')).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('open=true renderiza el título "Cargar stock"', () => {
-    render(<LoadStockModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />)
-    expect(screen.getByRole('heading', { name: 'Cargar stock' })).toBeInTheDocument()
+  it('open=true muestra el título y el buscador del paso 1 con foco', async () => {
+    renderModal()
+    expect(dialog()).toBeInTheDocument()
+    expect(searchBox()).toHaveAttribute('placeholder', 'Buscá por nombre o escaneá el código')
+    await waitFor(() => expect(searchBox()).toHaveFocus())
   })
 
-  it('open=true muestra el input de búsqueda en paso search', () => {
-    render(<LoadStockModal open={true} onClose={vi.fn()} onSuccess={vi.fn()} />)
-    expect(screen.getByPlaceholderText(/Buscar por nombre o código/i)).toBeInTheDocument()
-  })
-
-  it('botón Cancelar llama onClose desde el paso search', async () => {
-    const onClose = vi.fn()
-    render(<LoadStockModal open={true} onClose={onClose} onSuccess={vi.fn()} />)
-    await fireEvent.click(screen.getByText('Cancelar'))
-    expect(onClose).toHaveBeenCalled()
-  })
-
-  it('Escape en paso search llama onClose', async () => {
-    const onClose = vi.fn()
-    render(<LoadStockModal open={true} onClose={onClose} onSuccess={vi.fn()} />)
-    fireEvent.keyDown(screen.getByPlaceholderText(/Buscar por nombre o código/i), { key: 'Escape' })
-    expect(onClose).toHaveBeenCalled()
+  it('el indicador de pasos marca el paso 1 como actual', () => {
+    renderModal()
+    expect(screen.getByText('Buscar producto', { selector: '.step' }).closest('.step')).toHaveClass('is-current')
   })
 })
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Suite: Vencimiento
-// ─────────────────────────────────────────────────────────────────────────────
+describe('LoadStockModal — Paso 1: buscar', () => {
+  it('busca con debounce y lista resultados con la coincidencia en negrita', async () => {
+    listProducts.mockResolvedValue([leche()])
+    renderModal()
+    type(searchBox(), 'lec')
+    await waitFor(() => expect(listProducts).toHaveBeenCalledWith({ nameContains: 'lec', take: 50 }))
+    const cell = await nameCell('Leche')
+    expect(cell.querySelector('b')).toHaveTextContent('Lec')
+    expect(screen.getByText('7790001')).toBeInTheDocument()
+  })
 
-describe('LoadStockModal — Vencimiento', () => {
-  it('El campo de vencimiento aparece en el paso confirm', async () => {
+  it('escaneo: código + Enter con getProductByBarcode salta al paso 2', async () => {
+    getProductByBarcode.mockResolvedValue(leche())
+    renderModal()
+    type(searchBox(), '7790001')
+    fireEvent.keyDown(searchBox(), { key: 'Enter' })
+    expect(await screen.findByDisplayValue('Leche · stock actual 24')).toBeInTheDocument()
+    expect(getProductByBarcode).toHaveBeenCalledWith('7790001')
+  })
+
+  it('↓ + Enter elige el resultado resaltado', async () => {
+    listProducts.mockResolvedValue([leche({ id: 1, name: 'Leche entera' }), leche({ id: 2, name: 'Leche descremada' })])
+    renderModal()
+    type(searchBox(), 'leche')
+    await nameCell('Leche descremada')
+    fireEvent.keyDown(searchBox(), { key: 'ArrowDown' })
+    fireEvent.keyDown(searchBox(), { key: 'Enter' })
+    expect(await screen.findByDisplayValue('Leche descremada · stock actual 24')).toBeInTheDocument()
+  })
+
+  it('sin resultados: "No encontramos «xyz»" y "Crear producto" llama onRequestCreate("xyz")', async () => {
+    const onRequestCreate = vi.fn()
+    renderModal({ onRequestCreate })
+    type(searchBox(), 'xyz')
+    expect(await screen.findByText('No encontramos «xyz»')).toBeInTheDocument()
+    expect(screen.getByText('¿Es un producto nuevo?')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Crear producto' }))
+    expect(onRequestCreate).toHaveBeenCalledWith('xyz')
+  })
+
+  it('sin onRequestCreate no se ofrece "Crear producto"', async () => {
+    renderModal()
+    type(searchBox(), 'xyz')
+    await screen.findByText('No encontramos «xyz»')
+    expect(screen.queryByRole('button', { name: 'Crear producto' })).toBeNull()
+  })
+
+  it('el stock de la tabla muestra los tonos negativo y bajo', async () => {
+    listProducts.mockResolvedValue([
+      leche({ id: 1, name: 'Negativo', stock: -3, minStock: 5 }),
+      leche({ id: 2, name: 'Bajo', stock: 2, minStock: 5 }),
+    ])
+    renderModal()
+    type(searchBox(), 'a')
+    await nameCell('Negativo')
+    expect(document.querySelector('td.is-negative')).toHaveTextContent('−3')
+    expect(document.querySelector('td.is-low')).toHaveTextContent('2')
+  })
+
+  it('Esc en el paso 1 llama onClose', () => {
+    const { onClose } = renderModal()
+    fireEvent.keyDown(dialog(), { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('un error de búsqueda se informa', async () => {
+    listProducts.mockRejectedValue(new Error('sin base'))
+    renderModal()
+    type(searchBox(), 'leche')
+    expect(await screen.findByText('No pudimos buscar. Probá de nuevo.')).toBeInTheDocument()
+  })
+})
+
+describe('LoadStockModal — Paso 2: cantidad', () => {
+  it('initialProduct abre directo en el paso 2 con "Leche · stock actual 24"', async () => {
+    renderModal({ initialProduct: leche() })
+    expect(screen.getByDisplayValue('Leche · stock actual 24')).toBeInTheDocument()
+    expect(screen.getByLabelText(/Cantidad a agregar \(negativo = merma\)/)).toBeInTheDocument()
+    await waitFor(() => expect(quantityInput()).toHaveFocus())
+  })
+
+  it('en el paso 2 el primer paso del indicador está hecho', () => {
+    renderModal({ initialProduct: leche() })
+    expect(screen.getByText('Buscar producto', { selector: '.step' }).closest('.step')).toHaveClass('is-done')
+    expect(screen.getByText('Cantidad', { selector: '.step' }).closest('.step')).toHaveClass('is-current')
+  })
+
+  it.each([
+    ['24', 'Reposición: el stock queda en 48'],
+    ['-2', 'Merma: el stock queda en 22'],
+    ['−2', 'Merma: el stock queda en 22'],
+    ['-30', 'El stock quedará en −6'],
+  ])('vista previa para %s → "%s"', (value, text) => {
+    renderModal({ initialProduct: leche() })
+    type(quantityInput(), value)
+    expect(screen.getByText(text)).toBeInTheDocument()
+  })
+
+  it.each(['0', '2,5', 'abc', ''])('cantidad %j muestra el error y no llama a la API', (value) => {
+    renderModal({ initialProduct: leche() })
+    type(quantityInput(), value)
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar stock' }))
+    expect(screen.getByText('Ingresá una cantidad distinta de 0, sin decimales.')).toBeInTheDocument()
+    expect(createStockMovement).not.toHaveBeenCalled()
+  })
+
+  it('Enter en Cantidad envía { productId, type: "IN", quantity }', async () => {
+    const { onSuccess } = renderModal({ initialProduct: leche() })
+    type(quantityInput(), '24')
+    fireEvent.keyDown(quantityInput(), { key: 'Enter' })
+    await waitFor(() => expect(createStockMovement).toHaveBeenCalledTimes(1))
+    expect(createStockMovement).toHaveBeenCalledWith({ productId: 5, type: 'IN', quantity: 24 })
+    expect(onSuccess).toHaveBeenCalledWith(5)
+  })
+
+  it('con fecha "30062027" envía expiryDate = new Date(2027, 5, 30)', async () => {
+    renderModal({ initialProduct: leche() })
+    type(quantityInput(), '5')
+    type(expiryInput(), '30062027')
+    expect(expiryInput().value).toBe('30/06/2027')
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar stock' }))
+    await waitFor(() => expect(createStockMovement).toHaveBeenCalled())
+    expect(createStockMovement.mock.calls[0][0].expiryDate).toEqual(new Date(2027, 5, 30))
+  })
+
+  it('las notas se envían recortadas y se omiten si están vacías', async () => {
+    renderModal({ initialProduct: leche() })
+    type(quantityInput(), '5')
+    type(screen.getByLabelText('Notas'), '  pedido urgente ')
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar stock' }))
+    await waitFor(() => expect(createStockMovement).toHaveBeenCalled())
+    expect(createStockMovement).toHaveBeenCalledWith({ productId: 5, type: 'IN', quantity: 5, notes: 'pedido urgente' })
+  })
+
+  it('una cantidad negativa (merma) viaja con quantity negativo y type IN', async () => {
+    renderModal({ initialProduct: leche() })
+    type(quantityInput(), '-5')
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar stock' }))
+    await waitFor(() => expect(createStockMovement).toHaveBeenCalledWith({ productId: 5, type: 'IN', quantity: -5 }))
+  })
+
+  it('una fecha inválida muestra el error y no llama a la API', () => {
+    renderModal({ initialProduct: leche() })
+    type(quantityInput(), '5')
+    type(expiryInput(), '31022026')
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar stock' }))
+    expect(screen.getByText('Revisá la fecha (DD/MM/AAAA).')).toBeInTheDocument()
+    expect(createStockMovement).not.toHaveBeenCalled()
+  })
+
+  it('un error del backend muestra el aviso, no cierra y permite reintentar', async () => {
+    createStockMovement.mockRejectedValue(new Error('boom'))
+    const { onSuccess } = renderModal({ initialProduct: leche() })
+    type(quantityInput(), '5')
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar stock' }))
+    expect(await screen.findByText('No se pudo cargar el stock. Probá de nuevo.')).toBeInTheDocument()
+    expect(onSuccess).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Cargar stock' })).not.toBeDisabled()
+  })
+
+  it('mientras envía el botón dice "Cargando…" y está deshabilitado', async () => {
+    createStockMovement.mockReturnValue(new Promise(() => {}))
+    renderModal({ initialProduct: leche() })
+    type(quantityInput(), '5')
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar stock' }))
+    expect(await screen.findByRole('button', { name: 'Cargando…' })).toBeDisabled()
+  })
+
+  it('Esc en el paso 2 vuelve al paso 1 sin cerrar', async () => {
+    const { onClose } = renderModal({ initialProduct: leche() })
+    fireEvent.keyDown(dialog(), { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(searchBox()).toBeInTheDocument()
+    await waitFor(() => expect(searchBox()).toHaveFocus())
+  })
+
+  it('"Volver" regresa al paso 1', () => {
+    renderModal({ initialProduct: leche() })
+    fireEvent.click(screen.getByRole('button', { name: 'Volver' }))
+    expect(searchBox()).toBeInTheDocument()
+  })
+
+  it('el flujo completo desde la búsqueda funciona', async () => {
     await goToConfirmStep()
-    const dateInput = screen.getByLabelText(/Vencimiento/i)
-    expect(dateInput).toBeInTheDocument()
-    expect(dateInput).toHaveAttribute('type', 'date')
-  })
-
-  it('Al confirmar sin fecha, el payload no incluye expiryDate', async () => {
-    mockCreateStockMovement.mockResolvedValue({})
-    const { user } = await goToConfirmStep()
-    await user.type(screen.getByPlaceholderText(/Ej: 10/i), '5')
-    await user.click(screen.getByRole('button', { name: 'Cargar stock' }))
-    await waitFor(() => expect(mockCreateStockMovement).toHaveBeenCalled())
-    const payload = mockCreateStockMovement.mock.calls[0][0]
-    expect(payload.expiryDate).toBeUndefined()
-  })
-
-  it('Al confirmar con fecha válida, el payload incluye expiryDate como Date correcta', async () => {
-    mockCreateStockMovement.mockResolvedValue({})
-    const { user } = await goToConfirmStep()
-    await user.type(screen.getByPlaceholderText(/Ej: 10/i), '5')
-    const dateInput = screen.getByLabelText(/Vencimiento/i) as HTMLInputElement
-    fireEvent.change(dateInput, { target: { value: '2026-12-31' } })
-    await user.click(screen.getByRole('button', { name: 'Cargar stock' }))
-    await waitFor(() => expect(mockCreateStockMovement).toHaveBeenCalled())
-    const { expiryDate } = mockCreateStockMovement.mock.calls[0][0]
-    expect(expiryDate).toBeInstanceOf(Date)
-    expect(expiryDate.getFullYear()).toBe(2026)
-    expect(expiryDate.getMonth()).toBe(11) // diciembre = índice 11
-    expect(expiryDate.getDate()).toBe(31)
-  })
-
-  // Nota: el test de "fecha inválida → error" se omite aquí porque <input type="date">
-  // sanitiza cualquier string inválido a '' según la spec HTML (tanto en browsers como en
-  // happy-dom), lo que impide simular el error de validación en una prueba de integración.
-  // La función parseExpiryInput ya está cubierta exhaustivamente en expiry.test.ts.
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Suite: Cantidad negativa (merma)
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('LoadStockModal — Cantidad negativa (merma)', () => {
-  it('Cantidad -5 pasa validación (no muestra error)', async () => {
-    const { user } = await goToConfirmStep()
-    await user.type(screen.getByPlaceholderText(/Ej: 10/i), '-5')
-    await user.click(screen.getByRole('button', { name: 'Cargar stock' }))
-    // Si hubiera error de cantidad, aparecería el texto de validación
-    expect(screen.queryByText(/número entero distinto de 0/i)).toBeNull()
-  })
-
-  it('Cantidad 0 muestra error de validación', async () => {
-    const { user } = await goToConfirmStep()
-    await user.type(screen.getByPlaceholderText(/Ej: 10/i), '0')
-    await user.click(screen.getByRole('button', { name: 'Cargar stock' }))
-    await waitFor(() => screen.getByText(/número entero distinto de 0/i))
-    expect(screen.getByText(/número entero distinto de 0/i)).toBeInTheDocument()
-  })
-
-  it('Al confirmar con -5, el payload tiene quantity: -5 y type: IN', async () => {
-    mockCreateStockMovement.mockResolvedValue({})
-    const { user } = await goToConfirmStep()
-    await user.type(screen.getByPlaceholderText(/Ej: 10/i), '-5')
-    await user.click(screen.getByRole('button', { name: 'Cargar stock' }))
-    await waitFor(() => expect(mockCreateStockMovement).toHaveBeenCalled())
-    const payload = mockCreateStockMovement.mock.calls[0][0]
-    expect(payload.quantity).toBe(-5)
-    expect(payload.type).toBe('IN')
+    expect(screen.getByDisplayValue('Leche · stock actual 24')).toBeInTheDocument()
   })
 })

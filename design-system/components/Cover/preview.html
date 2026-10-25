@@ -1,0 +1,57 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Integral</title>
+<style>
+  html, body { margin:0; height:100%; }
+  body { background:var(--bg); color:var(--ink); font-family:var(--font-sans); overflow:hidden; }
+  .cover { position:relative; width:960px; height:288px; overflow:hidden; }
+  .art { position:absolute; top:0; left:480px; width:480px; height:288px; overflow:hidden; }
+  .art svg { display:block; }
+  .deep { fill:var(--ink); }
+  .brand { fill:var(--primary); }
+  .accent { fill:var(--link); }
+  .tint { fill:var(--primary-soft); }
+  .key { fill:var(--bg); }
+  .blk { rx:var(--radius-lg); }
+  .k { rx:var(--radius-sm); }
+  .words { position:absolute; left:var(--space-8); bottom:var(--space-8); max-width:440px; }
+  .name { margin:0; font-family:var(--font-display); font-size:88px; line-height:.92; font-weight:800; letter-spacing:-.02em; color:var(--ink); }
+  .tag { margin:var(--space-3) 0 0 4px; font-size:14px; line-height:20px; color:var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      ink 152×264 slab bled off the top (azul noche, the brand's ground) · primary 176×168 · link 104×104 · primary-soft 96×200 bled off the right — ≈40% of 960×288
+  arrangement one tall slab with satellites, bottoms aligned space-8 above the edge, space-4 gutters
+  pattern     keycaps: "La caja se opera con teclado" → radius-sm tiles 32×32 at a 40px pitch (space-8 + space-2) cut out of the slab and the primary block in bg, one merged two-wide like the Enter key
+  scales      sides in space-2 multiples; gutters space-4; key pitch 40; corners radius-lg on blocks, radius-sm on keys
+-->
+<rect class="deep blk" x="16" y="-16" width="152" height="264" rx="16"/>
+<rect class="brand blk" x="184" y="80" width="176" height="168" rx="16"/>
+<rect class="accent blk" x="376" y="144" width="104" height="104" rx="16"/>
+<rect class="tint blk" x="376" y="-72" width="120" height="200" rx="16"/>
+<rect class="key k" x="40" y="96" width="32" height="32" rx="6"/>
+<rect class="key k" x="80" y="96" width="32" height="32" rx="6"/>
+<rect class="key k" x="120" y="96" width="32" height="32" rx="6"/>
+<rect class="key k" x="40" y="136" width="32" height="32" rx="6"/>
+<rect class="key k" x="80" y="136" width="72" height="32" rx="6"/>
+<rect class="key k" x="40" y="176" width="32" height="32" rx="6"/>
+<rect class="key k" x="80" y="176" width="32" height="32" rx="6"/>
+<rect class="key k" x="208" y="104" width="32" height="32" rx="6"/>
+<rect class="key k" x="248" y="104" width="32" height="32" rx="6"/>
+<rect class="key k" x="208" y="144" width="32" height="32" rx="6"/>
+</svg>
+</div>
+<div class="words">
+  <h1 class="name">Integral</h1>
+  <p class="tag">Stock y ventas para comercios, por Factor Integral.</p>
+</div>
+</div>
+</body>
+</html>

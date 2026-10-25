@@ -1,18 +1,71 @@
 import { useEffect, useRef, useState } from 'react'
+import { ArrowDown, ArrowLeft, ArrowUp, Plus, Search, SearchX, TriangleAlert } from 'lucide-react'
 import type { ProductFromApi } from '../../electron-api'
+import { Button } from '../../ui/Button'
+import { DateField } from '../../ui/DateField'
+import { EmptyState } from '../../ui/EmptyState'
+import { Field } from '../../ui/Field'
+import { InlineAlert } from '../../ui/InlineAlert'
+import { Modal } from '../../ui/Modal'
+import { StepIndicator } from '../../ui/StepIndicator'
+import { TableSkeleton } from '../../ui/TableSkeleton'
+import { useDelayedFlag } from '../../ui/useDelayedFlag'
+import { formatInt } from '../../utils/format'
+import { parseDateAR, parseInteger } from '../../utils/parse'
+import { splitMatch } from '../../utils/text'
+import { stockTone } from '../../utils/stock'
 import { searchProducts } from '../Sells/searchProducts'
-import { parseExpiryInput } from '../../utils/expiry'
-import './LoadStockModal.css'
 
 type Step = 'search' | 'confirm'
 
 type Props = {
   open: boolean
   onClose: () => void
-  onSuccess: () => void
+  /** Se llama con el id del producto al que se le cargó stock. */
+  onSuccess: (productId: number) => void
+  /** Si viene, el modal abre directo en el paso 2 con ese producto. */
+  initialProduct?: ProductFromApi
+  /** Si viene, el estado "sin resultados" ofrece crear el producto con lo que se buscó. */
+  onRequestCreate?: (query: string) => void
 }
 
-export default function LoadStockModal({ open, onClose, onSuccess }: Props) {
+const QUANTITY_ERROR = 'Ingresá una cantidad distinta de 0, sin decimales.'
+
+/** Celda de stock con el mismo tono/ícono que la tabla de Stock. */
+function StockCell({ product }: { product: ProductFromApi }) {
+  const tone = stockTone(product)
+  if (tone === 'negative') {
+    return (
+      <td className="r is-negative">
+        <span className="ig-stock">
+          <TriangleAlert size={16} strokeWidth={2} aria-hidden="true" className="ig-icon ig-icon-sm" />
+          {formatInt(product.stock)}
+        </span>
+      </td>
+    )
+  }
+  if (tone === 'low') {
+    return (
+      <td className="r is-low">
+        <span className="ig-stock">
+          <ArrowDown size={16} strokeWidth={2} aria-hidden="true" className="ig-icon ig-icon-sm" />
+          {formatInt(product.stock)}
+        </span>
+      </td>
+    )
+  }
+  return <td className="r">{formatInt(product.stock)}</td>
+}
+
+/**
+ * Modal de 2 pasos para sumar (o restar, con cantidad negativa = merma) stock a un producto existente.
+ *
+ *  1. Buscar: por nombre o escaneando el código. Un escaneo exacto salta directo al paso 2.
+ *  2. Cantidad: cantidad, vencimiento opcional del lote y notas. Muestra una vista previa del stock resultante.
+ *
+ * Esc en el paso 2 vuelve al 1 y en el paso 1 cierra. Enter confirma en el paso 2.
+ */
+export default function LoadStockModal({ open, onClose, onSuccess, initialProduct, onRequestCreate }: Props) {
   const [step, setStep] = useState<Step>('search')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ProductFromApi[]>([])
@@ -24,35 +77,50 @@ export default function LoadStockModal({ open, onClose, onSuccess }: Props) {
   const [quantity, setQuantity] = useState('')
   const [notes, setNotes] = useState('')
   const [quantityError, setQuantityError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-  const [apiError, setApiError] = useState<string | null>(null)
   const [expiryDate, setExpiryDate] = useState('')
-  const [expiryDateError, setExpiryDateError] = useState<string | null>(null)
+  const [expiryError, setExpiryError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [saveFailed, setSaveFailed] = useState(false)
 
   const searchInputRef = useRef<HTMLInputElement>(null)
   const quantityInputRef = useRef<HTMLInputElement>(null)
+  const expiryInputRef = useRef<HTMLInputElement>(null)
 
+  const showSkeleton = useDelayedFlag(loadingSearch)
+
+  /** Restablece el paso 2 (cantidad, notas, vencimiento y errores). */
+  function resetConfirmFields() {
+    setQuantity('')
+    setNotes('')
+    setQuantityError(null)
+    setExpiryDate('')
+    setExpiryError(null)
+    setSaveFailed(false)
+  }
+
+  // Al abrir (o cambiar el producto inicial) se arma el estado de partida; al cerrar se limpia todo.
   useEffect(() => {
-    if (!open) {
-      setStep('search')
-      setQuery('')
-      setResults([])
-      setSelectedIndex(0)
-      setLoadingSearch(false)
-      setSearchError(null)
+    setQuery('')
+    setResults([])
+    setSelectedIndex(0)
+    setLoadingSearch(false)
+    setSearchError(null)
+    setSubmitting(false)
+    resetConfirmFields()
+    if (open && initialProduct) {
+      setSelectedProduct(initialProduct)
+      setStep('confirm')
+    } else {
       setSelectedProduct(null)
-      setQuantity('')
-      setNotes('')
-      setQuantityError(null)
-      setApiError(null)
-      setExpiryDate('')
-      setExpiryDateError(null)
+      setStep('search')
     }
-  }, [open])
+  }, [open, initialProduct])
 
+  // Búsqueda con debounce de 250 ms (solo en el paso 1).
   useEffect(() => {
     if (!open || step !== 'search') return
 
+    let cancelled = false
     const timer = setTimeout(async () => {
       if (query.trim() === '') {
         setResults([])
@@ -65,48 +133,56 @@ export default function LoadStockModal({ open, onClose, onSuccess }: Props) {
 
       try {
         const data = await searchProducts(query)
-        setResults(data)
-        setSelectedIndex(0)
+        if (!cancelled) {
+          setResults(data)
+          setSelectedIndex(0)
+        }
       } catch (e) {
-        setSearchError(e instanceof Error ? e.message : 'Error en la búsqueda')
-        setResults([])
+        if (!cancelled) {
+          setSearchError(e instanceof Error ? e.message : 'Error en la búsqueda')
+          setResults([])
+        }
       } finally {
-        setLoadingSearch(false)
+        if (!cancelled) setLoadingSearch(false)
       }
     }, 250)
 
-    return () => clearTimeout(timer)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
   }, [query, open, step])
 
+  // El foco va al campo principal de cada paso.
   useEffect(() => {
     if (!open) return
-
-    if (step === 'search') {
-      const timer = setTimeout(() => searchInputRef.current?.focus(), 0)
-      return () => clearTimeout(timer)
-    } else if (step === 'confirm') {
-      const timer = setTimeout(() => quantityInputRef.current?.focus(), 0)
-      return () => clearTimeout(timer)
-    }
+    const timer = setTimeout(() => {
+      if (step === 'search') searchInputRef.current?.focus()
+      else quantityInputRef.current?.focus()
+    }, 0)
+    return () => clearTimeout(timer)
   }, [open, step])
 
-  useEffect(() => {
-    if (!open || step !== 'confirm' || submitting) return
+  function handleSelectProduct(product: ProductFromApi) {
+    setSelectedProduct(product)
+    resetConfirmFields()
+    setStep('confirm')
+  }
 
-    function handleGlobalKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        setStep('search')
-        setSelectedProduct(null)
-        setQuantityError(null)
-        setApiError(null)
-      }
-    }
+  function handleBack() {
+    if (submitting) return
+    setStep('search')
+    setSelectedProduct(null)
+    resetConfirmFields()
+  }
 
-    document.addEventListener('keydown', handleGlobalKeyDown)
-    return () => document.removeEventListener('keydown', handleGlobalKeyDown)
-  }, [open, step, submitting])
+  /** Esc: en el paso 2 vuelve al 1; en el paso 1 cierra el modal. */
+  function handleEscape() {
+    if (step === 'confirm') handleBack()
+    else onClose()
+  }
 
-  function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+  async function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       setSelectedIndex((i) => Math.min(i + 1, results.length - 1))
@@ -115,190 +191,267 @@ export default function LoadStockModal({ open, onClose, onSuccess }: Props) {
       setSelectedIndex((i) => Math.max(i - 1, 0))
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      if (results[selectedIndex]) {
-        handleSelectProduct(results[selectedIndex])
+      const q = query.trim()
+      // Escaneo: un código exacto salta directo al paso 2 sin esperar la lista.
+      if (/^\d+$/.test(q)) {
+        try {
+          const scanned = await window.api.getProductByBarcode(q)
+          if (scanned) {
+            handleSelectProduct(scanned)
+            return
+          }
+        } catch {
+          // Código inválido para el backend: se sigue con la lógica normal.
+        }
       }
-    } else if (e.key === 'Escape') {
-      onClose()
+      if (results[selectedIndex]) handleSelectProduct(results[selectedIndex])
     }
-  }
-
-  function handleSelectProduct(product: ProductFromApi) {
-    setSelectedProduct(product)
-    setStep('confirm')
-    setQuantity('')
-    setNotes('')
-    setQuantityError(null)
-    setApiError(null)
-    setExpiryDate('')
-    setExpiryDateError(null)
-  }
-
-  function validateQuantity(q: string): string | null {
-    const trimmed = q.trim()
-    if (trimmed === '') return 'La cantidad es obligatoria'
-    const n = Number(trimmed)
-    if (!Number.isInteger(n) || n === 0) return 'La cantidad debe ser un número entero distinto de 0'
-    return null
   }
 
   async function handleSubmit() {
-    const error = validateQuantity(quantity)
-    if (error) {
-      setQuantityError(error)
+    if (!selectedProduct || submitting) return
+
+    const n = parseInteger(quantity)
+    if (n === null || n === 0) {
+      setQuantityError(QUANTITY_ERROR)
+      quantityInputRef.current?.focus()
       return
     }
 
-    // Validar fecha de vencimiento solo si fue ingresada
     let parsedExpiry: Date | null = null
     if (expiryDate.trim() !== '') {
-      parsedExpiry = parseExpiryInput(expiryDate)
+      parsedExpiry = parseDateAR(expiryDate)
       if (!parsedExpiry) {
-        setExpiryDateError('Fecha inválida')
+        setExpiryError('Revisá la fecha (DD/MM/AAAA).')
+        expiryInputRef.current?.focus()
         return
       }
     }
 
     setSubmitting(true)
-    setApiError(null)
-
+    setSaveFailed(false)
     try {
       await window.api.createStockMovement({
-        productId: selectedProduct!.id,
+        productId: selectedProduct.id,
         type: 'IN',
-        quantity: Number(quantity.trim()),
-        notes: notes.trim() || undefined,
-        expiryDate: parsedExpiry ?? undefined
+        quantity: n,
+        ...(notes.trim() ? { notes: notes.trim() } : {}),
+        ...(parsedExpiry ? { expiryDate: parsedExpiry } : {}),
       })
-      onSuccess()
+      onSuccess(selectedProduct.id)
     } catch (e) {
-      setApiError(e instanceof Error ? e.message : 'Error al cargar stock')
+      console.error(e)
+      setSaveFailed(true)
       setSubmitting(false)
     }
   }
 
-  function handleBack() {
-    setStep('search')
-    setSelectedProduct(null)
-    setQuantityError(null)
-    setApiError(null)
-    setExpiryDate('')
-    setExpiryDateError(null)
+  // ── Vista previa del stock resultante (paso 2) ───────────────────────────
+  const delta = parseInteger(quantity)
+  const resulting = selectedProduct && delta !== null && delta !== 0 ? selectedProduct.stock + delta : null
+  let preview: React.ReactNode = undefined
+  if (resulting !== null && delta !== null) {
+    if (resulting < 0) {
+      preview = (
+        <span style={{ color: 'var(--danger)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <TriangleAlert size={14} strokeWidth={2} aria-hidden="true" className="ig-icon" />
+          El stock quedará en {formatInt(resulting)}
+        </span>
+      )
+    } else if (delta < 0) {
+      preview = (
+        <span style={{ color: 'var(--warning)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <ArrowDown size={14} strokeWidth={2} aria-hidden="true" className="ig-icon" />
+          Merma: el stock queda en {formatInt(resulting)}
+        </span>
+      )
+    } else {
+      preview = (
+        <span style={{ color: 'var(--success)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <ArrowUp size={14} strokeWidth={2} aria-hidden="true" className="ig-icon" />
+          Reposición: el stock queda en {formatInt(resulting)}
+        </span>
+      )
+    }
   }
-
-  if (!open) return null
+  const trimmedQuery = query.trim()
+  const noResults = trimmedQuery !== '' && !loadingSearch && !searchError && results.length === 0
 
   return (
-    <div className="load-stock-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="load-stock-modal">
-        <h2 className="load-stock-modal__title">Cargar stock</h2>
-
-        {step === 'search' && (
-          <div className="load-stock-search">
+    <Modal
+      open={open}
+      title="Cargar stock"
+      size="md"
+      closeOnOverlay={false}
+      onClose={onClose}
+      onEscape={handleEscape}
+      headerExtra={<StepIndicator steps={['Buscar producto', 'Cantidad']} current={step === 'search' ? 0 : 1} />}
+      shortcuts={
+        step === 'search'
+          ? [
+              { keys: ['↑', '↓'], label: 'Elegir' },
+              { keys: ['Enter'], label: 'Continuar' },
+              { keys: ['Esc'], label: 'Cerrar' },
+            ]
+          : [
+              { keys: ['Esc'], label: 'Volver' },
+              { keys: ['Enter'], label: 'Confirmar' },
+            ]
+      }
+      footer={
+        step === 'confirm' ? (
+          <>
+            <Button variant="secondary" icon={ArrowLeft} onClick={handleBack} disabled={submitting}>
+              Volver
+            </Button>
+            <Button variant="primary" onClick={handleSubmit} disabled={submitting}>
+              {submitting ? 'Cargando…' : 'Cargar stock'}
+            </Button>
+          </>
+        ) : undefined
+      }
+    >
+      {step === 'search' && (
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div className="ig-input-wrap">
+            <Search size={18} strokeWidth={2} aria-hidden="true" className="ig-icon" />
             <input
               ref={searchInputRef}
               type="text"
-              className="load-stock-modal__input"
-              placeholder="Buscar por nombre o código..."
+              className="ig-input ig-input-lg"
+              aria-label="Buscar producto"
+              placeholder="Buscá por nombre o escaneá el código"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleSearchKeyDown}
             />
-            {loadingSearch && <p>Buscando...</p>}
-            {searchError && <p className="load-stock-modal__api-error">{searchError}</p>}
-            {!loadingSearch && !searchError && results.length === 0 && query.trim() !== '' && (
-              <p className="load-stock-modal__no-results">Sin resultados.</p>
-            )}
-            <table className="load-stock-results">
-              <thead>
-                <tr>
-                  <th>Código de barras</th>
-                  <th>Nombre</th>
-                  <th>Stock actual</th>
-                </tr>
-              </thead>
-              <tbody>
-                {results.map((product, i) => (
-                  <tr
-                    key={product.id}
-                    className={i === selectedIndex ? 'load-stock-results__row--selected' : ''}
-                    onClick={() => handleSelectProduct(product)}
-                    onMouseEnter={() => setSelectedIndex(i)}
-                  >
-                    <td>{product.barcode === null ? '-' : product.barcode.toString()}</td>
-                    <td>{product.name}</td>
-                    <td>{product.stock}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
-        )}
 
-        {step === 'confirm' && (
-          <>
-            <div className="load-stock-modal__field">
-              <label className="load-stock-modal__label">Producto</label>
-              <p className="load-stock-modal__product-name">{selectedProduct!.name}</p>
+          {searchError && <InlineAlert tone="danger" title="No pudimos buscar. Probá de nuevo.">{searchError}</InlineAlert>}
+
+          {showSkeleton && <TableSkeleton rows={3} cols={3} label="Buscando…" />}
+
+          {noResults && (
+            <EmptyState
+              icon={SearchX}
+              title={`No encontramos «${trimmedQuery}»`}
+              description="¿Es un producto nuevo?"
+              action={
+                onRequestCreate && (
+                  <Button variant="primary" icon={Plus} onClick={() => onRequestCreate(trimmedQuery)}>
+                    Crear producto
+                  </Button>
+                )
+              }
+            />
+          )}
+
+          {results.length > 0 && (
+            <div className="ig-table-wrap" style={{ boxShadow: 'none' }}>
+              <table className="ig-table">
+                <thead>
+                  <tr>
+                    <th>Código de barras</th>
+                    <th>Nombre</th>
+                    <th className="r">Stock actual</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((product, i) => (
+                    // El teclado se maneja en el input de búsqueda (↑/↓/Enter); la fila solo acepta click.
+                    <tr
+                      key={product.id}
+                      className={i === selectedIndex ? 'is-selected' : undefined}
+                      onClick={() => handleSelectProduct(product)}
+                      onMouseEnter={() => setSelectedIndex(i)}
+                    >
+                      <td className="code">{product.barcode === null ? '—' : product.barcode.toString()}</td>
+                      <td className="name">
+                        {splitMatch(product.name, query).map((part, k) => (part.match ? <b key={k}>{part.text}</b> : part.text))}
+                      </td>
+                      <StockCell product={product} />
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-
-            <div className="load-stock-modal__field">
-              <label className="load-stock-modal__label">Cantidad a agregar (negativo = merma) *</label>
-              <input
-                ref={quantityInputRef}
-                type="text"
-                inputMode="numeric"
-                className={`load-stock-modal__input${quantityError ? ' load-stock-modal__input--error' : ''}`}
-                value={quantity}
-                onChange={(e) => { setQuantity(e.target.value); setQuantityError(null) }}
-                placeholder="Ej: 10 (negativo para merma)"
-              />
-              {quantityError && <p className="load-stock-modal__field-error">{quantityError}</p>}
-            </div>
-
-            <div className="load-stock-modal__field">
-              <label className="load-stock-modal__label">Notas (opcional)</label>
-              <input
-                type="text"
-                className="load-stock-modal__input"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Observaciones del movimiento"
-              />
-            </div>
-
-            <div className="load-stock-modal__field">
-              <label className="load-stock-modal__label" htmlFor="load-stock-expiry">Vencimiento (opcional)</label>
-              <input
-                id="load-stock-expiry"
-                type="date"
-                className={`load-stock-modal__input${expiryDateError ? ' load-stock-modal__input--error' : ''}`}
-                value={expiryDate}
-                onChange={(e) => { setExpiryDate(e.target.value); setExpiryDateError(null) }}
-              />
-              {expiryDateError && <p className="load-stock-modal__field-error">{expiryDateError}</p>}
-            </div>
-
-            {apiError && <p className="load-stock-modal__api-error">{apiError}</p>}
-          </>
-        )}
-
-        <div className="load-stock-modal__actions">
-          <button className="load-stock-modal__btn-cancel" onClick={onClose} disabled={submitting}>
-            Cancelar
-          </button>
-          {step === 'confirm' && (
-            <>
-              <button className="load-stock-modal__btn-back" onClick={handleBack} disabled={submitting}>
-                Volver
-              </button>
-              <button className="load-stock-modal__btn-submit" onClick={handleSubmit} disabled={submitting}>
-                {submitting ? 'Cargando...' : 'Cargar stock'}
-              </button>
-            </>
           )}
         </div>
-      </div>
-    </div>
+      )}
+
+      {step === 'confirm' && selectedProduct && (
+        // Enter en cualquier campo confirma; el wrapper solo captura la tecla, no es interactivo.
+        <div
+          style={{ display: 'grid', gap: 16 }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
+              e.preventDefault()
+              void handleSubmit()
+            }
+          }}
+        >
+          <div className="ig-form-grid">
+            <Field label="Producto" htmlFor="ls-product" className="span-2">
+              <input
+                id="ls-product"
+                className="ig-input is-readonly"
+                readOnly
+                value={`${selectedProduct.name} · stock actual ${selectedProduct.stock}`}
+              />
+            </Field>
+
+            <Field
+              label="Cantidad a agregar (negativo = merma)"
+              htmlFor="ls-quantity"
+              required
+              className="span-2"
+              error={quantityError}
+              help={preview}
+            >
+              <input
+                id="ls-quantity"
+                ref={quantityInputRef}
+                className={`ig-input ig-input-amount ig-input-lg${quantityError ? ' is-error' : ''}`}
+                style={delta !== null && delta < 0 && resulting !== null && resulting >= 0 ? { color: 'var(--warning)' } : undefined}
+                inputMode="numeric"
+                placeholder="Ej: 10 (negativo para merma)"
+                aria-invalid={!!quantityError}
+                aria-describedby={quantityError ? 'ls-quantity-error' : preview ? 'ls-quantity-help' : undefined}
+                value={quantity}
+                onChange={(e) => {
+                  setQuantity(e.target.value)
+                  setQuantityError(null)
+                }}
+              />
+            </Field>
+
+            <DateField
+              id="ls-expiry"
+              label="Vencimiento del lote"
+              value={expiryDate}
+              onChange={(v) => {
+                setExpiryDate(v)
+                setExpiryError(null)
+              }}
+              error={expiryError}
+              help="Opcional"
+              inputRef={expiryInputRef}
+            />
+
+            <Field label="Notas" htmlFor="ls-notes">
+              <input
+                id="ls-notes"
+                className="ig-input"
+                placeholder="Opcional"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </Field>
+          </div>
+
+          {saveFailed && <InlineAlert tone="danger" title="No se pudo cargar el stock. Probá de nuevo." />}
+        </div>
+      )}
+    </Modal>
   )
 }

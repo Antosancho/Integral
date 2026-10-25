@@ -1,6 +1,9 @@
 // Funciones puras de utilidad para el módulo de Estadísticas.
 // Sin imports de React ni de window.api.
 
+import { formatPct } from '../../utils/format'
+import type { SalesByPeriodFromApi } from '../../electron-api'
+
 export type PeriodPreset = 'today' | 'week' | 'month' | 'custom'
 export type DateRange = { from: Date; to: Date }
 
@@ -118,13 +121,11 @@ export function calcPctChange(current: number, previous: number): number | null 
 }
 
 /**
- * Formatea el cambio porcentual para mostrar en UI.
- * null → 'N/A', positivo → '+X.X%', negativo → '-X.X%'.
+ * Formatea el cambio porcentual para mostrar en UI (convención del design system).
+ * null → '—', positivo → '+12,4 %', negativo → '−2,3 %', cero → '0,0 %'.
  */
 export function formatPctChange(pct: number | null): string {
-  if (pct === null) return 'N/A'
-  if (pct >= 0) return '+' + pct.toFixed(1) + '%'
-  return pct.toFixed(1) + '%'
+  return formatPct(pct)
 }
 
 // ---------------------------------------------------------------------------
@@ -152,4 +153,65 @@ export const PERIOD_LABELS: Record<PeriodPreset, string> = {
   week: 'Esta semana',
   month: 'Este mes',
   custom: 'Personalizado'
+}
+
+// ---------------------------------------------------------------------------
+// Textos del período y de las franjas horarias
+// ---------------------------------------------------------------------------
+
+const MONTHS_SHORT = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+const MONTHS_LONG = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
+]
+
+/**
+ * Rango legible para el encabezado:
+ *  - mismo mes y año → "1 – 24 oct 2026"
+ *  - distinto mes    → "28 sep – 4 oct 2026"
+ *  - distinto año    → "28 dic 2025 – 3 ene 2026"
+ */
+export function formatRange(r: DateRange): string {
+  const a = r.from
+  const b = r.to
+  const sameYear = a.getFullYear() === b.getFullYear()
+  const sameMonth = sameYear && a.getMonth() === b.getMonth()
+  if (sameMonth) {
+    return `${a.getDate()} – ${b.getDate()} ${MONTHS_SHORT[b.getMonth()]} ${b.getFullYear()}`
+  }
+  if (sameYear) {
+    return `${a.getDate()} ${MONTHS_SHORT[a.getMonth()]} – ${b.getDate()} ${MONTHS_SHORT[b.getMonth()]} ${b.getFullYear()}`
+  }
+  return `${a.getDate()} ${MONTHS_SHORT[a.getMonth()]} ${a.getFullYear()} – ${b.getDate()} ${MONTHS_SHORT[b.getMonth()]} ${b.getFullYear()}`
+}
+
+/** Con qué se compara cada KPI: "vs. ayer", "vs. semana anterior", "vs. septiembre", "vs. período anterior". */
+export function comparedToLabel(preset: PeriodPreset, prev: DateRange): string {
+  switch (preset) {
+    case 'today':
+      return 'vs. ayer'
+    case 'week':
+      return 'vs. semana anterior'
+    case 'month':
+      return `vs. ${MONTHS_LONG[prev.from.getMonth()]}`
+    case 'custom':
+      return 'vs. período anterior'
+  }
+}
+
+/** Etiqueta de una franja horaria: '18' → "18–19 h" ('23' → "23–00 h"). */
+export function HOUR_LABEL(label: string): string {
+  const h = Number(label)
+  if (!Number.isInteger(h)) return label
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(h)}–${pad((h + 1) % 24)} h`
+}
+
+/** Índice de la fila con más ventas (el primero si hay empate); -1 si no hay filas. */
+export function peakIndex(rows: SalesByPeriodFromApi[]): number {
+  let best = -1
+  rows.forEach((row, i) => {
+    if (best === -1 || row.saleCount > rows[best].saleCount) best = i
+  })
+  return best
 }

@@ -171,7 +171,7 @@ describe('ADD_GENERAL', () => {
 
   it('con coma decimal normaliza a punto', () => {
     const next = cartReducer(initialCart, { type: 'ADD_GENERAL', amount: '150,50' })
-    expect(next.lines[0].unitPrice).toBe('150.50')
+    expect(next.lines[0].unitPrice).toBe('150.5')
     expect(lineTotal(next.lines[0])).toBeCloseTo(150.5, 2)
   })
 

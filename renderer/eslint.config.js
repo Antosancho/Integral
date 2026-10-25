@@ -8,4 +8,6 @@ export default defineConfig([
   { files: ["**/*.{js,mjs,cjs,ts,mts,cts,jsx,tsx}"], plugins: { js }, extends: ["js/recommended"], languageOptions: { globals: globals.browser } },
   tseslint.configs.recommended,
   pluginReact.configs.flat.recommended,
+  // React 17+ con el nuevo runtime JSX (Vite): no hace falta importar React para usar JSX.
+  pluginReact.configs.flat["jsx-runtime"],
 ]);

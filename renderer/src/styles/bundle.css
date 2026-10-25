@@ -1,0 +1,269 @@
+/* Integral — estilos de componentes. Requiere tokens.css cargado antes. Prefijo de clases: ig- */
+
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-size: 15px; line-height: 22px; -webkit-font-smoothing: antialiased; }
+.num, .ig-num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+.ig-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Foco por teclado: SIEMPRE visible. 3px sólido + 2px de separación */
+:where(button, input, select, textarea, [tabindex], a):focus { outline: none; }
+:where(button, input, select, textarea, [tabindex], a):focus-visible,
+.is-focus { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.ig-header :where(button, a, [tabindex]):focus-visible, .ig-header .is-focus { outline-color: var(--focus-ring-on-dark); }
+
+/* ---------- Iconos (lucide) ---------- */
+.ig-icon { width: 18px; height: 18px; stroke-width: 2; flex: none; }
+.ig-icon-sm { width: 16px; height: 16px; }
+.ig-icon-lg { width: 22px; height: 22px; }
+
+/* ---------- Button ---------- */
+.ig-btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); height: var(--control-md); padding: 0 var(--space-4);
+  border: 1px solid transparent; border-radius: var(--radius-md); font: 600 15px/20px var(--font-sans); cursor: pointer; white-space: nowrap;
+  transition: background-color .12s ease, border-color .12s ease, color .12s ease; user-select: none; }
+.ig-btn-primary { background: var(--primary); color: var(--ink-on-brand); }
+.ig-btn-primary:hover { background: var(--primary-hover); }
+.ig-btn-primary:active { background: var(--primary-pressed); }
+.ig-btn-secondary { background: var(--surface); color: var(--ink); border-color: var(--border-control); }
+.ig-btn-secondary:hover { background: var(--surface-hover); border-color: var(--ink-muted); }
+.ig-btn-ghost { background: transparent; color: var(--ink); }
+.ig-btn-ghost:hover { background: var(--surface-hover); }
+.ig-btn-danger { background: var(--danger-strong); color: var(--ink-on-brand); }
+.ig-btn-edit { background: var(--edit); color: var(--ink-on-edit); }
+.ig-btn-edit:hover { background: var(--edit-hover); }
+.ig-btn-sm { height: var(--control-sm); padding: 0 var(--space-3); font-size: 14px; border-radius: var(--radius-sm); }
+.ig-btn-lg { height: var(--control-lg); padding: 0 var(--space-6); font-size: 16px; }
+.ig-btn-xl { height: var(--control-xl); padding: 0 var(--space-8); font: 800 20px/24px var(--font-display); letter-spacing: .02em; border-radius: var(--radius-md); width: 100%; }
+.ig-btn-icon { width: var(--control-sm); padding: 0; }
+.ig-btn[disabled], .ig-btn.is-disabled { background: var(--surface-sunken); color: var(--ink-disabled); border-color: var(--border); cursor: not-allowed; }
+.ig-btn .ig-kbd { margin-left: var(--space-1); }
+.ig-btn-primary .ig-kbd { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.3); color: var(--ink-on-brand); }
+
+/* ---------- Kbd (chips de tecla) ---------- */
+.ig-kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 22px; padding: 0 6px; border: 1px solid var(--border-control);
+  border-bottom-width: 2px; border-radius: var(--radius-sm); background: var(--surface); color: var(--ink-muted); font: 600 12px/16px var(--font-sans); }
+.ig-shortcuts { display: flex; flex-wrap: wrap; gap: var(--space-4); color: var(--ink-muted); font-size: 13px; line-height: 18px; }
+.ig-shortcuts span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---------- Field / Input ---------- */
+.ig-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ig-label { font: 500 13px/18px var(--font-sans); color: var(--ink-muted); }
+.ig-label .req { color: var(--danger); margin-left: 2px; }
+.ig-input { height: var(--control-md); width: 100%; padding: 0 var(--space-3); border: 1px solid var(--border-control); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--ink); font: 400 15px/22px var(--font-sans); }
+.ig-input::placeholder { color: var(--ink-subtle); }
+.ig-input:hover { border-color: var(--ink-muted); }
+.ig-input:focus-visible, .ig-input.is-focus { border-color: var(--focus-ring); outline: 3px solid var(--focus-ring); outline-offset: 0; }
+.ig-input.is-error { border-color: var(--danger-border); background: var(--danger-soft); }
+.ig-input[readonly], .ig-input.is-readonly { background: var(--surface-sunken); color: var(--ink-muted); border-style: dashed; }
+.ig-input-amount { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+.ig-input-lg { height: var(--control-lg); font-size: 17px; }
+.ig-input-wrap { position: relative; display: flex; align-items: center; }
+.ig-input-wrap > .ig-icon { position: absolute; left: 12px; color: var(--ink-subtle); pointer-events: none; }
+.ig-input-wrap > .ig-input { padding-left: 40px; }
+.ig-input-wrap > .ig-prefix { position: absolute; left: 12px; color: var(--ink-muted); font-weight: 500; }
+.ig-input-wrap > .ig-prefix + .ig-input { padding-left: 28px; }
+.ig-input-wrap > .ig-suffix { position: absolute; right: 12px; color: var(--ink-muted); }
+.ig-help { font: 400 13px/18px var(--font-sans); color: var(--ink-muted); }
+.ig-error { display: flex; gap: 6px; align-items: flex-start; font: 500 13px/18px var(--font-sans); color: var(--danger); }
+.ig-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5) var(--space-4); }
+.ig-form-grid .span-2 { grid-column: span 2; }
+
+/* Barcode input (Ventas) */
+.ig-scan { display: flex; align-items: center; gap: var(--space-3); height: 56px; padding: 0 var(--space-4); border: 2px solid var(--primary); border-radius: var(--radius-md);
+  background: var(--surface); }
+.ig-scan.is-focus { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.ig-scan input { flex: 1; border: 0; background: transparent; font: 400 18px/24px var(--font-mono); color: var(--ink); outline: none; min-width: 0; }
+.ig-scan input::placeholder { font-family: var(--font-sans); color: var(--ink-subtle); }
+.ig-scan .ig-scan-state { display: inline-flex; align-items: center; gap: 6px; font: 500 13px/18px var(--font-sans); color: var(--success); }
+
+/* ---------- Picker (selector con alta en el momento) ---------- */
+.ig-picker { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); height: var(--control-md); padding: 0 var(--space-2) 0 var(--space-3);
+  border: 1px solid var(--border-control); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: 400 15px/22px var(--font-sans); cursor: pointer; text-align: left; width: 100%; }
+.ig-picker .placeholder { color: var(--ink-subtle); }
+.ig-picker-pop { width: 420px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-md); overflow: hidden; }
+.ig-picker-pop .ig-pop-search { padding: var(--space-3); border-bottom: 1px solid var(--border); }
+.ig-picker-list { list-style: none; margin: 0; padding: var(--space-1) 0; max-height: 240px; overflow: auto; }
+.ig-picker-list li { display: flex; align-items: center; gap: var(--space-2); padding: 10px var(--space-4); cursor: pointer; }
+.ig-picker-list li:hover { background: var(--surface-hover); }
+.ig-picker-list li.is-active { background: var(--surface-selected); box-shadow: inset 3px 0 0 var(--focus-ring); }
+.ig-picker-list li .meta { margin-left: auto; color: var(--ink-subtle); font-size: 13px; }
+.ig-picker-create { display: flex; align-items: center; gap: var(--space-2); width: 100%; padding: 12px var(--space-4); border: 0; border-top: 1px solid var(--border);
+  background: var(--surface-sunken); color: var(--link); font: 600 14px/20px var(--font-sans); cursor: pointer; text-align: left; }
+.ig-picker-new { padding: var(--space-4); border-top: 1px solid var(--border); background: var(--surface-sunken); display: grid; gap: var(--space-3); }
+
+/* ---------- Badge ---------- */
+.ig-badge { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 10px; border-radius: var(--radius-pill); font: 600 12px/16px var(--font-sans); white-space: nowrap; }
+.ig-badge .ig-icon { width: 14px; height: 14px; }
+.ig-badge-neutral { background: var(--surface-sunken); color: var(--ink-muted); }
+.ig-badge-danger { background: var(--danger-soft); color: var(--danger); }
+.ig-badge-warning { background: var(--warning-soft); color: var(--warning); }
+.ig-badge-success { background: var(--success-soft); color: var(--success); }
+.ig-badge-info { background: var(--info-soft); color: var(--info); }
+
+/* ---------- Card ---------- */
+.ig-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
+.ig-card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); }
+.ig-card-head h3 { margin: 0; font: 700 18px/24px var(--font-display); }
+.ig-card-body { padding: var(--space-5); }
+
+/* ---------- Table ---------- */
+.ig-table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); }
+.ig-table { width: 100%; border-collapse: collapse; font: 400 15px/22px var(--font-sans); }
+.ig-table th { position: sticky; top: 0; z-index: 1; height: 40px; padding: 0 var(--space-4); background: var(--surface-sunken); color: var(--ink-muted); font: 500 13px/18px var(--font-sans); text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.ig-table td { height: var(--row-height); padding: 0 var(--space-4); border-bottom: 1px solid var(--border); vertical-align: middle; }
+.ig-table tr:last-child td { border-bottom: 0; }
+.ig-table tbody tr:hover td { background: var(--surface-hover); }
+.ig-table tbody tr.is-selected td { background: var(--surface-selected); }
+.ig-table tbody tr.is-selected td:first-child { box-shadow: inset 4px 0 0 var(--focus-ring); }
+.ig-table .r { text-align: right; font-variant-numeric: tabular-nums; }
+.ig-table .c { text-align: center; }
+.ig-table .code { font: 400 14px/20px var(--font-mono); color: var(--ink-muted); }
+.ig-table .name { font-weight: 600; }
+.ig-table .actions { width: 1%; white-space: nowrap; text-align: right; }
+.ig-table td.is-negative { color: var(--danger); font-weight: 700; background: var(--danger-soft); }
+.ig-table td.is-low { color: var(--warning); font-weight: 700; }
+.ig-table-foot { display: flex; align-items: center; justify-content: space-between; padding: 10px var(--space-4); border-top: 1px solid var(--border); color: var(--ink-muted); font-size: 13px; background: var(--surface); }
+.ig-stock { display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; }
+
+/* ---------- Tabs / Segmented ---------- */
+.ig-seg { display: inline-flex; padding: 3px; gap: 2px; background: var(--surface-sunken); border-radius: var(--radius-md); border: 1px solid var(--border); }
+.ig-seg button { height: 34px; padding: 0 var(--space-4); border: 0; border-radius: 8px; background: transparent; color: var(--ink-muted); font: 600 14px/20px var(--font-sans); cursor: pointer; }
+.ig-seg button[aria-pressed="true"], .ig-seg button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); }
+
+/* ---------- App header ---------- */
+.ig-header { height: var(--header-height); display: flex; align-items: center; gap: var(--space-6); padding: 0 var(--space-6); background: var(--surface-header); color: var(--ink-on-brand); }
+.ig-header .ig-brand { display: flex; align-items: center; gap: 10px; font: 800 18px/24px var(--font-display); color: var(--ink-on-brand); text-decoration: none; }
+.ig-header .ig-brand img { width: 32px; height: 32px; border-radius: 8px; display: block; }
+.ig-nav { display: flex; gap: var(--space-1); }
+.ig-nav a { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 var(--space-4); border-radius: var(--radius-pill); color: var(--ink-on-header-muted); font: 700 15px/20px var(--font-display); text-decoration: none; }
+.ig-nav a:hover { color: var(--ink-on-brand); background: rgba(255,255,255,.08); }
+.ig-nav a[aria-current="page"] { color: var(--brand-night); background: var(--brand-white); }
+.ig-nav a .ig-kbd { background: transparent; color: inherit; border-color: currentColor; opacity: .7; height: 18px; min-width: 22px; font-size: 11px; }
+.ig-header .ig-spacer { flex: 1; }
+.ig-header .ig-user { display: flex; align-items: center; gap: 8px; color: var(--ink-on-header-muted); font-size: 13px; }
+
+/* ---------- Widget de vencimientos ---------- */
+.ig-expiry { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 var(--space-4); border: 2px solid var(--expiry-border); border-radius: var(--radius-pill);
+  background: var(--expiry-bg); color: var(--expiry-ink); font: 700 14px/20px var(--font-sans); cursor: pointer; }
+.ig-expiry:hover { background: var(--expiry-bg-hover); }
+.ig-expiry .sep { color: var(--expiry-ink); opacity: .6; font-weight: 400; }
+.ig-expiry-pop { width: var(--modal-lg); max-width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); overflow: hidden; }
+.ig-expiry-group { padding: var(--space-2) var(--space-5) 0; font: 700 12px/16px var(--font-display); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
+.ig-expiry-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--border); }
+.ig-expiry-row .what strong { display: block; font-weight: 600; }
+.ig-expiry-row .what span { color: var(--ink-muted); font-size: 13px; }
+
+/* ---------- Modal ---------- */
+.ig-overlay { position: fixed; inset: 0; background: var(--overlay); display: flex; align-items: flex-start; justify-content: center; padding-top: 8vh; z-index: var(--z-modal); }
+.ig-overlay.is-inline { position: relative; inset: auto; padding: var(--space-8) var(--space-6); min-height: 100%; }
+.ig-modal { width: var(--modal-md); max-width: 100%; background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; max-height: 84vh; overflow: hidden; }
+.ig-modal-sm { width: var(--modal-sm); }
+.ig-modal-lg { width: var(--modal-lg); }
+.ig-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding: var(--space-5) var(--space-6) var(--space-4); }
+.ig-modal-head h2 { margin: 0; font: 700 22px/28px var(--font-display); }
+.ig-modal-head p { margin: 4px 0 0; color: var(--ink-muted); font-size: 14px; }
+.ig-modal-body { padding: 0 var(--space-6) var(--space-6); overflow: auto; }
+.ig-modal-foot { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border); background: var(--surface-sunken); }
+.ig-modal-foot .ig-shortcuts { margin-right: auto; }
+.ig-steps { display: flex; gap: var(--space-2); align-items: center; color: var(--ink-muted); font: 500 13px/18px var(--font-sans); margin-top: 6px; }
+.ig-steps .step { display: inline-flex; align-items: center; gap: 6px; }
+.ig-steps .dot { width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font: 700 11px/1 var(--font-sans); background: var(--surface-sunken); color: var(--ink-muted); border: 1px solid var(--border-control); }
+.ig-steps .step.is-current { color: var(--ink); font-weight: 600; }
+.ig-steps .step.is-current .dot { background: var(--primary); color: var(--ink-on-brand); border-color: var(--primary); }
+.ig-steps .step.is-done .dot { background: var(--success-soft); color: var(--success); border-color: var(--success); }
+.ig-steps .line { width: 24px; height: 1px; background: var(--border-control); }
+
+/* ---------- Alert (no bloqueante) y Toast ---------- */
+.ig-alert { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); border: 1px solid; font: 400 14px/20px var(--font-sans); }
+.ig-alert strong { font-weight: 600; display: block; }
+.ig-alert-danger { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-border); }
+.ig-alert-warning { background: var(--warning-soft); color: var(--warning); border-color: var(--warning); }
+.ig-alert-info { background: var(--info-soft); color: var(--info); border-color: var(--info); }
+.ig-alert-success { background: var(--success-soft); color: var(--success); border-color: var(--success); }
+.ig-alert .ig-alert-body { flex: 1; }
+.ig-alert .ig-alert-body span { color: var(--ink); }
+.ig-toast { display: flex; align-items: center; gap: var(--space-3); min-width: 320px; max-width: 420px; padding: var(--space-3) var(--space-4); background: var(--surface); color: var(--ink);
+  border: 1px solid var(--border); border-left-width: 1px; border-radius: var(--radius-md); box-shadow: var(--shadow-md); font: 500 14px/20px var(--font-sans); }
+.ig-toast .tone { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.ig-toast.danger .tone { background: var(--danger-soft); color: var(--danger); }
+.ig-toast.warning .tone { background: var(--warning-soft); color: var(--warning); }
+.ig-toast.success .tone { background: var(--success-soft); color: var(--success); }
+.ig-toast small { display: block; color: var(--ink-muted); font-weight: 400; font-size: 13px; }
+
+/* ---------- Carrito ---------- */
+.ig-cart td { height: 52px; font-size: 16px; }
+.ig-cart .qty, .ig-cart .price { width: 120px; }
+.ig-cell-edit { width: 100%; height: 36px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; text-align: right;
+  font: 500 16px/22px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); }
+.ig-cell-edit:hover { border-color: var(--border-control); background: var(--surface); }
+.ig-cell-edit.is-editing { border-color: var(--focus-ring); background: var(--surface); outline: 3px solid var(--focus-ring); outline-offset: 0; }
+.ig-cell-edit.is-modified { color: var(--info); }
+.ig-cart .line-total { font-weight: 700; }
+.ig-cart .general { display: inline-flex; align-items: center; gap: 8px; }
+.ig-cart-empty { display: grid; place-items: center; gap: var(--space-3); padding: var(--space-12) var(--space-6); text-align: center; color: var(--ink-muted); }
+.ig-cart-empty h3 { margin: 0; color: var(--ink); font: 700 18px/24px var(--font-display); }
+
+/* ---------- Panel de pago ---------- */
+.ig-pay { position: sticky; bottom: 0; z-index: var(--z-panel); background: var(--surface-panel); border-top: 1px solid var(--border); box-shadow: var(--shadow-panel);
+  padding: var(--space-5) var(--space-6); display: grid; grid-template-columns: minmax(0, 1fr) var(--panel-width); gap: var(--space-8); }
+.ig-pay-left { display: grid; gap: var(--space-4); align-content: start; }
+.ig-pay-line { display: flex; align-items: center; gap: var(--space-8); }
+.ig-pay-line .ig-pay-row { gap: var(--space-3); }
+.ig-overline { font: 700 12px/16px var(--font-display); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
+.ig-pay-methods { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-2); }
+.ig-pay-method { display: flex; flex-direction: column; gap: 6px; }
+.ig-pay-tag { height: 36px; border: 1px solid var(--border-control); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); font: 700 12px/16px var(--font-display);
+  letter-spacing: .06em; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.ig-pay-tag:hover { background: var(--primary-soft); color: var(--on-primary-soft); border-color: var(--primary); }
+.ig-pay-method.is-filled .ig-pay-tag { background: var(--primary); color: var(--ink-on-brand); border-color: var(--primary); }
+.ig-pay-method .ig-input { height: var(--control-lg); font-size: 18px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.ig-pay-sum { display: grid; gap: 6px; align-content: start; }
+.ig-pay-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); color: var(--ink-muted); font-size: 15px; }
+.ig-pay-row .v { color: var(--ink); font: 600 20px/28px var(--font-sans); font-variant-numeric: tabular-nums; }
+.ig-pay-row .ig-input { width: 96px; height: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+.ig-pay-total { display: flex; align-items: baseline; justify-content: space-between; padding-top: var(--space-2); border-top: 1px solid var(--border); }
+.ig-pay-total .k { font: 800 16px/20px var(--font-display); letter-spacing: .06em; color: var(--ink); }
+.ig-pay-total .v { font: 700 44px/48px var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -.01em; color: var(--ink); }
+.ig-change { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); border: 2px solid; }
+.ig-change .k { display: flex; align-items: center; gap: 8px; font: 700 15px/20px var(--font-sans); }
+.ig-change .v { font: 700 30px/36px var(--font-sans); font-variant-numeric: tabular-nums; }
+.ig-change.is-due { background: var(--danger-soft); border-color: var(--danger-border); color: var(--danger); }
+.ig-change.is-exact { background: var(--surface-sunken); border-color: var(--border-control); color: var(--ink); }
+.ig-change.is-return { background: var(--success-soft); border-color: var(--success); color: var(--success); }
+.ig-hint { display: flex; align-items: center; gap: 6px; color: var(--warning); font: 500 13px/18px var(--font-sans); }
+
+/* ---------- KPI / Estadísticas ---------- */
+.ig-kpi { padding: var(--space-5); display: grid; gap: 6px; }
+.ig-kpi .k { font: 500 13px/18px var(--font-sans); color: var(--ink-muted); display: flex; align-items: center; gap: 6px; }
+.ig-kpi .v { font: 700 30px/36px var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.ig-delta { display: inline-flex; align-items: center; gap: 4px; font: 600 13px/18px var(--font-sans); }
+.ig-delta.up { color: var(--success); }
+.ig-delta.down { color: var(--danger); }
+.ig-delta.flat { color: var(--ink-muted); }
+.ig-delta + span { color: var(--ink-subtle); font-size: 13px; }
+.ig-rank { list-style: none; margin: 0; padding: 0; }
+.ig-rank li { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: var(--space-3); padding: 10px 0; border-bottom: 1px solid var(--border); }
+.ig-rank li:last-child { border-bottom: 0; }
+.ig-rank .pos { font: 800 14px/20px var(--font-display); color: var(--ink-subtle); }
+.ig-rank .bar { grid-column: 2 / 4; height: 6px; border-radius: 3px; background: var(--surface-sunken); overflow: hidden; margin-top: -4px; }
+.ig-rank .bar i { display: block; height: 100%; background: var(--chart-2); border-radius: 3px; }
+.ig-rank .val { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* ---------- Estados: vacío y carga ---------- */
+.ig-empty { display: grid; justify-items: center; gap: var(--space-3); padding: var(--space-12) var(--space-6); text-align: center; color: var(--ink-muted); }
+.ig-empty .ico { width: 56px; height: 56px; border-radius: var(--radius-lg); background: var(--primary-soft); color: var(--on-primary-soft); display: grid; place-items: center; }
+.ig-empty h3 { margin: 0; color: var(--ink); font: 700 18px/24px var(--font-display); }
+.ig-empty p { margin: 0; max-width: 380px; }
+.ig-skel { display: block; height: 14px; border-radius: 4px; background: linear-gradient(90deg, var(--surface-sunken) 0%, var(--surface-hover) 50%, var(--surface-sunken) 100%); background-size: 200% 100%; animation: ig-shimmer 1.2s linear infinite; }
+@keyframes ig-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .ig-skel { animation: none; } * { transition: none !important; } }
+
+/* ---------- Layout de pantalla ---------- */
+.ig-app { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
+.ig-page { flex: 1; padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-5); min-height: 0; }
+.ig-page-head { display: flex; align-items: center; gap: var(--space-4); }
+.ig-page-head h1 { margin: 0; font: 800 28px/34px var(--font-display); letter-spacing: -.01em; }
+.ig-page-head .ig-spacer { flex: 1; }
+.ig-toolbar { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.ig-filters { display: flex; align-items: flex-end; gap: var(--space-3); flex-wrap: wrap; }
+.ig-modal-head .ig-shortcuts { white-space: nowrap; flex: none; }
