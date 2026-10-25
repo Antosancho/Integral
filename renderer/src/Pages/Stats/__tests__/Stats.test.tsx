@@ -46,6 +46,7 @@ afterEach(() => {
 const renderStats = () => render(<Stats navigate={navigate} />)
 const loaded = async () => screen.findByText('Ventas totales')
 const card = (title: string) => screen.getByRole('heading', { name: title }).closest('section') as HTMLElement
+const periodTab = (name: string) => within(screen.getByRole('tablist', { name: 'Período' })).getByRole('tab', { name })
 
 describe('Stats — período y carga', () => {
   it('llama a las 7 funciones de la API (getSalesSummary dos veces: actual y anterior)', async () => {
@@ -241,7 +242,7 @@ describe('Stats — período personalizado', () => {
   it('"Personalizado" muestra Desde / Hasta y no consulta hasta tener ambas fechas', async () => {
     renderStats()
     await loaded()
-    fireEvent.click(screen.getByRole('tab', { name: 'Personalizado' }))
+    fireEvent.click(periodTab('Personalizado'))
     expect(screen.getByLabelText('Desde')).toBeInTheDocument()
     expect(screen.getByLabelText('Hasta')).toBeInTheDocument()
     await act(async () => {})
@@ -251,7 +252,7 @@ describe('Stats — período personalizado', () => {
   it('con ambas fechas válidas dispara la carga con ese rango', async () => {
     renderStats()
     await loaded()
-    fireEvent.click(screen.getByRole('tab', { name: 'Personalizado' }))
+    fireEvent.click(periodTab('Personalizado'))
     fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '01102026' } })
     fireEvent.change(screen.getByLabelText('Hasta'), { target: { value: '15102026' } })
     await waitFor(() => expect(api.getSalesSummary).toHaveBeenCalledTimes(4))
@@ -264,7 +265,7 @@ describe('Stats — período personalizado', () => {
   it('desde > hasta no consulta', async () => {
     renderStats()
     await loaded()
-    fireEvent.click(screen.getByRole('tab', { name: 'Personalizado' }))
+    fireEvent.click(periodTab('Personalizado'))
     fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '20102026' } })
     fireEvent.change(screen.getByLabelText('Hasta'), { target: { value: '10102026' } })
     await act(async () => {})
@@ -274,7 +275,7 @@ describe('Stats — período personalizado', () => {
   it('"Últimos 7 días" completa las fechas y dispara la carga', async () => {
     renderStats()
     await loaded()
-    fireEvent.click(screen.getByRole('tab', { name: 'Personalizado' }))
+    fireEvent.click(periodTab('Personalizado'))
     fireEvent.click(screen.getByRole('button', { name: 'Últimos 7 días' }))
     await waitFor(() => expect(api.getSalesSummary).toHaveBeenCalledTimes(4))
     expect((screen.getByLabelText('Hasta') as HTMLInputElement).value).toMatch(/^\d{2}\/\d{2}\/\d{4}$/)
@@ -283,7 +284,7 @@ describe('Stats — período personalizado', () => {
   it('"Mes pasado" completa el primer y último día del mes anterior', async () => {
     renderStats()
     await loaded()
-    fireEvent.click(screen.getByRole('tab', { name: 'Personalizado' }))
+    fireEvent.click(periodTab('Personalizado'))
     fireEvent.click(screen.getByRole('button', { name: 'Mes pasado' }))
     await waitFor(() => expect(api.getSalesSummary).toHaveBeenCalledTimes(4))
     const now = new Date()

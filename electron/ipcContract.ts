@@ -5,6 +5,7 @@ import type {
   CreateSupplierInput,
   ListStockMovementsFilters,
   ProductFilters,
+  StatsRangeInput,
   UpdateCategoryInput,
   UpdateProductInput,
   UpdateSupplierInput
@@ -189,12 +190,12 @@ export interface ElectronApi {
   listSales: (filters?: ListSalesFiltersPayload) => Promise<SaleFromApi[]>
   getSaleById: (id: number) => Promise<SaleFromApi | null>
 
-  getSalesSummary: (input: { from: Date; to: Date }) => Promise<StatsSummaryFromApi>
-  getTopProductsByQuantity: (input: { from: Date; to: Date; limit: number }) => Promise<TopProductFromApi[]>
-  getTopProductsByRevenue: (input: { from: Date; to: Date; limit: number }) => Promise<TopProductFromApi[]>
-  getSalesByHour: (input: { from: Date; to: Date }) => Promise<SalesByPeriodFromApi[]>
-  getSalesByWeekday: (input: { from: Date; to: Date }) => Promise<SalesByPeriodFromApi[]>
-  getLowRotationProducts: (input: { from: Date; to: Date; limit: number }) => Promise<LowRotationFromApi[]>
+  getSalesSummary: (input: StatsRangeInput) => Promise<StatsSummaryFromApi>
+  getTopProductsByQuantity: (input: StatsRangeInput & { limit: number }) => Promise<TopProductFromApi[]>
+  getTopProductsByRevenue: (input: StatsRangeInput & { limit: number }) => Promise<TopProductFromApi[]>
+  getSalesByHour: (input: StatsRangeInput) => Promise<SalesByPeriodFromApi[]>
+  getSalesByWeekday: (input: StatsRangeInput) => Promise<SalesByPeriodFromApi[]>
+  getLowRotationProducts: (input: StatsRangeInput & { limit: number }) => Promise<LowRotationFromApi[]>
 }
 
 export function buildElectronApi(invoke: IpcInvoke): ElectronApi {

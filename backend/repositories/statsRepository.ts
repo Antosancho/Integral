@@ -1,5 +1,9 @@
 import prisma from '../db/client'
 import { Prisma } from '@prisma/client'
+import { buildSaleDateWhere, findIntervalIndex, normalizeStatsIntervals, type StatsInterval } from './statsIntervals'
+
+// Tipos del payload de los canales stats:* (se re-exportan para electron/ y para el índice de repositorios)
+export type { StatsInterval, StatsRangeInput } from './statsIntervals'
 
 // ---------------------------------------------------------------------------
 // Tipos de retorno expuestos hacia el IPC
@@ -39,19 +43,21 @@ export type LowRotationResult = {
 /**
  * Retorna totales de revenue, cantidad de ventas, ticket promedio y ganancia.
  * La ganancia solo considera ítems con productId y purchasePriceSnapshot (ventas nuevas).
+ * Con `intervals`, solo cuentan las ventas dentro de algún intervalo [from, to) (filtro horario).
  */
-export async function getSalesSummary(from: Date, to: Date): Promise<StatsSummary> {
+export async function getSalesSummary(from: Date, to: Date, intervals?: StatsInterval[]): Promise<StatsSummary> {
+  const saleWhere = buildSaleDateWhere(from, to, intervals)
   const [aggResult, profitItems] = await Promise.all([
     // Agrega totales de ventas en el rango
     prisma.sale.aggregate({
-      where: { date: { gte: from, lte: to } },
+      where: saleWhere,
       _sum: { total: true },
       _count: { id: true }
     }),
     // Trae ítems con snapshot de precio de compra para calcular margen
     prisma.saleItem.findMany({
       where: {
-        sale: { date: { gte: from, lte: to } },
+        sale: saleWhere,
         productId: { not: null },
         purchasePriceSnapshot: { not: null }
       },
@@ -88,16 +94,19 @@ export async function getSalesSummary(from: Date, to: Date): Promise<StatsSummar
 
 /**
  * Retorna los `limit` productos con más unidades vendidas en el período.
+ * Con `intervals`, solo cuentan las ventas dentro de algún intervalo [from, to) (filtro horario).
  */
 export async function getTopProductsByQuantity(
   from: Date,
   to: Date,
-  limit: number
+  limit: number,
+  intervals?: StatsInterval[]
 ): Promise<TopProductResult[]> {
+  const saleWhere = buildSaleDateWhere(from, to, intervals)
   const grouped = await prisma.saleItem.groupBy({
     by: ['productId'],
     where: {
-      sale: { date: { gte: from, lte: to } },
+      sale: saleWhere,
       productId: { not: null }
     },
     _sum: { quantity: true },
@@ -130,15 +139,18 @@ export async function getTopProductsByQuantity(
 /**
  * Retorna los `limit` productos con mayor facturación (unitPrice × quantity) en el período.
  * Se agrupa en JS porque Prisma no permite `SUM(unitPrice * quantity)` directamente.
+ * Con `intervals`, solo cuentan las ventas dentro de algún intervalo [from, to) (filtro horario).
  */
 export async function getTopProductsByRevenue(
   from: Date,
   to: Date,
-  limit: number
+  limit: number,
+  intervals?: StatsInterval[]
 ): Promise<TopProductResult[]> {
+  const saleWhere = buildSaleDateWhere(from, to, intervals)
   const items = await prisma.saleItem.findMany({
     where: {
-      sale: { date: { gte: from, lte: to } },
+      sale: saleWhere,
       productId: { not: null }
     },
     select: { productId: true, quantity: true, unitPrice: true }
@@ -181,10 +193,13 @@ export async function getTopProductsByRevenue(
 /**
  * Retorna cantidad de ventas y total facturado por cada hora (0–23) del período.
  * Solo aparecen las horas que tuvieron al menos una venta.
+ * Con `intervals`, solo cuentan las ventas dentro de algún intervalo [from, to) (filtro horario);
+ * la hora sigue siendo la hora real de la venta.
  */
-export async function getSalesByHour(from: Date, to: Date): Promise<SalesByPeriodResult[]> {
+export async function getSalesByHour(from: Date, to: Date, intervals?: StatsInterval[]): Promise<SalesByPeriodResult[]> {
+  const saleWhere = buildSaleDateWhere(from, to, intervals)
   const sales = await prisma.sale.findMany({
-    where: { date: { gte: from, lte: to } },
+    where: saleWhere,
     select: { date: true, total: true }
   })
 
@@ -211,16 +226,26 @@ export async function getSalesByHour(from: Date, to: Date): Promise<SalesByPerio
 /**
  * Retorna cantidad de ventas y total facturado por día de semana (0=Dom, 6=Sáb).
  * Solo aparecen los días que tuvieron al menos una venta.
+ * Con `intervals`, el día de semana es el del día ancla (el día en que empieza el intervalo que
+ * contiene la venta).
  */
-export async function getSalesByWeekday(from: Date, to: Date): Promise<SalesByPeriodResult[]> {
+export async function getSalesByWeekday(from: Date, to: Date, intervals?: StatsInterval[]): Promise<SalesByPeriodResult[]> {
+  const sorted = normalizeStatsIntervals(intervals)
   const sales = await prisma.sale.findMany({
-    where: { date: { gte: from, lte: to } },
+    where: buildSaleDateWhere(from, to, sorted),
     select: { date: true, total: true }
   })
 
   const byWeekday = new Map<number, { count: number; total: Prisma.Decimal }>()
   for (const sale of sales) {
-    const d = sale.date.getDay()
+    let d = sale.date.getDay()
+    if (sorted.length > 0) {
+      // Día ancla = día en que EMPIEZA el intervalo: con jornada 08→02, la venta del
+      // martes 01:00 cae en el intervalo del lunes y cuenta como lunes.
+      const idx = findIntervalIndex(sorted, sale.date)
+      if (idx === -1) continue // no debería pasar: el where ya filtró por los intervalos
+      d = sorted[idx].from.getDay()
+    }
     const prev = byWeekday.get(d) ?? { count: 0, total: new Prisma.Decimal(0) }
     byWeekday.set(d, { count: prev.count + 1, total: prev.total.add(sale.total) })
   }
@@ -241,18 +266,21 @@ export async function getSalesByWeekday(from: Date, to: Date): Promise<SalesByPe
 /**
  * Retorna los `limit` productos con menos unidades vendidas en el período.
  * Los productos sin ventas aparecen con totalQuantity = 0.
+ * Con `intervals`, solo cuentan las ventas dentro de algún intervalo [from, to) (filtro horario).
  */
 export async function getLowRotationProducts(
   from: Date,
   to: Date,
-  limit: number
+  limit: number,
+  intervals?: StatsInterval[]
 ): Promise<LowRotationResult[]> {
+  const saleWhere = buildSaleDateWhere(from, to, intervals)
   const [allProducts, soldGroups] = await Promise.all([
     prisma.product.findMany({ select: { id: true, name: true } }),
     prisma.saleItem.groupBy({
       by: ['productId'],
       where: {
-        sale: { date: { gte: from, lte: to } },
+        sale: saleWhere,
         productId: { not: null }
       },
       _sum: { quantity: true }

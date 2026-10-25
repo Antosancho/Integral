@@ -10,13 +10,26 @@ import type { Navigate } from '../../navigation'
 import { Button } from '../../ui/Button'
 import { DateField } from '../../ui/DateField'
 import { EmptyState } from '../../ui/EmptyState'
+import { InlineAlert } from '../../ui/InlineAlert'
 import { Segmented } from '../../ui/Segmented'
 import { TableSkeleton } from '../../ui/TableSkeleton'
 import { useDelayedFlag } from '../../ui/useDelayedFlag'
 import { formatDate, formatInt, formatMoney } from '../../utils/format'
 import { parseDateAR } from '../../utils/parse'
+import HourFilterBar from './HourFilterBar'
+import {
+  MAX_FILTERED_DAYS,
+  countDays,
+  getBusinessToday,
+  orderHourRows,
+  resolveHourFilter,
+  toStatsInput,
+  type HourFilterMode,
+  type TimeWindow
+} from './hourFilter'
 import RankingList from './RankingList'
 import StatCard from './StatCard'
+import { loadWorkday, saveWorkday } from './workdayStorage'
 import {
   HOUR_LABEL,
   WEEKDAY_LABELS,
@@ -24,7 +37,7 @@ import {
   comparedToLabel,
   formatRange,
   getEndOfDay,
-  getPeriodDates,
+  getPeriodDatesAt,
   getPreviousPeriod,
   getStartOfDay,
   peakIndex,
@@ -50,16 +63,26 @@ const PERIOD_OPTIONS: { value: PeriodPreset; label: string; icon?: typeof Calend
 ]
 
 /**
- * Estadísticas: período (Hoy / Esta semana / Este mes / Personalizado), 4 KPIs con comparación contra el
- * período anterior, rankings de productos, ventas por franja y productos de menor rotación.
+ * Estadísticas: período (Hoy / Esta semana / Este mes / Personalizado) + filtro horario (Todo el día /
+ * Jornada laboral / Personalizado), 4 KPIs con comparación contra el período anterior (con la misma franja),
+ * rankings de productos, ventas por franja y productos de menor rotación.
  *
- * Las 7 consultas se hacen en paralelo (`Promise.all`); la comparación llama a `getSalesSummary` dos veces
- * (período actual y anterior). Click en un producto abre Stock › Movimientos filtrado por ese producto.
+ * Con franja, se arma un intervalo [from, to) por día del período (`hourFilter.ts`) y se manda en
+ * `intervals`; sin franja el payload es `{ from, to }` como siempre. Las 7 consultas se hacen en paralelo
+ * (`Promise.all`); la comparación llama a `getSalesSummary` dos veces (período actual y anterior).
+ * Click en un producto abre Stock › Movimientos filtrado por ese producto.
  */
 export default function Stats({ navigate }: Props) {
   const [preset, setPreset] = useState<PeriodPreset>('month')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
+
+  // ── Filtro horario ──────────────────────────────────────────────────────
+  // El modo no se recuerda (arranca en "Todo el día"); la jornada sí (localStorage).
+  const [hourMode, setHourMode] = useState<HourFilterMode>('all')
+  const [workday, setWorkday] = useState<TimeWindow>(() => loadWorkday())
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -76,39 +99,62 @@ export default function Stats({ navigate }: Props) {
   const [temporalTab, setTemporalTab] = useState<'hour' | 'weekday'>('hour')
   const [showAllLow, setShowAllLow] = useState(false)
 
-  // Rango actual: para "Personalizado" solo existe si ambas fechas son válidas y desde <= hasta.
+  const hourState = resolveHourFilter(hourMode, workday, customStart, customEnd)
+  const currentWindow: TimeWindow | null = hourState.kind === 'window' ? hourState.window : null
+  // Primitivos para las dependencias de los useMemo: un objeto nuevo en cada render dispararía recargas.
+  const winStart = currentWindow ? currentWindow.startMinute : null
+  const winEnd = currentWindow ? currentWindow.endMinute : null
+  const hourReady = hourState.kind !== 'incomplete'
+
+  // Rango actual (días ancla). Con franja, Hoy / Esta semana / Este mes se anclan al día comercial en curso.
+  // Para "Personalizado" solo existe si ambas fechas son válidas y desde <= hasta.
+  // Con "Personalizado" (horario) incompleto no hay rango: no se consulta.
   const range = useMemo<DateRange | null>(() => {
-    if (preset !== 'custom') return getPeriodDates(preset)
+    if (!hourReady) return null
+    const w = winStart !== null && winEnd !== null ? { startMinute: winStart, endMinute: winEnd } : null
+    if (preset !== 'custom') return getPeriodDatesAt(preset, getBusinessToday(new Date(), w))
     const from = parseDateAR(customFrom)
     const to = parseDateAR(customTo)
     if (!from || !to || from.getTime() > to.getTime()) return null
     return { from: getStartOfDay(from), to: getEndOfDay(to) }
-  }, [preset, customFrom, customTo])
+  }, [preset, customFrom, customTo, hourReady, winStart, winEnd])
 
   const prevRange = useMemo(() => (range ? getPreviousPeriod(range, preset) : null), [range, preset])
 
+  // Con franja, un período de más de MAX_FILTERED_DAYS días no se consulta (se avisa).
+  const tooLong = winStart !== null && range !== null && countDays(range) > MAX_FILTERED_DAYS
+
+  // Payloads de las 7 consultas. Sin franja: { from, to } como siempre; con franja: + intervals,
+  // y el período anterior usa la MISMA franja.
+  const query = useMemo(() => {
+    if (!range || !prevRange || tooLong) return null
+    const w = winStart !== null && winEnd !== null ? { startMinute: winStart, endMinute: winEnd } : null
+    return { window: w, input: toStatsInput(range, w), prevInput: toStatsInput(prevRange, w) }
+  }, [range, prevRange, tooLong, winStart, winEnd])
+
   useEffect(() => {
-    if (!range || !prevRange) return
+    if (!query) return
     let cancelled = false
     ;(async () => {
       setLoading(true)
       setError(false)
       try {
+        const { input, prevInput } = query
         const [cur, prv, qty, rev, hour, wday, low] = await Promise.all([
-          window.api.getSalesSummary({ from: range.from, to: range.to }),
-          window.api.getSalesSummary({ from: prevRange.from, to: prevRange.to }),
-          window.api.getTopProductsByQuantity({ from: range.from, to: range.to, limit: TOP_LIMIT }),
-          window.api.getTopProductsByRevenue({ from: range.from, to: range.to, limit: TOP_LIMIT }),
-          window.api.getSalesByHour({ from: range.from, to: range.to }),
-          window.api.getSalesByWeekday({ from: range.from, to: range.to }),
-          window.api.getLowRotationProducts({ from: range.from, to: range.to, limit: LOW_LIMIT })
+          window.api.getSalesSummary(input),
+          window.api.getSalesSummary(prevInput),
+          window.api.getTopProductsByQuantity({ ...input, limit: TOP_LIMIT }),
+          window.api.getTopProductsByRevenue({ ...input, limit: TOP_LIMIT }),
+          window.api.getSalesByHour(input),
+          window.api.getSalesByWeekday(input),
+          window.api.getLowRotationProducts({ ...input, limit: LOW_LIMIT })
         ])
         if (cancelled) return
         setSummary(cur)
         setPrevSummary(prv)
         setTopByQty(qty)
         setTopByRev(rev)
-        setByHour(hour)
+        setByHour(orderHourRows(hour, query.window))
         setByWeekday(wday)
         setLowRot(low)
       } catch (e) {
@@ -121,20 +167,25 @@ export default function Stats({ navigate }: Props) {
     return () => {
       cancelled = true
     }
-  }, [range, prevRange, reloadKey])
+  }, [query, reloadKey])
 
   const showSkeleton = useDelayedFlag(loading)
 
   const openMovements = (id: number, name: string) =>
     navigate({ section: 'stock', stockView: 'movements', movementsProduct: { id, name } })
 
+  const changeWorkday = (w: TimeWindow) => {
+    saveWorkday(w)
+    setWorkday(w)
+  }
+
   const fillLastSevenDays = () => {
-    const today = new Date()
+    const today = getBusinessToday(new Date(), currentWindow)
     setCustomFrom(formatDate(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6)))
     setCustomTo(formatDate(today))
   }
   const fillLastMonth = () => {
-    const today = new Date()
+    const today = getBusinessToday(new Date(), currentWindow)
     setCustomFrom(formatDate(new Date(today.getFullYear(), today.getMonth() - 1, 1)))
     setCustomTo(formatDate(new Date(today.getFullYear(), today.getMonth(), 0)))
   }
@@ -175,6 +226,23 @@ export default function Stats({ navigate }: Props) {
             Mes pasado
           </Button>
         </div>
+      )}
+
+      <HourFilterBar
+        mode={hourMode}
+        onModeChange={setHourMode}
+        workday={workday}
+        onWorkdayChange={changeWorkday}
+        customStart={customStart}
+        customEnd={customEnd}
+        onCustomStartChange={setCustomStart}
+        onCustomEndChange={setCustomEnd}
+      />
+
+      {tooLong && (
+        <InlineAlert tone="info">
+          {`Con un filtro horario el período puede tener hasta ${MAX_FILTERED_DAYS} días. Acortá las fechas o elegí «Todo el día».`}
+        </InlineAlert>
       )}
 
       {error && (

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   getPeriodDates,
+  getPeriodDatesAt,
   getPreviousPeriod,
   calcPctChange,
   formatPctChange,
@@ -12,6 +13,20 @@ import {
   HOUR_LABEL,
   peakIndex
 } from '../statsUtils'
+
+describe('getPeriodDatesAt', () => {
+  it.each([
+    ['today', new Date(2026, 9, 20, 1, 0), new Date(2026, 9, 20, 0, 0, 0, 0), new Date(2026, 9, 20, 23, 59, 59, 999)],
+    ['week', new Date(2026, 9, 25, 12, 0), new Date(2026, 9, 19, 0, 0, 0, 0), new Date(2026, 9, 25, 23, 59, 59, 999)],
+    ['week', new Date(2026, 9, 19, 0, 0), new Date(2026, 9, 19, 0, 0, 0, 0), new Date(2026, 9, 25, 23, 59, 59, 999)],
+    ['week', new Date(2026, 9, 26, 10, 0), new Date(2026, 9, 26, 0, 0, 0, 0), new Date(2026, 10, 1, 23, 59, 59, 999)],
+    ['month', new Date(2026, 9, 31, 23, 0), new Date(2026, 9, 1, 0, 0, 0, 0), new Date(2026, 9, 31, 23, 59, 59, 999)],
+    ['month', new Date(2028, 1, 10), new Date(2028, 1, 1, 0, 0, 0, 0), new Date(2028, 1, 29, 23, 59, 59, 999)],
+    ['month', new Date(2026, 11, 15), new Date(2026, 11, 1, 0, 0, 0, 0), new Date(2026, 11, 31, 23, 59, 59, 999)]
+  ] as const)('%s con ref %s', (preset, ref, from, to) => {
+    expect(getPeriodDatesAt(preset, ref)).toEqual({ from, to })
+  })
+})
 
 // ---------------------------------------------------------------------------
 // getPeriodDates

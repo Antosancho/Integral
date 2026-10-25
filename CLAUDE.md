@@ -291,9 +291,9 @@ type CartLine = {
 - Los tipos `ProductFromApi`, `CategoryFromApi`, `SupplierFromApi`, etc. de [electron-api.d.ts](renderer/src/electron-api.d.ts) pasan a ser **exportados explícitamente** (antes estaban declarados sin `export` y el archivo es un módulo por `export {}`, por lo que no eran ni globales ni importables).
 - `formatMoney` se extrae de la pantalla de Stock a un util compartido en `renderer/src/utils/format.ts` para reutilizar en Sells (hoy formatea `$ 1.234,50` con `−` en negativos).
 
-### Módulo de Estadísticas (planificado)
+### Módulo de Estadísticas
 
-Nueva pantalla `Stats` accesible desde el Header (botón "Estadísticas"). Período de análisis con 4 presets: **Hoy | Esta semana | Este mes | Personalizado** (default: Este mes).
+Pantalla `Stats` accesible desde el Header (botón "Estadísticas", `Ctrl+3`). Período de análisis con 4 presets: **Hoy | Esta semana | Este mes | Personalizado** (default: Este mes) y **filtro horario**: **Todo el día | Jornada laboral | Personalizado** (default: Todo el día).
 
 **Estadísticas a mostrar:**
 1. **Ventas Totales** — total facturado en el período
@@ -308,9 +308,19 @@ Nueva pantalla `Stats` accesible desde el Header (botón "Estadísticas"). Perí
 
 **Cambio de schema**: se agrega `purchasePriceSnapshot Decimal?` a `SaleItem` (nullable, retrocompatible). Al crear una venta nueva, guarda el `purchasePrice` del producto en ese momento. Ítems "general" quedan con `null`. Requiere migración Prisma.
 
-**Backend**: repositorio `statsRepository.ts` con 6 funciones de agregación. 6 canales IPC nuevos: `stats:getSummary`, `stats:getTopProductsByQuantity`, `stats:getTopProductsByRevenue`, `stats:getSalesByHour`, `stats:getSalesByWeekday`, `stats:getLowRotationProducts`.
+**Backend**: repositorio `statsRepository.ts` con 6 funciones de agregación. 6 canales IPC: `stats:getSummary`, `stats:getTopProductsByQuantity`, `stats:getTopProductsByRevenue`, `stats:getSalesByHour`, `stats:getSalesByWeekday`, `stats:getLowRotationProducts`. Todos aceptan `intervals?` (filtro horario); sin `intervals` el resultado es el de siempre.
 
 **Frontend**: Las 7 llamadas se hacen en `Promise.all`. Comparación de períodos: el frontend llama a `getSalesSummary` dos veces en paralelo (período actual + período anterior). `getPreviousPeriod` es calendar-aware: para 'month' retorna el mes calendario anterior; para 'week' retrocede 7 días; para el resto usa el mismo rango en ms.
+
+#### Filtro horario (vigente)
+
+- **Afecta a todo el panel**: los 4 KPIs, la comparación (el período anterior usa la misma franja), los rankings, "Por hora" / "Por día de semana" y menor rotación.
+- **Opciones** (`Pages/Stats/HourFilterBar.tsx`): "Todo el día" (días calendario, como siempre; el payload no lleva `intervals`) · "Jornada laboral" (franja guardada; "Cambiar jornada" la edita en el lugar con "Abre" / "Cierra"; default 08:00 → 02:00) · "Personalizado" ("Desde hora" / "Hasta hora" en `HH:MM` con `ui/TimeField.tsx`: texto con máscara, nada de `type="time"`; no se consulta hasta tener las dos horas válidas).
+- **Jornada en localStorage**: clave `integral.stats.workday`, valor `{"start":"08:00","end":"02:00"}` (`Pages/Stats/workdayStorage.ts`; sin clave, corrupto, inválido o sin storage → default). El modo elegido **no** se recuerda: al abrir arranca en "Todo el día".
+- **Semántica** (`Pages/Stats/hourFilter.ts`): `desde` inclusivo, `hasta` exclusivo. `desde < hasta` → cada día D: `[D desde, D hasta)`. `hasta <= desde` → **día comercial** `[D desde, D+1 hasta)` (`desde == hasta` = 24 h). Cada venta pertenece al día en que empieza su intervalo: con 08→02 la venta del martes 01:00 cuenta para el **lunes** (en el período y en "Por día de semana"); sin filtro horario cuenta para el martes. "Hoy / Esta semana / Este mes" y los atajos "Últimos 7 días" / "Mes pasado" se anclan al día comercial en curso (`getBusinessToday`: martes 01:00 → lunes; martes 05:00 → martes). "Por hora" agrupa por hora real y, con franja, se ordena desde la hora de apertura (08…23, 00, 01).
+- **Tope**: con franja, el período puede tener hasta 366 días (`MAX_FILTERED_DAYS`); si no, no se consulta y se avisa con `InlineAlert`.
+- **Arquitectura**: el renderer arma un intervalo `[from, to)` por día ancla (`buildIntervals`, siempre con `new Date(y, m, d, h, min)`) y lo manda en el campo opcional `intervals` (`StatsRangeInput = { from, to, intervals? }` en `backend/repositories/statsIntervals.ts`, `electron/ipcContract.ts` y `renderer/src/electron-api.d.ts`). El backend valida (máx. 400 intervalos, `from < to`) y `buildSaleDateWhere` filtra con `date >= primer inicio AND date < último fin AND (OR de intervalos)`: el rango envolvente es obligatorio para que SQLite use el índice de `Sale.date`. "Por día de semana" toma el día ancla con `findIntervalIndex` (búsqueda binaria).
+- **Tests**: `renderer/src/Pages/Stats/__tests__/` (`hourFilter`, `workdayStorage`, `HourFilterBar`, `StatsHourFilter`, `statsUtils`, `Stats`), `renderer/src/utils/__tests__/time.test.ts`, `renderer/src/ui/__tests__/TimeField.test.tsx` y `npm run test:stats-repository` (DB temporal; incluido en `test:backend`).
 
 ---
 
