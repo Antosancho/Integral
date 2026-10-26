@@ -1,1 +1,0 @@
-export type Cont = 'sells' | 'stock' | 'history' | 'stats'

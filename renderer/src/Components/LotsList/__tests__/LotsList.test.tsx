@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { BareProductFromApi, StockMovementFromApi } from '../../../electron-api'
 import LotsList from '../LotsList'
@@ -34,11 +34,11 @@ function lot(overrides: Partial<StockMovementFromApi>): StockMovementFromApi {
 }
 
 describe('LotsList', () => {
-  it('sin lotes renderiza el emptyText por defecto y no renderiza ul', () => {
+  it('sin lotes renderiza el emptyText por defecto y ningún badge', () => {
     const { container } = render(<LotsList lots={[]} />)
 
     expect(screen.getByText('—')).toBeInTheDocument()
-    expect(container.querySelector('ul')).toBeNull()
+    expect(container.querySelector('.ig-badge')).toBeNull()
   })
 
   it('respeta un emptyText custom', () => {
@@ -58,32 +58,33 @@ describe('LotsList', () => {
       />
     )
 
-    const rows = screen.getAllByRole('listitem')
+    const rows = document.querySelectorAll('.ig-badge')
     expect(rows).toHaveLength(3)
-    expect(within(rows[0]).getByText('2 u.')).toBeInTheDocument()
-    expect(rows[0]).toHaveTextContent('2026-05-01')
+    expect(rows[0]).toHaveTextContent('2 u.')
+    expect(rows[0]).toHaveTextContent('01/05/2026')
   })
 
   it('muestra "sin vencimiento" cuando expiryDate es null', () => {
     render(<LotsList lots={[lot({ id: 1, quantity: 2, expiryDate: null })]} />)
 
-    expect(screen.getByRole('listitem')).toHaveTextContent('sin vencimiento')
+    expect(document.querySelector('.ig-badge')).toHaveTextContent('sin vencimiento')
+    expect(document.querySelector('.ig-badge')).toHaveClass('ig-badge-neutral')
   })
 
-  it('marca como expired un lote vencido', () => {
+  it('marca en rojo (ig-badge-danger) un lote vencido', () => {
     const yesterday = new Date()
     yesterday.setDate(yesterday.getDate() - 1)
 
     render(<LotsList lots={[lot({ id: 1, expiryDate: yesterday })]} />)
 
-    expect(screen.getByRole('listitem')).toHaveClass('lots-list__item--expired')
+    expect(document.querySelector('.ig-badge')).toHaveClass('ig-badge-danger')
   })
 
-  it('marca como today un lote que vence hoy', () => {
+  it('marca en azul (ig-badge-info) un lote que vence hoy', () => {
     const today = new Date()
 
     render(<LotsList lots={[lot({ id: 1, expiryDate: today })]} />)
 
-    expect(screen.getByRole('listitem')).toHaveClass('lots-list__item--today')
+    expect(document.querySelector('.ig-badge')).toHaveClass('ig-badge-info')
   })
 })

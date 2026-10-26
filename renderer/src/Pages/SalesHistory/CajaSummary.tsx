@@ -1,14 +1,16 @@
 import { computeCaja, type CajaResult } from './cajaUtils'
 import type { SaleFromApi } from '../../electron-api'
 import { formatMoney } from '../../utils/format'
-import './CajaSummary.css'
 
 interface Props {
   sales: SaleFromApi[]
 }
 
+/**
+ * Resumen de caja del período listado: total vendido y desglose por medio de pago.
+ * No se muestra si no hay ventas.
+ */
 export default function CajaSummary({ sales }: Props) {
-  // Return null if no sales to avoid rendering empty component
   if (sales.length === 0) {
     return null
   }
@@ -16,25 +18,22 @@ export default function CajaSummary({ sales }: Props) {
   const { total, byMethod }: CajaResult = computeCaja(sales)
 
   return (
-    <section className="caja-summary">
-      <h3>Resumen de caja</h3>
-      
-      {/* Total row */}
-      <div className="caja-summary__row caja-summary__row--total">
-        <span className="caja-summary__label">Total del período</span>
-        <span className="caja-summary__value">{formatMoney(total)}</span>
+    <section className="ig-card">
+      <div className="ig-card-head">
+        <h3>Resumen de caja</h3>
       </div>
-      
-      {/* Separator if there are payment methods */}
-      {byMethod.length > 0 && <hr className="caja-summary__separator" />}
-      
-      {/* Payment methods rows */}
-      {byMethod.map((method) => (
-        <div key={method.method} className="caja-summary__row">
-          <span className="caja-summary__label">{method.label}</span>
-          <span className="caja-summary__value">{formatMoney(method.amount)}</span>
+      <div className="ig-card-body" style={{ display: 'grid', gap: 8 }}>
+        <div className="ig-pay-row" style={{ color: 'var(--ink)' }}>
+          <b>Total del período</b>
+          <span className="v num">{formatMoney(total)}</span>
         </div>
-      ))}
+        {byMethod.map((method) => (
+          <div key={method.method} className="ig-pay-row">
+            <span>{method.label}</span>
+            <span className="v num">{formatMoney(method.amount)}</span>
+          </div>
+        ))}
+      </div>
     </section>
   )
 }

@@ -1,13 +1,32 @@
 import { describe, it, expect } from 'vitest'
 import {
   getPeriodDates,
+  getPeriodDatesAt,
   getPreviousPeriod,
   calcPctChange,
   formatPctChange,
   formatMoney,
   getStartOfDay,
-  getEndOfDay
+  getEndOfDay,
+  formatRange,
+  comparedToLabel,
+  HOUR_LABEL,
+  peakIndex
 } from '../statsUtils'
+
+describe('getPeriodDatesAt', () => {
+  it.each([
+    ['today', new Date(2026, 9, 20, 1, 0), new Date(2026, 9, 20, 0, 0, 0, 0), new Date(2026, 9, 20, 23, 59, 59, 999)],
+    ['week', new Date(2026, 9, 25, 12, 0), new Date(2026, 9, 19, 0, 0, 0, 0), new Date(2026, 9, 25, 23, 59, 59, 999)],
+    ['week', new Date(2026, 9, 19, 0, 0), new Date(2026, 9, 19, 0, 0, 0, 0), new Date(2026, 9, 25, 23, 59, 59, 999)],
+    ['week', new Date(2026, 9, 26, 10, 0), new Date(2026, 9, 26, 0, 0, 0, 0), new Date(2026, 10, 1, 23, 59, 59, 999)],
+    ['month', new Date(2026, 9, 31, 23, 0), new Date(2026, 9, 1, 0, 0, 0, 0), new Date(2026, 9, 31, 23, 59, 59, 999)],
+    ['month', new Date(2028, 1, 10), new Date(2028, 1, 1, 0, 0, 0, 0), new Date(2028, 1, 29, 23, 59, 59, 999)],
+    ['month', new Date(2026, 11, 15), new Date(2026, 11, 1, 0, 0, 0, 0), new Date(2026, 11, 31, 23, 59, 59, 999)]
+  ] as const)('%s con ref %s', (preset, ref, from, to) => {
+    expect(getPeriodDatesAt(preset, ref)).toEqual({ from, to })
+  })
+})
 
 // ---------------------------------------------------------------------------
 // getPeriodDates
@@ -160,20 +179,88 @@ describe('calcPctChange', () => {
 // ---------------------------------------------------------------------------
 
 describe('formatPctChange', () => {
-  it('null → "N/A"', () => {
-    expect(formatPctChange(null)).toBe('N/A')
+  it('null → "—"', () => {
+    expect(formatPctChange(null)).toBe('—')
   })
 
-  it('20 → "+20.0%"', () => {
-    expect(formatPctChange(20)).toBe('+20.0%')
+  it('20 → "+20,0 %"', () => {
+    expect(formatPctChange(20)).toBe('+20,0 %')
   })
 
-  it('-20 → "-20.0%"', () => {
-    expect(formatPctChange(-20)).toBe('-20.0%')
+  it('12.4 → "+12,4 %"', () => {
+    expect(formatPctChange(12.4)).toBe('+12,4 %')
   })
 
-  it('0 → "+0.0%"', () => {
-    expect(formatPctChange(0)).toBe('+0.0%')
+  it('-20 → "−20,0 %" (con el menos tipográfico)', () => {
+    expect(formatPctChange(-20)).toBe('−20,0 %')
+  })
+
+  it('0 → "0,0 %" (sin signo)', () => {
+    expect(formatPctChange(0)).toBe('0,0 %')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatRange / comparedToLabel / HOUR_LABEL / peakIndex
+// ---------------------------------------------------------------------------
+
+describe('formatRange', () => {
+  const range = (a: Date, b: Date) => ({ from: a, to: b })
+
+  it('mismo mes y año → "1 – 24 oct 2026"', () => {
+    expect(formatRange(range(new Date(2026, 9, 1), new Date(2026, 9, 24)))).toBe('1 – 24 oct 2026')
+  })
+
+  it('distinto mes → "28 sep – 4 oct 2026"', () => {
+    expect(formatRange(range(new Date(2026, 8, 28), new Date(2026, 9, 4)))).toBe('28 sep – 4 oct 2026')
+  })
+
+  it('distinto año → "28 dic 2025 – 3 ene 2026"', () => {
+    expect(formatRange(range(new Date(2025, 11, 28), new Date(2026, 0, 3)))).toBe('28 dic 2025 – 3 ene 2026')
+  })
+
+  it('un solo día se muestra como rango del mismo día', () => {
+    expect(formatRange(range(new Date(2026, 9, 24), new Date(2026, 9, 24)))).toBe('24 – 24 oct 2026')
+  })
+})
+
+describe('comparedToLabel', () => {
+  const prev = { from: new Date(2026, 8, 1), to: new Date(2026, 8, 30) }
+
+  it('hoy → "vs. ayer"', () => expect(comparedToLabel('today', prev)).toBe('vs. ayer'))
+  it('semana → "vs. semana anterior"', () => expect(comparedToLabel('week', prev)).toBe('vs. semana anterior'))
+  it('mes → nombre del mes anterior en minúscula', () => expect(comparedToLabel('month', prev)).toBe('vs. septiembre'))
+  it('personalizado → "vs. período anterior"', () => expect(comparedToLabel('custom', prev)).toBe('vs. período anterior'))
+})
+
+describe('HOUR_LABEL', () => {
+  it.each([
+    ['18', '18–19 h'],
+    ['07', '07–08 h'],
+    ['00', '00–01 h'],
+    ['23', '23–00 h']
+  ])('HOUR_LABEL(%j) → %s', (input, expected) => {
+    expect(HOUR_LABEL(input)).toBe(expected)
+  })
+
+  it('una etiqueta no numérica se devuelve igual', () => {
+    expect(HOUR_LABEL('xx')).toBe('xx')
+  })
+})
+
+describe('peakIndex', () => {
+  const row = (label: string, saleCount: number) => ({ label, saleCount, totalRevenue: '0' })
+
+  it('devuelve el índice de la fila con más ventas', () => {
+    expect(peakIndex([row('10', 3), row('11', 9), row('12', 4)])).toBe(1)
+  })
+
+  it('con empate, el primero', () => {
+    expect(peakIndex([row('10', 5), row('11', 5)])).toBe(0)
+  })
+
+  it('lista vacía → -1', () => {
+    expect(peakIndex([])).toBe(-1)
   })
 })
 

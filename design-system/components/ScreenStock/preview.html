@@ -1,0 +1,526 @@
+<!-- @dsCard group="Pantallas" height=768 width=1366 subtitle="Stock — tabla de productos (pantalla inicial)" page=true -->
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><title>ScreenStock — Integral</title>
+<style>body{background:var(--bg)} .ig-app{height:100vh;overflow:hidden} </style></head>
+<body>
+<div class="ig-app"><header class="ig-header">
+  <a class="ig-brand" href="#" aria-label="Factor Integral — inicio"><img src="/_blob/0140d0ab9e979f1edd362b46f3eca8a4" alt="Factor Integral" style="width:auto;height:30px;border-radius:0"></a>
+  <nav class="ig-nav" aria-label="Secciones"><a href="#" aria-current="page"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z" />
+  <path d="M12 22V12" />
+  <path d="m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7" />
+  <path d="m7.5 4.27 9 5.15" />
+</svg>Stock</a><a href="#"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="8" cy="21" r="1" />
+  <circle cx="19" cy="21" r="1" />
+  <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
+</svg>Ventas</a><a href="#"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+  <path d="M18 17V9" />
+  <path d="M13 17V5" />
+  <path d="M8 17v-3" />
+</svg>Estadísticas</a></nav>
+  <div class="ig-spacer"></div>
+  <button class="ig-expiry" aria-haspopup="dialog"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+  <path d="M12 9v4" />
+  <path d="M12 17h.01" />
+</svg>2 vencidos <span class="sep">·</span> 3 vencen hoy</button>
+</header>
+<main class="ig-page">
+ <div class="ig-page-head"><h1>Stock</h1><div class="ig-seg" role="tablist"><button aria-selected="true">Productos</button><button aria-selected="false">Movimientos</button></div><div class="ig-spacer"></div>
+  <button class="ig-btn ig-btn-secondary"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M16 16h6" />
+  <path d="M19 13v6" />
+  <path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14" />
+  <path d="m7.5 4.27 9 5.15" />
+  <polyline points="3.29 7 12 12 20.71 7" />
+  <line x1="12" x2="12" y1="22" y2="12" />
+</svg>Cargar stock</button><button class="ig-btn ig-btn-primary"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M5 12h14" />
+  <path d="M12 5v14" />
+</svg>Nuevo producto</button></div>
+ <div class="ig-toolbar"><div class="ig-input-wrap" style="width:380px"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="11" cy="11" r="8" />
+  <path d="m21 21-4.3-4.3" />
+</svg><input class="ig-input" placeholder="Buscar por nombre o código  (Ctrl+F)"></div>
+  <button class="ig-btn ig-btn-secondary ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M3 6h18" />
+  <path d="M7 12h10" />
+  <path d="M10 18h4" />
+</svg>Categoría: Todas</button><button class="ig-btn ig-btn-secondary ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 5v14" />
+  <path d="m19 12-7 7-7-7" />
+</svg>Solo stock bajo</button>
+  <div style="flex:1"></div><span class="ig-help">10 productos</span></div>
+ <div class="ig-alert ig-alert-danger"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+  <path d="M12 9v4" />
+  <path d="M12 17h.01" />
+</svg><div class="ig-alert-body"><strong>Hay 1 producto con stock negativo</strong><span>Coca-Cola 2,25 L tiene −3 unidades. Revisá las ventas o cargá stock.</span></div><button class="ig-btn ig-btn-secondary ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M16 16h6" />
+  <path d="M19 13v6" />
+  <path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14" />
+  <path d="m7.5 4.27 9 5.15" />
+  <polyline points="3.29 7 12 12 20.71 7" />
+  <line x1="12" x2="12" y1="22" y2="12" />
+</svg>Cargar stock</button></div>
+ <div class="ig-table-wrap" style="flex:1;overflow:auto"><table class="ig-table"><thead><tr><th>Código de barras</th><th>Nombre</th><th class="r">Precio</th><th class="r">Stock</th><th class="r">Stock mín.</th><th>Categoría / Proveedor</th><th class="actions">Acciones</th></tr></thead><tbody><tr><td class="code">7790080000123</td><td class="name">Leche entera La Serenísima 1 L</td><td class="r">$ 1.450,00</td><td class="r">24</td><td class="r" style="color:var(--ink-muted)">10</td><td>Lácteos<div style="color:var(--ink-muted);font-size:13px;line-height:18px">Distribuidora Sur</div></td><td class="actions"><button class="ig-btn ig-btn-edit ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+  <path d="m15 5 4 4" />
+</svg>Editar</button> <button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Más acciones"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="1" />
+  <circle cx="12" cy="5" r="1" />
+  <circle cx="12" cy="19" r="1" />
+</svg></button></td></tr><tr class="is-selected"><td class="code">7791234500017</td><td class="name">Yerba Playadito 1 kg</td><td class="r">$ 4.890,00</td><td class="r is-low"><span class="ig-stock"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 5v14" />
+  <path d="m19 12-7 7-7-7" />
+</svg>6</span></td><td class="r" style="color:var(--ink-muted)">8</td><td>Almacén<div style="color:var(--ink-muted);font-size:13px;line-height:18px">Mayorista Rosario</div></td><td class="actions"><button class="ig-btn ig-btn-edit ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+  <path d="m15 5 4 4" />
+</svg>Editar</button> <button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Más acciones"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="1" />
+  <circle cx="12" cy="5" r="1" />
+  <circle cx="12" cy="19" r="1" />
+</svg></button></td></tr><tr><td class="code">7790895000430</td><td class="name">Coca-Cola 2,25 L</td><td class="r">$ 3.200,00</td><td class="r is-negative"><span class="ig-stock"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+  <path d="M12 9v4" />
+  <path d="M12 17h.01" />
+</svg>-3</span></td><td class="r" style="color:var(--ink-muted)">12</td><td>Bebidas<div style="color:var(--ink-muted);font-size:13px;line-height:18px">Coca-Cola FEMSA</div></td><td class="actions"><button class="ig-btn ig-btn-edit ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+  <path d="m15 5 4 4" />
+</svg>Editar</button> <button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Más acciones"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="1" />
+  <circle cx="12" cy="5" r="1" />
+  <circle cx="12" cy="19" r="1" />
+</svg></button></td></tr><tr><td class="code">7792798000013</td><td class="name">Pan lactal Bimbo blanco</td><td class="r">$ 2.650,00</td><td class="r">15</td><td class="r" style="color:var(--ink-muted)">5</td><td>Panificados<div style="color:var(--ink-muted);font-size:13px;line-height:18px">Bimbo Argentina</div></td><td class="actions"><button class="ig-btn ig-btn-edit ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+  <path d="m15 5 4 4" />
+</svg>Editar</button> <button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Más acciones"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="1" />
+  <circle cx="12" cy="5" r="1" />
+  <circle cx="12" cy="19" r="1" />
+</svg></button></td></tr><tr><td class="code">7790040133488</td><td class="name">Galletitas Oreo 118 g</td><td class="r">$ 1.350,00</td><td class="r">40</td><td class="r" style="color:var(--ink-muted)">10</td><td>Almacén<div style="color:var(--ink-muted);font-size:13px;line-height:18px">Mayorista Rosario</div></td><td class="actions"><button class="ig-btn ig-btn-edit ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+  <path d="m15 5 4 4" />
+</svg>Editar</button> <button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Más acciones"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="1" />
+  <circle cx="12" cy="5" r="1" />
+  <circle cx="12" cy="19" r="1" />
+</svg></button></td></tr><tr><td class="code">7790387013505</td><td class="name">Fideos Matarazzo tirabuzón 500 g</td><td class="r">$ 1.180,00</td><td class="r is-low"><span class="ig-stock"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 5v14" />
+  <path d="m19 12-7 7-7-7" />
+</svg>0</span></td><td class="r" style="color:var(--ink-muted)">6</td><td>Almacén<div style="color:var(--ink-muted);font-size:13px;line-height:18px">Mayorista Rosario</div></td><td class="actions"><button class="ig-btn ig-btn-edit ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+  <path d="m15 5 4 4" />
+</svg>Editar</button> <button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Más acciones"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="1" />
+  <circle cx="12" cy="5" r="1" />
+  <circle cx="12" cy="19" r="1" />
+</svg></button></td></tr><tr><td class="code">7798062540017</td><td class="name">Arroz Gallo Oro 1 kg</td><td class="r">$ 1.990,00</td><td class="r">18</td><td class="r" style="color:var(--ink-muted)">6</td><td>Almacén<div style="color:var(--ink-muted);font-size:13px;line-height:18px">Mayorista Rosario</div></td><td class="actions"><button class="ig-btn ig-btn-edit ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+  <path d="m15 5 4 4" />
+</svg>Editar</button> <button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Más acciones"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="1" />
+  <circle cx="12" cy="5" r="1" />
+  <circle cx="12" cy="19" r="1" />
+</svg></button></td></tr><tr><td class="code">7790580660000</td><td class="name">Aceite de girasol Natura 1,5 L</td><td class="r">$ 4.350,00</td><td class="r">9</td><td class="r" style="color:var(--ink-muted)">6</td><td>Almacén<div style="color:var(--ink-muted);font-size:13px;line-height:18px">Distribuidora Sur</div></td><td class="actions"><button class="ig-btn ig-btn-edit ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+  <path d="m15 5 4 4" />
+</svg>Editar</button> <button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Más acciones"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="1" />
+  <circle cx="12" cy="5" r="1" />
+  <circle cx="12" cy="19" r="1" />
+</svg></button></td></tr><tr><td class="code">7791813000067</td><td class="name">Detergente Magistral 500 ml</td><td class="r">$ 2.100,00</td><td class="r">12</td><td class="r" style="color:var(--ink-muted)">4</td><td>Limpieza<div style="color:var(--ink-muted);font-size:13px;line-height:18px">Distribuidora Sur</div></td><td class="actions"><button class="ig-btn ig-btn-edit ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+  <path d="m15 5 4 4" />
+</svg>Editar</button> <button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Más acciones"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="1" />
+  <circle cx="12" cy="5" r="1" />
+  <circle cx="12" cy="19" r="1" />
+</svg></button></td></tr><tr><td class="code">7790070410245</td><td class="name">Queso crema Casancrem 290 g</td><td class="r">$ 2.480,00</td><td class="r">7</td><td class="r" style="color:var(--ink-muted)">4</td><td>Lácteos<div style="color:var(--ink-muted);font-size:13px;line-height:18px">Distribuidora Sur</div></td><td class="actions"><button class="ig-btn ig-btn-edit ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+  <path d="m15 5 4 4" />
+</svg>Editar</button> <button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Más acciones"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="1" />
+  <circle cx="12" cy="5" r="1" />
+  <circle cx="12" cy="19" r="1" />
+</svg></button></td></tr></tbody></table></div>
+</main></div>
+</body>
+</html>

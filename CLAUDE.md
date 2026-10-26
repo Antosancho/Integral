@@ -49,16 +49,31 @@ Integral/
 │   ├── ipcContract.ts            # Tipado del API y builder de ElectronApi
 │   ├── ipcHandlers.ts            # Registra handlers en ipcMain
 │   └── ipcSerialize.ts           # Serializa BigInt/Decimal para IPC
+├── design-system/                # Design System "Integral" (referencia de solo lectura: tokens, componentes, guías)
 ├── renderer/
 │   ├── src/
-│   │   ├── App.tsx               # Router simple: Home | Stock | Sells
-│   │   ├── renderTypes.ts        # type Cont = 'sells' | 'stock' | null
+│   │   ├── App.tsx               # Raíz: estado de navegación + ToastProvider + SalesProvider + atajos Ctrl+1/2/3
+│   │   ├── navigation.ts         # Section / StockView / SalesView / NavState / Navigate (reemplaza renderTypes.ts)
 │   │   ├── electron-api.d.ts     # Tipos de window.api para el renderer
+│   │   ├── styles/               # tokens.css (copia del DS), bundle.css (clases ig-…, copia sin cambios), app.css (agregados propios)
+│   │   ├── assets/               # fonts/*.woff2 (Plus Jakarta Sans, IBM Plex) y brand/ (logos PNG)
+│   │   ├── ui/                   # Componentes base del DS: Button, Kbd, ShortcutBar, Badge, Segmented, Field, DateField,
+│   │   │                         #   InlineAlert, EmptyState, TableSkeleton, Modal (+modalStack), Toast, MenuButton,
+│   │   │                         #   StepIndicator, EntityPicker, useRowNavigation, useFlash, useDelayedFlag
+│   │   ├── store/SalesContext.tsx  # Carrito, descuento y pagos de la venta en curso (sobreviven al cambiar de sección)
+│   │   ├── utils/                # format (es-AR), parse (parseDecimal/Integer/DateAR), text (sin tildes), stock, dom, theme, expiry, lots
+│   │   ├── test/                 # renderWithProviders y fixtures (makeProduct)
+│   │   ├── Components/
+│   │   │   ├── AppHeader/        # Header (logo, nav Stock | Ventas | Estadísticas, widget de vencimientos, ThemeToggle)
+│   │   │   ├── ExpiryAlert/      # Widget de lotes vencidos / que vencen hoy
+│   │   │   └── LotsList/         # Lotes de un producto como badges
 │   │   └── Pages/
-│   │       ├── Header.tsx        # Nav: Home / Sells / Stock
-│   │       ├── HomeScreen.tsx    # Placeholder (retorna null)
-│   │       ├── Stock.tsx         # Tabla de productos (implementada — solo lectura)
-│   │       └── Stock.css
+│   │       ├── Stock/            # StockPage (Productos | Movimientos), StockProducts, StockMovements, movements.ts,
+│   │       │                     #   productFilters.ts, ProductFormModal, LoadStockModal, CategoryPicker, SupplierPicker
+│   │       ├── Sells/            # SalesPage (Nueva venta | Historial), Sells, BarcodeInput, CartTable, EditableCell,
+│   │       │                     #   PaymentPanel, ChangeIndicator, SearchPopup, GeneralAmountPopup, cartReducer, payments…
+│   │       ├── SalesHistory/     # SalesHistory (maestro–detalle), SaleDetailCard, CajaSummary, salesHistoryFilters
+│   │       └── Stats/            # Stats, StatCard, RankingList, statsUtils
 └── scripts/
     ├── verify-package.mjs        # Verificación estática del paquete (verify:package / verify:make)
     ├── smoke-packaged.mjs        # Smoke test del exe empaquetado (test:smoke-packaged)
@@ -173,25 +188,40 @@ El módulo de ventas requiere tres tablas nuevas:
 
 | Pantalla | Estado |
 |----------|--------|
-| Header (nav) | Implementado |
+| Header (nav) | Implementado con el DS — logo, Stock / Ventas / Estadísticas (`Ctrl+1/2/3`), widget de vencimientos y selector de tema claro/oscuro |
 | Home | **Eliminada** — la app arranca directamente en Stock |
-| Stock (lista de productos) | Implementado — tabla con crear y cargar stock; **editar producto en curso** |
-| Sells | **Pendiente — próximo a desarrollar** |
-| Stats (estadísticas) | **Planificada — ver sección abajo** |
+| Stock | Implementado con el DS — **Productos** (tabla con filtros, orden, alertas, crear / editar / cargar stock, menú ⋮) y **Movimientos** (historial filtrable) |
+| Ventas | Implementado con el DS — **Nueva venta** (carrito, pagos, vuelto, aprobar) e **Historial** (maestro–detalle con filtros y resumen de caja) |
+| Estadísticas | Implementado con el DS — período, 4 KPIs con comparación, rankings, ventas por franja y menor rotación |
+| Tema | Claro por defecto y oscuro con selector en el header (se recuerda en `localStorage`) |
 
-### Próximo trabajo: pantalla Sells
-- **Historial de ventas**: lista filtrable con detalle de ítems y pagos
-- **Crear venta**: flujo tipo carrito → productos via scanner/buscador → form de pagos con cálculo de vuelto → confirmar
+### Ventas (referencia de la implementación actual)
+- **Historial de ventas**: dentro de Ventas (segmentado Nueva venta | Historial), con filtros que se aplican solos, detalle de ítems y pagos, y resumen de caja.
+- **Crear venta**: flujo tipo carrito → productos via scanner/buscador → panel de pago con cálculo de vuelto → aprobar.
 
-#### Iteración actual (en curso): medios de pago + confirmación de venta + layout sticky
+#### Medios de pago + confirmación de venta + layout sticky (vigente)
 
-- **Layout**: pantalla dividida en 2 zonas: zona scrolleable del carrito (`cart-list`) + panel de pago sticky en la parte inferior (`PaymentPanel`).
-- **5 medios de pago**: EFECTIVO, DÉBITO, CRÉDITO, TRANSFERENCIA, OTROS. Cada uno tiene un botón-label (click autocompleta el faltante) y un input de monto libre.
-- **Vuelto**: se calcula como `Σpagos - total` (con signo). Negativo = falta cubrir (déficit); `0` = pago exacto; positivo = cambio a devolver. Se muestra debajo del TOTAL.
-- **Botón APROBAR VENTA**: bloqueado (disabled + atenuado) salvo que `(carrito no vacío) ∧ (Σpagos ≥ total − 0.01) ∧ (sin líneas 'general')`. Se acepta que el cliente pague de más (recibe vuelto positivo).
-- **Líneas general**: aún no se persisten (el backend exige `productId`). Si el carrito tiene alguna línea general, APROBAR se bloquea y aparece el hint "Las líneas General aún no se pueden guardar".
-- **En éxito**: vaciar carrito (RESET), resetear `discountPct = 0`, resetear todos los inputs de pago a `''`, devolver foco al barcode input. Sin alerta de éxito.
-- **IPC**: nuevos canales `sale:create`, `sale:list`, `sale:getById` expuestos via `window.api`. No se modificó el schema Prisma ni `saleService.ts`.
+- **Layout**: zona scrolleable con el input de código y el carrito (`CartTable`) + panel de pago fijo abajo (`PaymentPanel`), visible solo si hay líneas.
+- **5 medios de pago**: EFECTIVO, DÉBITO, CRÉDITO, TRANSFERENCIA, OTROS. Cada uno tiene un botón-etiqueta (click o `Alt+1…5` completan lo que falta) y un input de monto libre (formato es-AR, se reformatea al salir).
+- **Vuelto**: se calcula como `Σpagos - total` (con signo) y se muestra como "Falta cubrir" / "Pago exacto" / "Vuelto" (palabra + ícono, nunca solo color).
+- **Botón APROBAR VENTA** (`F12`): bloqueado salvo que `(carrito no vacío) ∧ (Σpagos ≥ total − 0.005)`. Siempre que está bloqueado muestra el motivo. Se acepta que el cliente pague de más (recibe vuelto positivo).
+- **Líneas General (F10)**: **sí se aprueban** (el backend ya guarda `SaleItem` sin `productId`). Ya no existe el hint "Las líneas General aún no se pueden guardar".
+- **En éxito**: `resetSale()` (carrito vacío, `discountPct = 0`, pagos a `''`) y foco al input de código. Sin alerta de éxito. Si falla: toast de error y no se borra nada.
+- **IPC**: canales `sale:create`, `sale:list`, `sale:getById` expuestos via `window.api`. No se modificó el schema Prisma ni `saleService.ts`.
+
+### UI / Design system en el código
+
+Fuente de verdad visual: `design-system/` (solo lectura). En el renderer:
+- **Tokens y estilos**: `renderer/src/styles/tokens.css` (copiado de `design-system/tokens.css`, solo cambian las rutas de las fuentes), clases `ig-…` en `styles/bundle.css` (copia sin cambios de `design-system/components/bundle.css`) y agregados propios en `styles/app.css`. **Prohibido** hardcodear colores fuera de `tokens.css`: usar `var(--token)`.
+- **Componentes base** en `renderer/src/ui/` (ver estructura). Los íconos son `lucide-react@0.468.0` (`aria-hidden` en los decorativos; los glifos `⚠` y `✕` están prohibidos, usar `TriangleAlert` y `X`).
+- **Tema**: atributo `data-theme` en `<html>`, `utils/theme.ts` (`getStoredTheme` / `saveTheme`), clave `integral.theme` en `localStorage`.
+- **Fechas** en formato `DD/MM/AAAA` con `DateField` (texto con máscara; nada de `<input type="date">`). **Montos**: texto libre con `inputMode="decimal"` (nada de `type="number"`), parseo con `parseDecimal` y formateo con `formatAmountInput` al salir del campo. El signo menos se escribe `−` (U+2212) en la UI.
+- **Toasts** con `useToast()` (máx. 3, no roban el foco); **modales** con `Modal` (focus trap, devuelve el foco, `modalStack` para que los atajos de pantalla no se disparen con un modal abierto; Esc con `stopPropagation`).
+- **Carrito global**: `store/SalesContext.tsx` (carrito, descuento y pagos). Sobrevive a cambiar de sección o ir al Historial.
+- **Atajos** (tabla completa en `design-system/guia/02-teclado-y-foco.md`, ahora implementados): `Ctrl+1/2/3` secciones · Stock: `F2` buscar, `Ctrl+N` nuevo, `Ctrl+L` cargar stock, `Ctrl+F` buscador, ↑/↓/Enter en la tabla · Ventas: `F2`, `F10`, ↓ al carrito, `Supr`, `Alt+1…5`, `F12`, `Esc` vuelve al input de código · modales: `Ctrl+Enter` guarda el formulario de producto.
+- **Estados**: toda vista de datos tiene estado vacío, cargando (skeleton con delay de 300 ms) y error con "Reintentar".
+- **Decisiones**: D2 — las líneas General se aprueban. D3 — el Historial vive dentro de Ventas (maestro–detalle) y conserva los filtros extra de hora y monto y el resumen de caja; ya no hay botón "Historial" en el header ni modal de detalle.
+- **Ventana**: mínimo 1280×720 (`electron/main.ts`).
 
 #### Iteración anterior (completa): pie de carrito con subtotal, total y descuento/recargo
 Se agrega al pie del `CartList` un bloque con: **Subtotal** (suma de `lineTotal` de todas las filas), **input de Descuento %** (positivo = descuento, negativo = recargo), **Total final** (subtotal aplicando el %). El footer fue removido de `CartList` y movido al `PaymentPanel` en la iteración siguiente.
@@ -259,11 +289,11 @@ type CartLine = {
 
 **Cambio transversal al renderer incluido en esta iteración:**
 - Los tipos `ProductFromApi`, `CategoryFromApi`, `SupplierFromApi`, etc. de [electron-api.d.ts](renderer/src/electron-api.d.ts) pasan a ser **exportados explícitamente** (antes estaban declarados sin `export` y el archivo es un módulo por `export {}`, por lo que no eran ni globales ni importables).
-- `formatMoney` se extrae de [Stock.tsx](renderer/src/Pages/Stock.tsx) a un util compartido en `renderer/src/utils/format.ts` para reutilizar en Sells.
+- `formatMoney` se extrae de la pantalla de Stock a un util compartido en `renderer/src/utils/format.ts` para reutilizar en Sells (hoy formatea `$ 1.234,50` con `−` en negativos).
 
-### Módulo de Estadísticas (planificado)
+### Módulo de Estadísticas
 
-Nueva pantalla `Stats` accesible desde el Header (botón "Estadísticas"). Período de análisis con 4 presets: **Hoy | Esta semana | Este mes | Personalizado** (default: Este mes).
+Pantalla `Stats` accesible desde el Header (botón "Estadísticas", `Ctrl+3`). Período de análisis con 4 presets: **Hoy | Esta semana | Este mes | Personalizado** (default: Este mes) y **filtro horario**: **Todo el día | Jornada laboral | Personalizado** (default: Todo el día).
 
 **Estadísticas a mostrar:**
 1. **Ventas Totales** — total facturado en el período
@@ -278,9 +308,19 @@ Nueva pantalla `Stats` accesible desde el Header (botón "Estadísticas"). Perí
 
 **Cambio de schema**: se agrega `purchasePriceSnapshot Decimal?` a `SaleItem` (nullable, retrocompatible). Al crear una venta nueva, guarda el `purchasePrice` del producto en ese momento. Ítems "general" quedan con `null`. Requiere migración Prisma.
 
-**Backend**: repositorio `statsRepository.ts` con 6 funciones de agregación. 6 canales IPC nuevos: `stats:getSummary`, `stats:getTopProductsByQuantity`, `stats:getTopProductsByRevenue`, `stats:getSalesByHour`, `stats:getSalesByWeekday`, `stats:getLowRotationProducts`.
+**Backend**: repositorio `statsRepository.ts` con 6 funciones de agregación. 6 canales IPC: `stats:getSummary`, `stats:getTopProductsByQuantity`, `stats:getTopProductsByRevenue`, `stats:getSalesByHour`, `stats:getSalesByWeekday`, `stats:getLowRotationProducts`. Todos aceptan `intervals?` (filtro horario); sin `intervals` el resultado es el de siempre.
 
 **Frontend**: Las 7 llamadas se hacen en `Promise.all`. Comparación de períodos: el frontend llama a `getSalesSummary` dos veces en paralelo (período actual + período anterior). `getPreviousPeriod` es calendar-aware: para 'month' retorna el mes calendario anterior; para 'week' retrocede 7 días; para el resto usa el mismo rango en ms.
+
+#### Filtro horario (vigente)
+
+- **Afecta a todo el panel**: los 4 KPIs, la comparación (el período anterior usa la misma franja), los rankings, "Por hora" / "Por día de semana" y menor rotación.
+- **Opciones** (`Pages/Stats/HourFilterBar.tsx`): "Todo el día" (días calendario, como siempre; el payload no lleva `intervals`) · "Jornada laboral" (franja guardada; "Cambiar jornada" la edita en el lugar con "Abre" / "Cierra"; default 08:00 → 02:00) · "Personalizado" ("Desde hora" / "Hasta hora" en `HH:MM` con `ui/TimeField.tsx`: texto con máscara, nada de `type="time"`; no se consulta hasta tener las dos horas válidas).
+- **Jornada en localStorage**: clave `integral.stats.workday`, valor `{"start":"08:00","end":"02:00"}` (`Pages/Stats/workdayStorage.ts`; sin clave, corrupto, inválido o sin storage → default). El modo elegido **no** se recuerda: al abrir arranca en "Todo el día".
+- **Semántica** (`Pages/Stats/hourFilter.ts`): `desde` inclusivo, `hasta` exclusivo. `desde < hasta` → cada día D: `[D desde, D hasta)`. `hasta <= desde` → **día comercial** `[D desde, D+1 hasta)` (`desde == hasta` = 24 h). Cada venta pertenece al día en que empieza su intervalo: con 08→02 la venta del martes 01:00 cuenta para el **lunes** (en el período y en "Por día de semana"); sin filtro horario cuenta para el martes. "Hoy / Esta semana / Este mes" y los atajos "Últimos 7 días" / "Mes pasado" se anclan al día comercial en curso (`getBusinessToday`: martes 01:00 → lunes; martes 05:00 → martes). "Por hora" agrupa por hora real y, con franja, se ordena desde la hora de apertura (08…23, 00, 01).
+- **Tope**: con franja, el período puede tener hasta 366 días (`MAX_FILTERED_DAYS`); si no, no se consulta y se avisa con `InlineAlert`.
+- **Arquitectura**: el renderer arma un intervalo `[from, to)` por día ancla (`buildIntervals`, siempre con `new Date(y, m, d, h, min)`) y lo manda en el campo opcional `intervals` (`StatsRangeInput = { from, to, intervals? }` en `backend/repositories/statsIntervals.ts`, `electron/ipcContract.ts` y `renderer/src/electron-api.d.ts`). El backend valida (máx. 400 intervalos, `from < to`) y `buildSaleDateWhere` filtra con `date >= primer inicio AND date < último fin AND (OR de intervalos)`: el rango envolvente es obligatorio para que SQLite use el índice de `Sale.date`. "Por día de semana" toma el día ancla con `findIntervalIndex` (búsqueda binaria).
+- **Tests**: `renderer/src/Pages/Stats/__tests__/` (`hourFilter`, `workdayStorage`, `HourFilterBar`, `StatsHourFilter`, `statsUtils`, `Stats`), `renderer/src/utils/__tests__/time.test.ts`, `renderer/src/ui/__tests__/TimeField.test.tsx` y `npm run test:stats-repository` (DB temporal; incluido en `test:backend`).
 
 ---
 
@@ -407,6 +447,16 @@ Nueva pantalla `Stats` accesible desde el Header (botón "Estadísticas"). Perí
 - Componente `ExpiryAlertWidget` en `renderer/src/Components/ExpiryAlert/`, montado dentro del `<header>`. Al abrir la app pide `listExpiringStockMovements`, clasifica en `expired` vs `expiring_today`, y muestra un botón blanco con borde rojo que solo incluye los segmentos con count > 0 (`"⚠ 2 vencidos"`, `"⚠ 3 vencen hoy"` o `"⚠ 2 vencidos · 3 vencen hoy"`). Cada fila del popup tiene 2 botones: "Ya lo saqué" (persiste descarte vía `dismissStockMovementExpiry`) y "Recordame luego" (descarte solo de sesión). Si no hay items, el widget retorna `null`.
 - Las clasificaciones de "expired" y "expiring_today" se calculan en el renderer con zona local del SO; el backend solo filtra `expiryDate <= endOfToday AND expiryDismissedAt IS NULL`.
 
+#### Formulario de producto: picker flotante, modal sin scroll y precio con margen (vigente)
+
+- **Picker (Categoría / Proveedor)**: el popover (`.ig-picker-pop.is-floating`) flota con `position: fixed`; `EntityPicker` calcula en línea `top`/`bottom`/`left`/`width`/`max-height` con `computeFloatingPlacement` (`renderer/src/ui/floatingPlacement.ts`) desde el `getBoundingClientRect()` del disparador. Ancho mínimo 420 px (DS); si no entra a la derecha se alinea con el borde derecho del disparador; si abajo hay menos de 360 px y arriba hay más lugar, abre hacia arriba; se recalcula con `resize` y con el `scroll` de cualquier contenedor. **No es un portal**: sigue dentro del DOM del picker, así el focus trap del `Modal`, el click afuera y el `stopPropagation` de Enter/Esc funcionan igual. `Tab` en la lista cierra el popover. Un `fixed` no cuenta para el overflow de sus ancestros (no genera scroll en el modal); dejaría de funcionar si un ancestro tuviera `transform`/`filter`/`contain`.
+- **Modal de producto sin scroll a 1280×720**: `Modal` acepta `className`; `ProductFormModal` usa `pf-modal` (1080 px, `max-height: calc(100vh − 32px)`, velo con `padding-top` 16 px vía `:has`) y la grilla `.pf-grid` de 4 columnas: fila 1 Nombre (2 col.) · Categoría · Proveedor; fila 2 Precio de compra · Calcular con margen + Margen (%) · Redondeo · Precio de venta; fila 3 Código de barras (2 col.) · Stock inicial / Stock · Stock mínimo; fila 4 (solo alta con stock > 0) Vencimiento del lote bajo las columnas de stock (`.pf-expiry`). El error "No se pudo guardar el producto…" va en el pie, al lado de los botones. El cuerpo conserva `overflow: auto` solo como red de seguridad. Peor caso calculado: 623 px de alto (disponible ≈ 648).
+- **Scrollbars**: globales en `app.css` con `scrollbar-width: thin` y `scrollbar-color: var(--border-control) transparent` sobre `:root` (se heredan). No usar `::-webkit-scrollbar` (Chromium lo ignora si están seteadas las estándar). `color-scheme` sigue al tema (`light`/`dark`) para los controles nativos.
+- **Precio con margen** (`renderer/src/utils/pricing.ts`): `venta = redondear(costo × (1 + margen/100), paso)` en centavos enteros; redondeo al múltiplo más cercano (la mitad sube); paso 0 = sin redondeo (al centavo); si el costo es > 0 y el redondeo daría $ 0, queda un paso. Pasos: sin redondeo / 10 / 50 / 100 / 500 / 1000. Margen 0–1000 % (2 decimales; un texto inválido no se aplica y al salir del campo vuelve el último válido).
+  - Preferencias globales en `localStorage`, clave `integral.pricing` = `{ enabled, marginPct, roundingStep }` (defaults `true`, `30`, `100`; valores corruptos o fuera de rango → default; storage que falla → defaults sin romper). Se guardan al cambiarlas: el margen cada vez que el texto es válido, el redondeo al elegirlo, `enabled` al tildar/destildar **solo en alta**.
+  - Alta: el checkbox arranca según la preferencia. Edición: arranca siempre apagado (no pisa el precio guardado). Con el cálculo activo el precio de venta se recalcula al cambiar costo, margen o redondeo; tipear el precio a mano apaga el cálculo solo para ese producto (no cambia la preferencia); destildar deja el último valor. Sin costo válido el precio queda vacío con la ayuda "Completá el precio de compra para calcularlo."; la ayuda de margen real y el aviso de venta bajo costo siguen igual.
+- Tests: `utils/__tests__/pricing.test.ts`, `ui/__tests__/floatingPlacement.test.ts`, casos nuevos en `EntityPicker.test.tsx`, `Modal.test.tsx` y `ProductFormModal.test.tsx` (este último limpia `localStorage` en `beforeEach`). El layout real (sin scroll, popover no recortado, scrollbars) se verifica a mano: happy-dom no hace layout ni aplica CSS. Para simular un `localStorage` roto en tests usar `vi.stubGlobal('localStorage', …)` + `vi.unstubAllGlobals()`: en happy-dom 20.9 `vi.spyOn(Storage.prototype, …)` no intercepta de forma confiable (el proxy de `localStorage` guarda cada método en el primer uso) y el mock puede quedar pegado.
+
 ---
 
 ## IPC bridge (cómo se llama al backend desde el renderer)
@@ -490,3 +540,7 @@ Reglas que no se pueden cambiar: `PrismaClient` propio con **`connection_limit=1
 - `BigInt` del barcode se serializa a `string` en el IPC antes de llegar al renderer
 - Los `Decimal` de Prisma se serializan a `string` en el IPC
 - La pantalla de ventas debe ser **operable principalmente con teclado y lector de barras** (scanner actúa como teclado); el mouse es secundario en el flujo de caja
+
+## Diseño
+Fuente de verdad de la UI: Design System "Integral" en https://claude.ai/artifact/GqLNZDeRjXRUZJSQEiJbhz
+Antes de tocar UI, leé project/README.md y los archivos que indica.

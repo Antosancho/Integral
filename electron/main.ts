@@ -33,8 +33,10 @@ let mainWindow: BrowserWindow | null = null
 /** Crea la ventana principal con la configuración de seguridad recomendada. */
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: 1366,
+    height: 768,
+    minWidth: 1280,
+    minHeight: 720,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),

@@ -1,0 +1,365 @@
+<!-- @dsCard group="Pantallas" height=900 width=1366 subtitle="Ventas — popup Ítem general F10 y bloqueo de APROBAR" page=true -->
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><title>ScreenSalesGeneral — Integral</title>
+<style>body{background:var(--bg)} .ig-app{height:100vh;overflow:hidden} .ig-app{display:flex;flex-direction:column} .ig-page{min-height:0}.ig-app{height:900px}</style></head>
+<body>
+<div class="ig-app" style="position:relative"><header class="ig-header">
+  <a class="ig-brand" href="#" aria-label="Factor Integral — inicio"><img src="/_blob/0140d0ab9e979f1edd362b46f3eca8a4" alt="Factor Integral" style="width:auto;height:30px;border-radius:0"></a>
+  <nav class="ig-nav" aria-label="Secciones"><a href="#"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z" />
+  <path d="M12 22V12" />
+  <path d="m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7" />
+  <path d="m7.5 4.27 9 5.15" />
+</svg>Stock</a><a href="#" aria-current="page"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="8" cy="21" r="1" />
+  <circle cx="19" cy="21" r="1" />
+  <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
+</svg>Ventas</a><a href="#"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+  <path d="M18 17V9" />
+  <path d="M13 17V5" />
+  <path d="M8 17v-3" />
+</svg>Estadísticas</a></nav>
+  <div class="ig-spacer"></div>
+  <button class="ig-expiry" aria-haspopup="dialog"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+  <path d="M12 9v4" />
+  <path d="M12 17h.01" />
+</svg>2 vencidos <span class="sep">·</span> 3 vencen hoy</button>
+</header>
+<main class="ig-page" style="padding-bottom:16px;gap:12px;overflow:auto">
+ <div class="ig-page-head"><h1>Ventas</h1><div class="ig-seg" role="tablist"><button aria-selected="true">Nueva venta</button><button aria-selected="false">Historial</button></div><div class="ig-spacer"></div><button class="ig-btn ig-btn-secondary ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="11" cy="11" r="8" />
+  <path d="m21 21-4.3-4.3" />
+</svg>Buscar <kbd class="ig-kbd">F2</kbd></button><button class="ig-btn ig-btn-secondary ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" />
+  <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
+  <path d="M12 17.5v-11" />
+</svg>Ítem general <kbd class="ig-kbd">F10</kbd></button></div>
+ <div class="ig-scan is-focus"><svg class="ig-icon ig-icon-lg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+  <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+  <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+  <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+  <path d="M8 7v10" />
+  <path d="M12 7v10" />
+  <path d="M17 7v10" />
+</svg><input placeholder="Escaneá o escribí un código de barras" aria-label="Código de barras"><span class="ig-scan-state"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="m9 12 2 2 4-4" />
+</svg>Listo para escanear</span></div>
+ <div class="ig-table-wrap"><table class="ig-table ig-cart"><thead><tr><th>Producto</th><th class="r">Cantidad</th><th class="r">Precio unit.</th><th class="r">Total</th><th class="actions"><span class="ig-sr">Quitar</span></th></tr></thead><tbody><tr tabindex="-1"><td class="name">Leche entera La Serenísima 1 L</td><td class="qty"><input class="ig-cell-edit" value="2" aria-label="Cantidad"></td><td class="price"><input class="ig-cell-edit" value="1.450,00" aria-label="Precio unitario"></td><td class="r line-total">$ 2.900,00</td><td class="actions"><button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Quitar Leche entera La Serenísima 1 L"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 6 6 18" />
+  <path d="m6 6 12 12" />
+</svg></button></td></tr><tr tabindex="-1"><td class="name">Yerba Playadito 1 kg</td><td class="qty"><input class="ig-cell-edit" value="1" aria-label="Cantidad"></td><td class="price"><input class="ig-cell-edit" value="4.890,00" aria-label="Precio unitario"></td><td class="r line-total">$ 4.890,00</td><td class="actions"><button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Quitar Yerba Playadito 1 kg"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 6 6 18" />
+  <path d="m6 6 12 12" />
+</svg></button></td></tr><tr tabindex="-1"><td class="name">Coca-Cola 2,25 L <span class="ig-badge ig-badge-warning" title="Sin stock suficiente"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+  <path d="M12 9v4" />
+  <path d="M12 17h.01" />
+</svg>Sin stock</span></td><td class="qty"><input class="ig-cell-edit" value="1" aria-label="Cantidad"></td><td class="price"><input class="ig-cell-edit" value="3.200,00" aria-label="Precio unitario"></td><td class="r line-total">$ 3.200,00</td><td class="actions"><button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Quitar Coca-Cola 2,25 L"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 6 6 18" />
+  <path d="m6 6 12 12" />
+</svg></button></td></tr><tr tabindex="-1"><td class="name"><span class="general"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" />
+  <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
+  <path d="M12 17.5v-11" />
+</svg>General <span class="ig-badge ig-badge-info">F10</span></span></td><td class="qty"><input class="ig-cell-edit" value="1"></td><td class="price"><input class="ig-cell-edit" value="1.200,00"></td><td class="r line-total">$ 1.200,00</td><td class="actions"><button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Quitar"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 6 6 18" />
+  <path d="m6 6 12 12" />
+</svg></button></td></tr></tbody></table></div>
+</main>
+<section class="ig-pay" aria-label="Pago">
+ <div class="ig-pay-left">
+  <div class="ig-pay-line"><div class="ig-pay-row"><span>Subtotal</span><span class="v">$ 12.190,00</span></div>
+  <div class="ig-pay-row"><label for="d">Descuento</label><div class="ig-input-wrap"><input id="d" class="ig-input" value="0" inputmode="decimal" style="padding-right:28px"><span class="ig-suffix">%</span></div><span class="ig-help">positivo = descuento · negativo = recargo</span></div></div>
+  <div><div class="ig-overline" style="margin-bottom:8px">Medios de pago</div><div class="ig-pay-methods"><div class="ig-pay-method is-filled"><button class="ig-pay-tag" title="Completar con lo que falta"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <rect width="20" height="12" x="2" y="6" rx="2" />
+  <circle cx="12" cy="12" r="2" />
+  <path d="M6 12h.01M18 12h.01" />
+</svg>EFECTIVO</button><input class="ig-input" value="15.000,00" placeholder="0,00" inputmode="decimal" aria-label="Monto efectivo"></div><div class="ig-pay-method"><button class="ig-pay-tag" title="Completar con lo que falta"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <rect width="20" height="14" x="2" y="5" rx="2" />
+  <line x1="2" x2="22" y1="10" y2="10" />
+</svg>DÉBITO</button><input class="ig-input" value="" placeholder="0,00" inputmode="decimal" aria-label="Monto débito"></div><div class="ig-pay-method"><button class="ig-pay-tag" title="Completar con lo que falta"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <rect width="20" height="14" x="2" y="5" rx="2" />
+  <line x1="2" x2="22" y1="10" y2="10" />
+</svg>CRÉDITO</button><input class="ig-input" value="" placeholder="0,00" inputmode="decimal" aria-label="Monto crédito"></div><div class="ig-pay-method"><button class="ig-pay-tag" title="Completar con lo que falta"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M8 3 4 7l4 4" />
+  <path d="M4 7h16" />
+  <path d="m16 21 4-4-4-4" />
+  <path d="M20 17H4" />
+</svg>TRANSFERENCIA</button><input class="ig-input" value="" placeholder="0,00" inputmode="decimal" aria-label="Monto transferencia"></div><div class="ig-pay-method"><button class="ig-pay-tag" title="Completar con lo que falta"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1" />
+  <path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4" />
+</svg>OTROS</button><input class="ig-input" value="" placeholder="0,00" inputmode="decimal" aria-label="Monto otros"></div></div></div>
+ </div>
+ <div class="ig-pay-sum">
+  <div class="ig-pay-total"><span class="k">TOTAL</span><span class="v">$ 12.190,00</span></div>
+  <div class="ig-change is-return" role="status"><span class="k"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M11 15h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.4.6L3 17" />
+  <path d="m7 21 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-4.4a2 2 0 0 0-2.75-2.91l-4.2 3.9" />
+  <path d="m2 16 6 6" />
+  <circle cx="16" cy="9" r="2.9" />
+  <circle cx="6" cy="5" r="3" />
+</svg>Vuelto</span><span class="v">$ 2.810,00</span></div>
+  <button class="ig-btn ig-btn-primary ig-btn-xl" disabled><svg class="ig-icon ig-icon-lg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M20 6 9 17l-5-5" />
+</svg>APROBAR VENTA <kbd class="ig-kbd">F12</kbd></button>
+  <div class="ig-hint" style="justify-content:center"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="M12 16v-4" />
+  <path d="M12 8h.01" />
+</svg>Las líneas General aún no se pueden guardar</div>
+ </div>
+</section>
+<div class="ig-overlay" style="position:absolute;inset:0;padding-top:180px"><div class="ig-modal ig-modal-sm" role="dialog" aria-labelledby="f10">
+ <div class="ig-modal-head"><div><h2 id="f10">Ítem general</h2><p>Agrega una línea "General" con el monto que ingreses.</p></div><span class="ig-shortcuts"><kbd class="ig-kbd">F10</kbd> cierra</span></div>
+ <div class="ig-modal-body"><div class="ig-field"><label class="ig-label">Monto <span class="req">*</span></label><div class="ig-input-wrap"><span class="ig-prefix" style="font-size:20px">$</span><input class="ig-input ig-input-amount is-focus" value="850,50" style="height:56px;font-size:24px;padding-left:32px"></div><span class="ig-help">Mayor a 0. Podés usar coma o punto.</span></div></div>
+ <div class="ig-modal-foot"><div class="ig-shortcuts"><span><kbd class="ig-kbd">Enter</kbd> Agregar</span><span><kbd class="ig-kbd">Esc</kbd> Cancelar</span></div><button class="ig-btn ig-btn-primary">Agregar</button></div>
+</div></div></div>
+</body>
+</html>

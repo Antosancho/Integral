@@ -1,0 +1,122 @@
+<!-- @dsCard group="Navegación" height=470 width=900 subtitle="Widget del header + popup de lotes" -->
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><title>ExpiryAlert — Integral</title>
+<style>body{padding:20px;background:var(--bg)} .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap} .col{display:grid;gap:16px} .cap{font:500 12px/16px var(--font-sans);color:var(--ink-subtle);margin-bottom:6px} </style></head>
+<body>
+
+<div class="col">
+ <div class="row" style="padding:12px 16px;background:var(--surface-header);border-radius:12px;justify-content:flex-end;gap:16px">
+  <button class="ig-expiry"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+  <path d="M12 9v4" />
+  <path d="M12 17h.01" />
+</svg>2 vencidos</button>
+  <button class="ig-expiry"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+  <path d="M12 9v4" />
+  <path d="M12 17h.01" />
+</svg>3 vencen hoy</button>
+  <button class="ig-expiry is-focus"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+  <path d="M12 9v4" />
+  <path d="M12 17h.01" />
+</svg>2 vencidos <span class="sep">·</span> 3 vencen hoy</button>
+ </div>
+ <div class="ig-expiry-pop" role="dialog" aria-label="Lotes a revisar">
+  <div class="ig-modal-head"><div><h2>Lotes a revisar</h2><p>Sacalos de la góndola o recordalos más tarde.</p></div><button class="ig-btn ig-btn-ghost ig-btn-sm ig-btn-icon" aria-label="Cerrar"><svg class="ig-icon" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 6 6 18" />
+  <path d="m6 6 12 12" />
+</svg></button></div>
+  <div class="ig-expiry-group">Vencidos · 2</div>
+  <div class="ig-expiry-row"><div class="what"><strong>Queso crema Casancrem 290 g</strong><span>Venció el 22/10/2026 · lote cargado el 02/10 · 4 u.</span></div><button class="ig-btn ig-btn-secondary ig-btn-sm">Recordame luego</button><button class="ig-btn ig-btn-primary ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M20 6 9 17l-5-5" />
+</svg>Ya lo saqué</button></div>
+  <div class="ig-expiry-row"><div class="what"><strong>Leche entera La Serenísima 1 L</strong><span>Venció el 23/10/2026 · lote ya vendido (0 u.)</span></div><button class="ig-btn ig-btn-secondary ig-btn-sm">Recordame luego</button><button class="ig-btn ig-btn-primary ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M20 6 9 17l-5-5" />
+</svg>Ya lo saqué</button></div>
+  <div class="ig-expiry-group" style="padding-top:16px">Vencen hoy · 3</div>
+  <div class="ig-expiry-row" style="border-bottom:0"><div class="what"><strong>Pan lactal Bimbo blanco</strong><span>Vence hoy 24/10/2026 · 6 u.</span></div><button class="ig-btn ig-btn-secondary ig-btn-sm">Recordame luego</button><button class="ig-btn ig-btn-primary ig-btn-sm"><svg class="ig-icon ig-icon-sm" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M20 6 9 17l-5-5" />
+</svg>Ya lo saqué</button></div>
+ </div>
+</div>
+</body>
+</html>

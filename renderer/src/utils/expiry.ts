@@ -25,7 +25,9 @@ export function classifyExpiry(expiryDate: Date | null): ExpiryStatus | null {
 }
 
 /**
- * Parsea el string emitido por <input type="date"> ("YYYY-MM-DD") a Date local (00:00).
+ * Parsea un string ISO "YYYY-MM-DD" (el formato de un input de fecha nativo) a Date local (00:00).
+ * @deprecated La UI ya no usa inputs de fecha nativos: las fechas se tipean como DD/MM/AAAA y se parsean con
+ * `parseDateAR` (utils/parse.ts). Se conserva por compatibilidad.
  * Valida bounds de mes y día antes de construir la Date para evitar normalizaciones silenciosas
  * (ej: new Date(2026, 12, 1) → enero 2027 en lugar de error).
  * Devuelve null si el string es vacío o tiene formato/rango inválido.
@@ -53,7 +55,8 @@ export function parseExpiryInput(value: string): Date | null {
 
 /**
  * Convierte una Date a "YYYY-MM-DD" en zona local.
- * Útil para poblar el value de <input type="date">.
+ * Útil para poblar el value de un input de fecha nativo.
+ * @deprecated Para mostrar fechas usar `formatDate` (utils/format.ts), que produce DD/MM/AAAA.
  * Devuelve '' si la fecha es null.
  */
 export function formatExpiryInput(date: Date | null): string {

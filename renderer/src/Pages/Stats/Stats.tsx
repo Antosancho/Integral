@@ -1,69 +1,93 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Banknote, Calendar, ChartColumn, CircleAlert, PiggyBank, Receipt, RotateCcw, ShoppingBasket } from 'lucide-react'
 import type {
-  StatsSummaryFromApi,
-  TopProductFromApi,
+  LowRotationFromApi,
   SalesByPeriodFromApi,
-  LowRotationFromApi
+  StatsSummaryFromApi,
+  TopProductFromApi
 } from '../../electron-api'
+import type { Navigate } from '../../navigation'
+import { Button } from '../../ui/Button'
+import { DateField } from '../../ui/DateField'
+import { EmptyState } from '../../ui/EmptyState'
+import { InlineAlert } from '../../ui/InlineAlert'
+import { Segmented } from '../../ui/Segmented'
+import { TableSkeleton } from '../../ui/TableSkeleton'
+import { useDelayedFlag } from '../../ui/useDelayedFlag'
+import { formatDate, formatInt, formatMoney } from '../../utils/format'
+import { parseDateAR } from '../../utils/parse'
+import HourFilterBar from './HourFilterBar'
 import {
-  getPeriodDates,
-  getPreviousPeriod,
-  calcPctChange,
-  formatPctChange,
-  formatMoney,
+  MAX_FILTERED_DAYS,
+  countDays,
+  getBusinessToday,
+  orderHourRows,
+  resolveHourFilter,
+  toStatsInput,
+  type HourFilterMode,
+  type TimeWindow
+} from './hourFilter'
+import RankingList from './RankingList'
+import StatCard from './StatCard'
+import { loadWorkday, saveWorkday } from './workdayStorage'
+import {
+  HOUR_LABEL,
   WEEKDAY_LABELS,
-  PERIOD_LABELS,
-  type PeriodPreset,
-  type DateRange
+  calcPctChange,
+  comparedToLabel,
+  formatRange,
+  getEndOfDay,
+  getPeriodDatesAt,
+  getPreviousPeriod,
+  getStartOfDay,
+  peakIndex,
+  type DateRange,
+  type PeriodPreset
 } from './statsUtils'
-import './Stats.css'
 
-// ---------------------------------------------------------------------------
-// Componente auxiliar: tarjeta de métrica con variación porcentual
-// ---------------------------------------------------------------------------
-
-function StatCard({
-  label,
-  value,
-  prevValue,
-  format
-}: {
-  label: string
-  value: number
-  prevValue: number
-  format: (v: number) => string
-}) {
-  const pct = calcPctChange(value, prevValue)
-  const pctStr = formatPctChange(pct)
-  const changeClass =
-    pct === null ? 'neutral' : pct > 0 ? 'positive' : pct < 0 ? 'negative' : 'neutral'
-
-  return (
-    <div className="stat-card">
-      <p className="stat-card__label">{label}</p>
-      <p className="stat-card__value">{format(value)}</p>
-      <p className={`stat-card__change stat-card__change--${changeClass}`}>
-        {pctStr} vs período anterior
-      </p>
-    </div>
-  )
+type Props = {
+  navigate: Navigate
 }
 
-// ---------------------------------------------------------------------------
-// Componente principal
-// ---------------------------------------------------------------------------
+/** Cantidad de productos en cada ranking y en "menor rotación". */
+const TOP_LIMIT = 5
+const LOW_LIMIT = 10
+/** Filas visibles de "menor rotación" antes de expandir. */
+const LOW_COLLAPSED = 5
 
-export default function Stats() {
-  // ── Estado de selección de período ─────────────────────────────────────
+const PERIOD_OPTIONS: { value: PeriodPreset; label: string; icon?: typeof Calendar }[] = [
+  { value: 'today', label: 'Hoy' },
+  { value: 'week', label: 'Esta semana' },
+  { value: 'month', label: 'Este mes' },
+  { value: 'custom', label: 'Personalizado', icon: Calendar }
+]
+
+/**
+ * Estadísticas: período (Hoy / Esta semana / Este mes / Personalizado) + filtro horario (Todo el día /
+ * Jornada laboral / Personalizado), 4 KPIs con comparación contra el período anterior (con la misma franja),
+ * rankings de productos, ventas por franja y productos de menor rotación.
+ *
+ * Con franja, se arma un intervalo [from, to) por día del período (`hourFilter.ts`) y se manda en
+ * `intervals`; sin franja el payload es `{ from, to }` como siempre. Las 7 consultas se hacen en paralelo
+ * (`Promise.all`); la comparación llama a `getSalesSummary` dos veces (período actual y anterior).
+ * Click en un producto abre Stock › Movimientos filtrado por ese producto.
+ */
+export default function Stats({ navigate }: Props) {
   const [preset, setPreset] = useState<PeriodPreset>('month')
-  const [customFrom, setCustomFrom] = useState('')  // formato yyyy-mm-dd
+  const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
 
-  // ── Estado de carga ─────────────────────────────────────────────────────
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // ── Filtro horario ──────────────────────────────────────────────────────
+  // El modo no se recuerda (arranca en "Todo el día"); la jornada sí (localStorage).
+  const [hourMode, setHourMode] = useState<HourFilterMode>('all')
+  const [workday, setWorkday] = useState<TimeWindow>(() => loadWorkday())
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
 
-  // ── Datos cargados ──────────────────────────────────────────────────────
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
+
   const [summary, setSummary] = useState<StatsSummaryFromApi | null>(null)
   const [prevSummary, setPrevSummary] = useState<StatsSummaryFromApi | null>(null)
   const [topByQty, setTopByQty] = useState<TopProductFromApi[]>([])
@@ -72,258 +96,350 @@ export default function Stats() {
   const [byWeekday, setByWeekday] = useState<SalesByPeriodFromApi[]>([])
   const [lowRot, setLowRot] = useState<LowRotationFromApi[]>([])
 
-  // ── Tab activo en el panel temporal ────────────────────────────────────
   const [temporalTab, setTemporalTab] = useState<'hour' | 'weekday'>('hour')
+  const [showAllLow, setShowAllLow] = useState(false)
 
-  // ── Calcula el rango actual según preset y fechas custom ───────────────
-  function getCurrentRange(): DateRange | null {
-    if (preset === 'custom') {
-      if (!customFrom || !customTo) return null
-      const from = new Date(customFrom + 'T00:00:00')
-      const to = new Date(customTo + 'T23:59:59.999')
-      if (from > to) return null
-      return { from, to }
+  const hourState = resolveHourFilter(hourMode, workday, customStart, customEnd)
+  const currentWindow: TimeWindow | null = hourState.kind === 'window' ? hourState.window : null
+  // Primitivos para las dependencias de los useMemo: un objeto nuevo en cada render dispararía recargas.
+  const winStart = currentWindow ? currentWindow.startMinute : null
+  const winEnd = currentWindow ? currentWindow.endMinute : null
+  const hourReady = hourState.kind !== 'incomplete'
+
+  // Rango actual (días ancla). Con franja, Hoy / Esta semana / Este mes se anclan al día comercial en curso.
+  // Para "Personalizado" solo existe si ambas fechas son válidas y desde <= hasta.
+  // Con "Personalizado" (horario) incompleto no hay rango: no se consulta.
+  const range = useMemo<DateRange | null>(() => {
+    if (!hourReady) return null
+    const w = winStart !== null && winEnd !== null ? { startMinute: winStart, endMinute: winEnd } : null
+    if (preset !== 'custom') return getPeriodDatesAt(preset, getBusinessToday(new Date(), w))
+    const from = parseDateAR(customFrom)
+    const to = parseDateAR(customTo)
+    if (!from || !to || from.getTime() > to.getTime()) return null
+    return { from: getStartOfDay(from), to: getEndOfDay(to) }
+  }, [preset, customFrom, customTo, hourReady, winStart, winEnd])
+
+  const prevRange = useMemo(() => (range ? getPreviousPeriod(range, preset) : null), [range, preset])
+
+  // Con franja, un período de más de MAX_FILTERED_DAYS días no se consulta (se avisa).
+  const tooLong = winStart !== null && range !== null && countDays(range) > MAX_FILTERED_DAYS
+
+  // Payloads de las 7 consultas. Sin franja: { from, to } como siempre; con franja: + intervals,
+  // y el período anterior usa la MISMA franja.
+  const query = useMemo(() => {
+    if (!range || !prevRange || tooLong) return null
+    const w = winStart !== null && winEnd !== null ? { startMinute: winStart, endMinute: winEnd } : null
+    return { window: w, input: toStatsInput(range, w), prevInput: toStatsInput(prevRange, w) }
+  }, [range, prevRange, tooLong, winStart, winEnd])
+
+  useEffect(() => {
+    if (!query) return
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      setError(false)
+      try {
+        const { input, prevInput } = query
+        const [cur, prv, qty, rev, hour, wday, low] = await Promise.all([
+          window.api.getSalesSummary(input),
+          window.api.getSalesSummary(prevInput),
+          window.api.getTopProductsByQuantity({ ...input, limit: TOP_LIMIT }),
+          window.api.getTopProductsByRevenue({ ...input, limit: TOP_LIMIT }),
+          window.api.getSalesByHour(input),
+          window.api.getSalesByWeekday(input),
+          window.api.getLowRotationProducts({ ...input, limit: LOW_LIMIT })
+        ])
+        if (cancelled) return
+        setSummary(cur)
+        setPrevSummary(prv)
+        setTopByQty(qty)
+        setTopByRev(rev)
+        setByHour(orderHourRows(hour, query.window))
+        setByWeekday(wday)
+        setLowRot(low)
+      } catch (e) {
+        console.error(e)
+        if (!cancelled) setError(true)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
     }
-    return getPeriodDates(preset)
+  }, [query, reloadKey])
+
+  const showSkeleton = useDelayedFlag(loading)
+
+  const openMovements = (id: number, name: string) =>
+    navigate({ section: 'stock', stockView: 'movements', movementsProduct: { id, name } })
+
+  const changeWorkday = (w: TimeWindow) => {
+    saveWorkday(w)
+    setWorkday(w)
   }
 
-  // ── Carga todas las estadísticas en paralelo ───────────────────────────
-  // preset es dependencia porque getPreviousPeriod necesita ser calendar-aware
-  const loadStats = useCallback(async (range: DateRange) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const prev = getPreviousPeriod(range, preset)
-      const LIMIT = 5
-      const LOW_LIMIT = 10
+  const fillLastSevenDays = () => {
+    const today = getBusinessToday(new Date(), currentWindow)
+    setCustomFrom(formatDate(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6)))
+    setCustomTo(formatDate(today))
+  }
+  const fillLastMonth = () => {
+    const today = getBusinessToday(new Date(), currentWindow)
+    setCustomFrom(formatDate(new Date(today.getFullYear(), today.getMonth() - 1, 1)))
+    setCustomTo(formatDate(new Date(today.getFullYear(), today.getMonth(), 0)))
+  }
 
-      const [cur, prv, qty, rev, hour, wday, low] = await Promise.all([
-        window.api.getSalesSummary({ from: range.from, to: range.to }),
-        window.api.getSalesSummary({ from: prev.from, to: prev.to }),
-        window.api.getTopProductsByQuantity({ from: range.from, to: range.to, limit: LIMIT }),
-        window.api.getTopProductsByRevenue({ from: range.from, to: range.to, limit: LIMIT }),
-        window.api.getSalesByHour({ from: range.from, to: range.to }),
-        window.api.getSalesByWeekday({ from: range.from, to: range.to }),
-        window.api.getLowRotationProducts({ from: range.from, to: range.to, limit: LOW_LIMIT })
-      ])
+  // ── Derivados de presentación ────────────────────────────────────────────
+  const comparedTo = prevRange ? comparedToLabel(preset, prevRange) : ''
+  const temporalRows = temporalTab === 'hour' ? byHour : byWeekday
+  const temporalMax = Math.max(...temporalRows.map((r) => r.saleCount), 0)
+  const peak = peakIndex(temporalRows)
+  const lowVisible = showAllLow ? lowRot : lowRot.slice(0, LOW_COLLAPSED)
+  const noSales = summary !== null && summary.saleCount === 0
 
-      setSummary(cur)
-      setPrevSummary(prv)
-      setTopByQty(qty)
-      setTopByRev(rev)
-      setByHour(hour)
-      setByWeekday(wday)
-      setLowRot(low)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al cargar estadísticas')
-    } finally {
-      setLoading(false)
-    }
-  }, [preset])
+  const delta = (cur: string, prev: string) => calcPctChange(parseFloat(cur), parseFloat(prev))
 
-  // Dispara la carga cuando cambia el preset o las fechas custom
-  useEffect(() => {
-    const range = getCurrentRange()
-    if (range) loadStats(range)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preset, customFrom, customTo, loadStats])
+  const hasData = !loading && !error && summary !== null && prevSummary !== null
 
-  // ── Render ──────────────────────────────────────────────────────────────
   return (
-    <div className="stats-page">
-
-      {/* Cabecera fija: selector de período */}
-      <div className="stats-header">
-        <div className="stats-period-selector">
-          {(['today', 'week', 'month', 'custom'] as PeriodPreset[]).map((p) => (
-            <button
-              key={p}
-              className={`stats-period-btn${preset === p ? ' stats-period-btn--active' : ''}`}
-              onClick={() => setPreset(p)}
-            >
-              {PERIOD_LABELS[p]}
-            </button>
-          ))}
-        </div>
-
-        {preset === 'custom' && (
-          <div className="stats-custom-range">
-            <input
-              type="date"
-              value={customFrom}
-              onChange={(e) => setCustomFrom(e.target.value)}
-            />
-            <span>—</span>
-            <input
-              type="date"
-              value={customTo}
-              onChange={(e) => setCustomTo(e.target.value)}
-            />
-          </div>
+    <main className="ig-page">
+      <div className="ig-page-head">
+        <h1>Estadísticas</h1>
+        <div className="ig-spacer" />
+        {range && prevRange && (
+          <span className="ig-help">
+            {formatRange(range)} · comparado con {formatRange(prevRange)}
+          </span>
         )}
+        <Segmented<PeriodPreset> ariaLabel="Período" options={PERIOD_OPTIONS} value={preset} onChange={setPreset} />
       </div>
 
-      {/* Contenido scrolleable */}
-      <div className="stats-scroll-area">
+      {preset === 'custom' && (
+        <div className="ig-filters">
+          <DateField id="stats-from" label="Desde" value={customFrom} onChange={setCustomFrom} />
+          <DateField id="stats-to" label="Hasta" value={customTo} onChange={setCustomTo} />
+          <Button size="sm" variant="ghost" onClick={fillLastSevenDays}>
+            Últimos 7 días
+          </Button>
+          <Button size="sm" variant="ghost" onClick={fillLastMonth}>
+            Mes pasado
+          </Button>
+        </div>
+      )}
 
-      {loading && <p className="stats-loading">Cargando...</p>}
-      {error && <p className="stats-error">{error}</p>}
+      <HourFilterBar
+        mode={hourMode}
+        onModeChange={setHourMode}
+        workday={workday}
+        onWorkdayChange={changeWorkday}
+        customStart={customStart}
+        customEnd={customEnd}
+        onCustomStartChange={setCustomStart}
+        onCustomEndChange={setCustomEnd}
+      />
 
-      {!loading && summary && prevSummary && (
+      {tooLong && (
+        <InlineAlert tone="info">
+          {`Con un filtro horario el período puede tener hasta ${MAX_FILTERED_DAYS} días. Acortá las fechas o elegí «Todo el día».`}
+        </InlineAlert>
+      )}
+
+      {error && (
+        <div className="ig-card">
+          <EmptyState
+            tone="danger"
+            icon={CircleAlert}
+            title="No pudimos calcular las estadísticas"
+            description="Revisá que la base de datos esté disponible y probá de nuevo."
+            action={
+              <Button icon={RotateCcw} onClick={() => setReloadKey((k) => k + 1)}>
+                Reintentar
+              </Button>
+            }
+          />
+        </div>
+      )}
+
+      {!error && loading && showSkeleton && (
         <>
-          {/* ── Sección 1: Cards de resumen ─────────────────────────────── */}
-          <section className="stats-section">
-            <h2 className="stats-section__title">Resumen del período</h2>
-            <div className="stats-cards">
-              <StatCard
-                label="Ventas Totales"
-                value={parseFloat(summary.totalRevenue)}
-                prevValue={parseFloat(prevSummary.totalRevenue)}
-                format={(v) => formatMoney(v)}
-              />
-              <StatCard
-                label="Cantidad de Ventas"
-                value={summary.saleCount}
-                prevValue={prevSummary.saleCount}
-                format={(v) => v.toString()}
-              />
-              <StatCard
-                label="Ticket Promedio"
-                value={parseFloat(summary.averageTicket)}
-                prevValue={parseFloat(prevSummary.averageTicket)}
-                format={(v) => formatMoney(v)}
-              />
-              <StatCard
-                label="Ganancia Total"
-                value={parseFloat(summary.totalProfit)}
-                prevValue={parseFloat(prevSummary.totalProfit)}
-                format={(v) => formatMoney(v)}
-              />
-            </div>
-          </section>
-
-          {/* ── Sección 2: Top productos ─────────────────────────────────── */}
-          <section className="stats-section">
-            <h2 className="stats-section__title">Productos</h2>
-            <div className="stats-tables-row">
-
-              <div className="stats-table-container">
-                <h3>Más vendidos (por unidades)</h3>
-                <table className="stats-table">
-                  <thead>
-                    <tr><th>#</th><th>Producto</th><th>Unidades</th></tr>
-                  </thead>
-                  <tbody>
-                    {topByQty.length === 0
-                      ? <tr><td colSpan={3} className="stats-empty">Sin datos</td></tr>
-                      : topByQty.map((p, i) => (
-                          <tr key={p.productId}>
-                            <td>{i + 1}</td>
-                            <td>{p.productName}</td>
-                            <td>{p.value}</td>
-                          </tr>
-                        ))
-                    }
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="stats-table-container">
-                <h3>Más facturan (por monto)</h3>
-                <table className="stats-table">
-                  <thead>
-                    <tr><th>#</th><th>Producto</th><th>Facturado</th></tr>
-                  </thead>
-                  <tbody>
-                    {topByRev.length === 0
-                      ? <tr><td colSpan={3} className="stats-empty">Sin datos</td></tr>
-                      : topByRev.map((p, i) => (
-                          <tr key={p.productId}>
-                            <td>{i + 1}</td>
-                            <td>{p.productName}</td>
-                            <td>{formatMoney(p.value)}</td>
-                          </tr>
-                        ))
-                    }
-                  </tbody>
-                </table>
-              </div>
-
-            </div>
-          </section>
-
-          {/* ── Sección 3: Análisis temporal ─────────────────────────────── */}
-          <section className="stats-section">
-            <h2 className="stats-section__title">Horarios y días con más ventas</h2>
-            <div className="stats-temporal-tabs">
-              <button
-                className={`stats-temporal-tab${temporalTab === 'hour' ? ' stats-temporal-tab--active' : ''}`}
-                onClick={() => setTemporalTab('hour')}
-              >
-                Por hora
-              </button>
-              <button
-                className={`stats-temporal-tab${temporalTab === 'weekday' ? ' stats-temporal-tab--active' : ''}`}
-                onClick={() => setTemporalTab('weekday')}
-              >
-                Por día de semana
-              </button>
-            </div>
-            <table className="stats-table">
-              <thead>
-                <tr>
-                  <th>{temporalTab === 'hour' ? 'Hora' : 'Día'}</th>
-                  <th>Cantidad de ventas</th>
-                  <th>Total facturado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(temporalTab === 'hour' ? byHour : byWeekday).length === 0
-                  ? <tr><td colSpan={3} className="stats-empty">Sin ventas en el período</td></tr>
-                  : (temporalTab === 'hour' ? byHour : byWeekday).map((row) => (
-                      <tr key={row.label}>
-                        <td>
-                          {temporalTab === 'hour'
-                            ? `${row.label}:00`
-                            : (WEEKDAY_LABELS[row.label] ?? row.label)
-                          }
-                        </td>
-                        <td>{row.saleCount}</td>
-                        <td>{formatMoney(row.totalRevenue)}</td>
-                      </tr>
-                    ))
-                }
-              </tbody>
-            </table>
-          </section>
-
-          {/* ── Sección 4: Baja rotación ─────────────────────────────────── */}
-          <section className="stats-section">
-            <h2 className="stats-section__title">Productos con menor rotación</h2>
-            <table className="stats-table">
-              <thead>
-                <tr>
-                  <th>Producto</th>
-                  <th>Unidades vendidas en el período</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lowRot.length === 0
-                  ? <tr><td colSpan={2} className="stats-empty">Sin datos</td></tr>
-                  : lowRot.map((p) => (
-                      <tr key={p.productId}>
-                        <td>{p.productName}</td>
-                        <td>{p.totalQuantity}</td>
-                      </tr>
-                    ))
-                }
-              </tbody>
-            </table>
-          </section>
+          <div className="ig-kpi-grid">
+            {[0, 1, 2, 3].map((i) => (
+              <TableSkeleton key={i} rows={2} cols={1} label="Calculando…" />
+            ))}
+          </div>
+          <div className="ig-grid-2">
+            {[0, 1, 2, 3].map((i) => (
+              <TableSkeleton key={i} rows={5} cols={3} label="Calculando…" />
+            ))}
+          </div>
         </>
       )}
 
-      </div>
-    </div>
+      {hasData && summary && prevSummary && (
+        <>
+          <div className="ig-kpi-grid">
+            <StatCard
+              label="Ventas totales"
+              icon={Banknote}
+              value={formatMoney(summary.totalRevenue)}
+              deltaPct={delta(summary.totalRevenue, prevSummary.totalRevenue)}
+              comparedTo={comparedTo}
+              empty={noSales}
+            />
+            <StatCard
+              label="Cantidad de ventas"
+              icon={Receipt}
+              value={formatInt(summary.saleCount)}
+              deltaPct={calcPctChange(summary.saleCount, prevSummary.saleCount)}
+              comparedTo={comparedTo}
+              empty={noSales}
+            />
+            <StatCard
+              label="Ticket promedio"
+              icon={ShoppingBasket}
+              value={formatMoney(summary.averageTicket)}
+              deltaPct={delta(summary.averageTicket, prevSummary.averageTicket)}
+              comparedTo={comparedTo}
+              empty={noSales}
+            />
+            <StatCard
+              label="Ganancia total"
+              icon={PiggyBank}
+              value={formatMoney(summary.totalProfit)}
+              deltaPct={delta(summary.totalProfit, prevSummary.totalProfit)}
+              comparedTo={comparedTo}
+              empty={noSales}
+            />
+          </div>
+
+          <div className="ig-grid-2">
+            <section className="ig-card">
+              <div className="ig-card-head">
+                <h3>Productos más vendidos</h3>
+                <span className="ig-help">top 5 · unidades</span>
+              </div>
+              <div className="ig-card-body">
+                <RankingList
+                  items={topByQty.map((p) => ({ id: p.productId, name: p.productName, value: Number(p.value) }))}
+                  format={(v) => `${formatInt(v)} u.`}
+                  onSelect={openMovements}
+                />
+              </div>
+            </section>
+
+            <section className="ig-card">
+              <div className="ig-card-head">
+                <h3>Productos que más facturan</h3>
+                <span className="ig-help">top 5 · monto</span>
+              </div>
+              <div className="ig-card-body">
+                <RankingList
+                  items={topByRev.map((p) => ({ id: p.productId, name: p.productName, value: Number(p.value) }))}
+                  format={formatMoney}
+                  onSelect={openMovements}
+                />
+              </div>
+            </section>
+
+            <section className="ig-card">
+              <div className="ig-card-head">
+                <h3>Cuándo se vende más</h3>
+                <Segmented<'hour' | 'weekday'>
+                  ariaLabel="Agrupar ventas"
+                  options={[
+                    { value: 'hour', label: 'Por hora' },
+                    { value: 'weekday', label: 'Por día de semana' }
+                  ]}
+                  value={temporalTab}
+                  onChange={setTemporalTab}
+                />
+              </div>
+              {temporalRows.length === 0 ? (
+                <EmptyState icon={ChartColumn} title="Sin ventas en este período" />
+              ) : (
+                <table className="ig-table">
+                  <thead>
+                    <tr>
+                      <th>Franja</th>
+                      <th>Ventas</th>
+                      <th className="r">Tickets</th>
+                      <th className="r">Monto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {temporalRows.map((row, i) => (
+                      <tr key={row.label}>
+                        <td className="name">
+                          {temporalTab === 'hour' ? HOUR_LABEL(row.label) : (WEEKDAY_LABELS[row.label] ?? row.label)}
+                        </td>
+                        <td style={{ width: '40%' }}>
+                          <div className="ig-bar">
+                            <i
+                              className={i === peak ? 'is-peak' : undefined}
+                              style={{ width: `${temporalMax > 0 ? (row.saleCount / temporalMax) * 100 : 0}%` }}
+                            />
+                          </div>
+                        </td>
+                        <td className="r">{formatInt(row.saleCount)}</td>
+                        <td className="r">{formatMoney(row.totalRevenue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </section>
+
+            <section className="ig-card">
+              <div className="ig-card-head">
+                <h3>Menor rotación</h3>
+                <span className="ig-help">10 menos vendidos</span>
+              </div>
+              {lowRot.length === 0 ? (
+                <EmptyState icon={ChartColumn} title="Sin ventas en este período" />
+              ) : (
+                <>
+                  <table className="ig-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Producto</th>
+                        <th className="r">Vendidos</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lowVisible.map((p, i) => (
+                        <tr key={p.productId}>
+                          <td className="code">{i + 1}</td>
+                          <td className="name">
+                            <button
+                              type="button"
+                              className="ig-link"
+                              style={{ textDecoration: 'none', color: 'var(--ink)', textAlign: 'left', fontWeight: 600 }}
+                              onClick={() => openMovements(p.productId, p.productName)}
+                            >
+                              {p.productName}
+                            </button>
+                          </td>
+                          <td className="r">{formatInt(p.totalQuantity)} u.</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {lowRot.length > LOW_COLLAPSED && (
+                    <div className="ig-table-foot">
+                      <span />
+                      <Button size="sm" variant="ghost" onClick={() => setShowAllLow((v) => !v)}>
+                        {showAllLow ? 'Ver menos' : `Ver los ${lowRot.length}`}
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
+          </div>
+        </>
+      )}
+    </main>
   )
 }

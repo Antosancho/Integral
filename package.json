@@ -36,10 +36,11 @@
     "test:testdb-helper": "npx ts-node backend/__tests__/testDb-helper.test.ts",
     "test:repo-hygiene": "npx ts-node backend/__tests__/repo-hygiene.test.ts",
     "test:integration-isolation": "npx ts-node backend/__tests__/integration-isolation.test.ts",
-    "test:backend": "npm run test:testdb-helper && npm run test:db-path-config && npm run test:schema-db-sync && npm run test:saleService-create && npm run test:wipe-script && npm run test:repo-hygiene && npm run test:integration-isolation && npm run test:migrator && npm run test:runtime-paths && npm run test:packaging-config && npm run test:license",
+    "test:backend": "npm run test:testdb-helper && npm run test:db-path-config && npm run test:schema-db-sync && npm run test:saleService-create && npm run test:wipe-script && npm run test:repo-hygiene && npm run test:integration-isolation && npm run test:migrator && npm run test:runtime-paths && npm run test:packaging-config && npm run test:license && npm run test:stats-repository",
     "test:migrator": "npx ts-node backend/__tests__/migrator.test.ts",
     "test:runtime-paths": "npx ts-node backend/__tests__/runtime-paths.test.ts",
-    "test:license": "npx ts-node backend/__tests__/license.test.ts"
+    "test:license": "npx ts-node backend/__tests__/license.test.ts",
+    "test:stats-repository": "npx ts-node backend/__tests__/statsRepository.test.ts"
   },
   "keywords": [],
   "author": "Antosancho",

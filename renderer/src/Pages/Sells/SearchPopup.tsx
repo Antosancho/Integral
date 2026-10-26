@@ -1,24 +1,46 @@
 import { useEffect, useRef, useState } from 'react'
+import { ArrowDown, Search, TriangleAlert } from 'lucide-react'
 import LotsList from '../../Components/LotsList/LotsList'
 import type { ProductFromApi, StockMovementFromApi } from '../../electron-api'
+import { Badge } from '../../ui/Badge'
+import { InlineAlert } from '../../ui/InlineAlert'
+import { Modal } from '../../ui/Modal'
+import { ShortcutBar } from '../../ui/ShortcutBar'
+import { TableSkeleton } from '../../ui/TableSkeleton'
+import { useDelayedFlag } from '../../ui/useDelayedFlag'
+import { scrollIntoViewSafe } from '../../utils/dom'
+import { formatInt } from '../../utils/format'
 import { groupLotsByProduct } from '../../utils/lots'
+import { hasValidSalePrice, stockTone } from '../../utils/stock'
+import { splitMatch } from '../../utils/text'
 import { searchProducts } from './searchProducts'
-import './SearchPopup.css'
 
 type Props = {
   open: boolean
   onClose: () => void
   onSelect: (product: ProductFromApi) => void
+  /** Permite agregar con Enter aunque la búsqueda sea solo dígitos (Stock). En Ventas queda en false. */
   allowNumericEnter?: boolean
+  /** Agrega la columna de vencimientos de lotes (Stock). */
   showExpiry?: boolean
+  /** Ventas: marca con "Sin precio" los productos que no se pueden vender por no tener precio cargado. */
+  warnMissingPrice?: boolean
 }
 
+/**
+ * Buscador de productos (F2), compartido por Ventas y Stock. Busca por nombre y por código de barras a la vez.
+ *
+ * Regla del escáner: en Ventas, con una búsqueda de solo dígitos (típico del lector) Enter NO agrega
+ * al carrito — el producto queda listado y se elige con click —, para que el Enter que manda el
+ * lector al final del código no agregue algo que solo se estaba buscando.
+ */
 export default function SearchPopup({
   open,
   onClose,
   onSelect,
   allowNumericEnter = false,
-  showExpiry = false
+  showExpiry = false,
+  warnMissingPrice = false
 }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ProductFromApi[]>([])
@@ -27,13 +49,7 @@ export default function SearchPopup({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-
-  // Focus al abrir
-  useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 0)
-    }
-  }, [open])
+  const showSkeleton = useDelayedFlag(loading)
 
   // Limpiar al cerrar
   useEffect(() => {
@@ -43,11 +59,13 @@ export default function SearchPopup({
       setLotsByProduct(new Map())
       setSelectedIndex(0)
       setError(null)
+      setLoading(false)
     }
   }, [open])
 
   // Búsqueda con debounce
   useEffect(() => {
+    if (!open) return
     let cancelled = false
     const timer = setTimeout(async () => {
       setLoading(true)
@@ -68,9 +86,9 @@ export default function SearchPopup({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [query])
+  }, [query, open])
 
-  // Carga los lotes visibles solo cuando la columna de vencimientos esta activa.
+  // Carga los lotes visibles solo cuando la columna de vencimientos está activa.
   useEffect(() => {
     let cancelled = false
 
@@ -95,15 +113,20 @@ export default function SearchPopup({
     }
   }, [showExpiry, results])
 
+  function moveSelection(next: number) {
+    setSelectedIndex(next)
+    scrollIntoViewSafe(document.getElementById(`search-popup-row-${next}`))
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
-        setSelectedIndex(i => Math.min(i + 1, results.length - 1))
+        moveSelection(Math.min(selectedIndex + 1, results.length - 1))
         break
       case 'ArrowUp':
         e.preventDefault()
-        setSelectedIndex(i => Math.max(i - 1, 0))
+        moveSelection(Math.max(selectedIndex - 1, 0))
         break
       case 'Enter':
         if (!allowNumericEnter && /^\d+$/.test(query.trim())) break
@@ -112,61 +135,130 @@ export default function SearchPopup({
           onClose()
         }
         break
-      case 'Escape':
-        onClose()
-        break
+      // Escape lo maneja Modal.
     }
   }
 
-  if (!open) return null
+  const trimmed = query.trim()
+  const showNumericHint = !allowNumericEnter && /^\d+$/.test(trimmed)
+  const noResults = trimmed !== '' && !loading && !error && results.length === 0
+  const columnCount = showExpiry ? 4 : 3
 
   return (
-    <div
-      className="search-popup__overlay"
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    <Modal
+      open={open}
+      title="Buscar producto"
+      subtitle="Por nombre o por código de barras."
+      size="lg"
+      closeOnOverlay
+      onClose={onClose}
+      initialFocusRef={inputRef}
+      headerExtra={<ShortcutBar items={[{ keys: ['F2'], label: 'cierra' }]} />}
+      shortcuts={[
+        { keys: ['↑', '↓'], label: 'Elegir' },
+        { keys: ['Enter'], label: allowNumericEnter ? 'Abrir' : 'Agregar al carrito' },
+        { keys: ['Esc'], label: 'Cerrar' }
+      ]}
     >
-      <div className={`search-popup__container${showExpiry ? ' search-popup__container--with-expiry' : ''}`}>
-        <h2>Buscador</h2>
-        <input
-          ref={inputRef}
-          type="text"
-          placeholder="Buscar por nombre o código..."
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-        />
-        {loading && <p>Buscando...</p>}
-        {error && <p className="search-popup__error">{error}</p>}
-        <table>
-          <thead>
-            <tr>
-              <th>Código de barras</th>
-              <th>Nombre</th>
-              <th>Stock</th>
-              {showExpiry && <th className="search-popup__col-expiry">Vencimientos</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {results.map((product, i) => (
-              <tr
-                key={product.id}
-                className={i === selectedIndex ? 'search-popup__row--selected' : ''}
-                onClick={() => { onSelect(product); onClose() }}
-                onMouseEnter={() => setSelectedIndex(i)}
-              >
-                <td>{product.barcode === null ? '-' : product.barcode.toString()}</td>
-                <td>{product.name}</td>
-                <td>{product.stock}</td>
-                {showExpiry && (
-                  <td className="search-popup__col-expiry">
-                    <LotsList lots={lotsByProduct.get(product.id) ?? []} />
-                  </td>
+      <div style={{ display: 'grid', gap: 12 }}>
+        <div className="ig-input-wrap">
+          <Search size={18} strokeWidth={2} aria-hidden="true" className="ig-icon" />
+          <input
+            ref={inputRef}
+            type="text"
+            className="ig-input ig-input-lg"
+            aria-label="Buscar producto"
+            placeholder="Buscá por nombre o código de barras"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+        </div>
+
+        {error && <InlineAlert tone="danger" title="No pudimos buscar. Probá de nuevo.">{error}</InlineAlert>}
+
+        {showSkeleton && results.length === 0 && <TableSkeleton rows={3} cols={columnCount} label="Buscando…" />}
+
+        {(results.length > 0 || noResults) && (
+          <div className="ig-table-wrap" style={{ boxShadow: 'none' }}>
+            <table className="ig-table">
+              <thead>
+                <tr>
+                  <th>Código de barras</th>
+                  <th>Nombre</th>
+                  <th className="r">Stock</th>
+                  {showExpiry && <th>Vencimientos</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {noResults && (
+                  <tr>
+                    <td colSpan={columnCount} className="c ig-muted">
+                      No encontramos «{trimmed}»
+                    </td>
+                  </tr>
                 )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                {results.map((product, i) => {
+                  const tone = stockTone(product)
+                  return (
+                    // El teclado se maneja en el input de búsqueda (↑/↓/Enter); la fila solo acepta click.
+                    <tr
+                      key={product.id}
+                      id={`search-popup-row-${i}`}
+                      className={i === selectedIndex ? 'is-selected' : undefined}
+                      onClick={() => {
+                        onSelect(product)
+                        onClose()
+                      }}
+                      onMouseEnter={() => setSelectedIndex(i)}
+                    >
+                      <td className="code">{product.barcode === null ? '—' : product.barcode.toString()}</td>
+                      <td className="name">
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          <span>
+                            {splitMatch(product.name, query).map((part, k) =>
+                              part.match ? <b key={k}>{part.text}</b> : part.text
+                            )}
+                          </span>
+                          {warnMissingPrice && !hasValidSalePrice(product) && <Badge tone="danger">Sin precio</Badge>}
+                        </span>
+                      </td>
+                      {tone === 'negative' ? (
+                        <td className="r is-negative">
+                          <span className="ig-stock">
+                            <TriangleAlert size={16} strokeWidth={2} aria-hidden="true" className="ig-icon ig-icon-sm" />
+                            {formatInt(product.stock)}
+                          </span>
+                        </td>
+                      ) : tone === 'low' ? (
+                        <td className="r is-low">
+                          <span className="ig-stock">
+                            <ArrowDown size={16} strokeWidth={2} aria-hidden="true" className="ig-icon ig-icon-sm" />
+                            {formatInt(product.stock)}
+                          </span>
+                        </td>
+                      ) : (
+                        <td className="r">{formatInt(product.stock)}</td>
+                      )}
+                      {showExpiry && (
+                        <td>
+                          <LotsList lots={lotsByProduct.get(product.id) ?? []} />
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {showNumericHint && (
+          <InlineAlert tone="info">
+            Si buscás solo números se busca el código exacto: hacé click en el producto para agregarlo.
+          </InlineAlert>
+        )}
       </div>
-    </div>
+    </Modal>
   )
 }
